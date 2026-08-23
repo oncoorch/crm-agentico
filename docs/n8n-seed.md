@@ -6,6 +6,7 @@ El stack importa workflows y credenciales en n8n mediante el servicio `n8n_seed`
 
 - `n8n-seed/workflows/`: 203 workflows renombrados como `name_hostname`.
 - `scripts/n8n_seed_import.sh`: importador ejecutado por el servicio `n8n_seed`.
+- `scripts/n8n_seed_resolve_project.js`: detecta automaticamente el proyecto `Personal` de n8n si `N8N_SEED_PROJECT_ID` esta vacio.
 - `scripts/n8n_seed_assign_folders.js`: crea carpetas por VPS y asigna workflows por sufijo.
 - `scripts/build_n8n_seed_credentials_bundle.py`: generador local del paquete secreto de credenciales.
 
@@ -45,12 +46,12 @@ Ese contenido debe pegarse en Dokploy como variable de entorno del servicio Comp
 | Variable | Uso |
 |---|---|
 | `N8N_SEED_CREDENTIALS_TGZ_B64` | Credenciales n8n comprimidas/base64 |
-| `N8N_SEED_PROJECT_ID` | Proyecto n8n destino; para el n8n actual es `Wxcc72mwXx2dIsJU` |
+| `N8N_SEED_PROJECT_ID` | Proyecto n8n destino; opcional porque el seed intenta detectar el proyecto `Personal` |
 | `N8N_SEED_IMPORT_CREDENTIALS` | `true` para importar credenciales |
 | `N8N_SEED_IMPORT_WORKFLOWS` | `true` para importar workflows |
 | `N8N_SEED_ASSIGN_FOLDERS` | `true` para crear/asignar carpetas por VPS |
 
-Si `N8N_SEED_PROJECT_ID` queda vacio, n8n usa el comportamiento por defecto del CLI. Para mantener todo dentro del proyecto `Personal`, usa el ID del proyecto visible en la URL de n8n.
+Si `N8N_SEED_PROJECT_ID` queda vacio, el seed intenta consultar la base de datos de n8n y usar el primer proyecto `Personal`. Para forzar un proyecto especifico, usa el ID visible en la URL de n8n.
 
 ## Flujo en Dokploy
 

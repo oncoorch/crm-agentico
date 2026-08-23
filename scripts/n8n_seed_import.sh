@@ -19,6 +19,26 @@ project_arg() {
   fi
 }
 
+resolve_project_id() {
+  if [ -n "$PROJECT_ID" ]; then
+    return 0
+  fi
+
+  if [ ! -f "${N8N_SEED_RESOLVE_PROJECT_SCRIPT:-/usr/local/bin/n8n_seed_resolve_project.js}" ]; then
+    return 0
+  fi
+
+  export NODE_PATH="${NODE_PATH:-/usr/local/lib/node_modules/n8n/node_modules}"
+  resolved="$(node "${N8N_SEED_RESOLVE_PROJECT_SCRIPT:-/usr/local/bin/n8n_seed_resolve_project.js}" 2>/dev/null || true)"
+  if [ -n "$resolved" ]; then
+    PROJECT_ID="$resolved"
+    export N8N_SEED_PROJECT_ID="$PROJECT_ID"
+    log "resolved n8n project id: $PROJECT_ID"
+  else
+    log "could not resolve n8n project id; using n8n CLI default project behavior"
+  fi
+}
+
 wait_for_db() {
   tries="${N8N_SEED_DB_WAIT_TRIES:-60}"
   i=1
@@ -120,6 +140,7 @@ assign_folders() {
 }
 
 wait_for_db
+resolve_project_id
 import_credentials
 import_workflows
 assign_folders

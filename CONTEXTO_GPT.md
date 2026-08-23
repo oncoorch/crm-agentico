@@ -31,6 +31,8 @@ Este archivo permite continuar el trabajo en otra conversacion.
 - `scripts/install_maintenance_cron.sh`: instala cron para sync/branding.
 - `scripts/n8n_export_backup.sh`: exporta workflows y credenciales n8n a una carpeta privada local del servidor.
 - `scripts/n8n_seed_import.sh`: corre dentro del servicio `n8n_seed` para importar workflows/credenciales en cada despliegue.
+- `scripts/n8n_seed_resolve_project.js`: detecta automaticamente el proyecto Personal de n8n.
+- `scripts/n8n_seed_assign_folders.js`: crea/asigna carpetas por VPS.
 - `scripts/build_n8n_seed_credentials_bundle.py`: genera localmente `private/n8n-seed/N8N_SEED_CREDENTIALS_TGZ_B64.txt`.
 
 ## Manuales
@@ -44,7 +46,7 @@ Este archivo permite continuar el trabajo en otra conversacion.
 
 - `n8n-seed/workflows/`: 203 workflows renombrados como `name_hostname`.
 - Las credenciales reales no se suben a GitHub; se pasan por la variable secreta `N8N_SEED_CREDENTIALS_TGZ_B64`.
-- Para el n8n actual de `automation-crm.oncoorch.com`, el proyecto Personal observado es `Wxcc72mwXx2dIsJU`; usarlo en `N8N_SEED_PROJECT_ID`.
+- Para el n8n actual de `automation-crm.oncoorch.com`, el proyecto Personal observado es `Wxcc72mwXx2dIsJU`; el seed puede autodetectarlo si `N8N_SEED_PROJECT_ID` esta vacio.
 
 ## Linea de seguridad
 

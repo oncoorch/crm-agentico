@@ -211,6 +211,7 @@ services:
     volumes:
       - ./n8n-seed:/opt/n8n-seed:ro
       - ./scripts/n8n_seed_import.sh:/usr/local/bin/n8n_seed_import.sh:ro
+      - ./scripts/n8n_seed_resolve_project.js:/usr/local/bin/n8n_seed_resolve_project.js:ro
       - ./scripts/n8n_seed_assign_folders.js:/usr/local/bin/n8n_seed_assign_folders.js:ro
       - n8n_data:/home/node/.n8n
     logging: *default-logging
