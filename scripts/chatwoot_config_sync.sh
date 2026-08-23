@@ -46,9 +46,9 @@ config_sql() {
   escaped="$(sql_escape_yaml_value "$value")"
   cat <<SQL
 UPDATE public.installation_configs
-SET serialized_value = '"--- !ruby/hash:ActiveSupport::HashWithIndifferentAccess
+SET serialized_value = to_json('--- !ruby/hash:ActiveSupport::HashWithIndifferentAccess
 value: ${escaped}
-"'
+'::text)
 WHERE name = '${name}';
 SQL
 }
