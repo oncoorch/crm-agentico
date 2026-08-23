@@ -26,6 +26,7 @@ Este archivo permite continuar el trabajo en otra conversacion.
 
 ## Scripts agregados
 
+- `docker/chatwoot/Dockerfile`: construye la imagen marcada `CRM-Komodo` desde `CHATWOOT_IMAGE`, copiando assets y parcheando el login de SuperAdmin durante build.
 - `scripts/chatwoot_config_sync.sh`: sincroniza nombre, URLs y configuraciones publicas autorizadas de Chatwoot.
 - `scripts/chatwoot_branding_assets.sh`: copia assets de marca autorizados al contenedor Chatwoot.
 - `scripts/install_maintenance_cron.sh`: instala cron para sync/branding.
@@ -59,7 +60,7 @@ Este archivo permite continuar el trabajo en otra conversacion.
 ## Linea de seguridad
 
 - No guardar `.env` reales ni backups privados en GitHub.
-- Usar `CHATWOOT_IMAGE` para imagen autorizada/custom.
+- Usar `CHATWOOT_IMAGE` para imagen base autorizada/custom. El compose construye `CHATWOOT_RUNTIME_IMAGE` con branding y login parcheado.
 - Scripts de branding/config sync son parametrizables y no modifican plan/licencia.
 
 ## Siguiente paso natural

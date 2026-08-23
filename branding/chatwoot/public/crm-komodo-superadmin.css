@@ -1,0 +1,66 @@
+:root {
+  --crm-bg: #061321;
+  --crm-panel: rgba(5, 17, 31, 0.82);
+  --crm-panel-border: rgba(95, 182, 255, 0.34);
+  --crm-text: #eef4fb;
+  --crm-muted: #9db3cc;
+  --crm-primary: #2167f3;
+  --crm-primary-hover: #438bff;
+}
+
+html,
+body {
+  min-height: 100%;
+  background: var(--crm-bg) !important;
+}
+
+body main {
+  min-height: 100vh !important;
+  background:
+    linear-gradient(90deg, rgba(2, 9, 18, 0.3), rgba(2, 9, 18, 0.86)),
+    url("/oncoorch-login-bg.jpg") center / cover no-repeat !important;
+  color: var(--crm-text) !important;
+}
+
+body main > section:first-child img {
+  height: 72px !important;
+  max-width: 330px !important;
+  object-fit: contain !important;
+  filter: drop-shadow(0 18px 32px rgba(0, 0, 0, 0.32));
+}
+
+body main > section:first-child h2 {
+  color: var(--crm-text) !important;
+  font-weight: 800 !important;
+  letter-spacing: 0 !important;
+  text-shadow: 0 10px 36px rgba(0, 0, 0, 0.52);
+}
+
+body main > section:nth-child(2) {
+  background: var(--crm-panel) !important;
+  border: 1px solid var(--crm-panel-border) !important;
+  border-radius: 20px !important;
+  box-shadow: 0 26px 80px rgba(0, 0, 0, 0.44) !important;
+  backdrop-filter: blur(14px);
+}
+
+body main label {
+  color: var(--crm-text) !important;
+}
+
+body main input {
+  background: rgba(4, 14, 27, 0.88) !important;
+  border: 1px solid rgba(95, 182, 255, 0.36) !important;
+  color: var(--crm-text) !important;
+  box-shadow: none !important;
+}
+
+body main input::placeholder {
+  color: var(--crm-muted) !important;
+}
+
+body main button[type="submit"] {
+  background: linear-gradient(135deg, var(--crm-primary), var(--crm-primary-hover)) !important;
+  border-radius: 10px !important;
+  font-weight: 800 !important;
+}

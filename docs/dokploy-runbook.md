@@ -55,8 +55,13 @@ MCP_SHARED_SECRET
 Si se usa imagen custom autorizada:
 
 ```text
-CHATWOOT_IMAGE=omnicem/chatwoot:reports-c0b1b1c3e
+CHATWOOT_IMAGE=chatwoot/chatwoot:v4.6.0
+CHATWOOT_RUNTIME_IMAGE=crm-agentico-chatwoot:latest
 ```
+
+`CHATWOOT_IMAGE` es la imagen base. Si tienes una imagen entregada por el
+proveedor/licencia, reemplazala ahi. `CHATWOOT_RUNTIME_IMAGE` es la imagen final
+que Dokploy construye desde este repositorio con branding y login parcheado.
 
 Evolution API:
 
@@ -87,6 +92,21 @@ n8n_redis
 evolution_postgres
 evolution_redis
 ```
+
+## Variables en Dokploy
+
+Coloca las variables en el `Environment` del recurso Docker Compose. Dokploy
+crea el `.env` del deploy y Compose las lee con `${VARIABLE}`.
+
+La variable de credenciales n8n debe ir en una sola linea:
+
+```text
+N8N_SEED_CREDENTIALS_TGZ_B64=<contenido completo de private/n8n-seed/N8N_SEED_CREDENTIALS_TGZ_B64.txt>
+```
+
+Si ya esta en el `Environment` del recurso, no hace falta duplicarla en
+`Project Environment`. Usa `Project Environment` solo para variables compartidas
+por varias aplicaciones y referencialas desde el recurso.
 
 ## 5. Smoke tests
 

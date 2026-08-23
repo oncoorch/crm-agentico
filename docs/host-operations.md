@@ -65,7 +65,9 @@ Wrapper corto:
 
 ## `chatwoot_branding_assets.sh`
 
-Aplica imagenes desde `/opt/crm_branding` al contenedor Chatwoot:
+Aplica imagenes desde `/opt/crm_branding` al contenedor Chatwoot. Tambien
+aplica el parche visual de SuperAdmin: fondo de login, favicon, saludo y textos
+basicos de acceso.
 
 ```bash
 sudo mkdir -p /opt/crm_branding
@@ -77,6 +79,17 @@ Wrapper corto:
 
 ```bash
 /opt/crm-agentico/bin/crm-komodo-branding-apply
+```
+
+## `chatwoot_superadmin_ui_patch.sh`
+
+Parche posdeploy para la interfaz Rails de SuperAdmin. Normalmente se ejecuta
+desde `chatwoot_branding_assets.sh`; usalo directamente solo si quieres reaplicar
+el login sin volver a copiar imagenes.
+
+```bash
+cd /opt/crm-agentico
+scripts/chatwoot_superadmin_ui_patch.sh
 ```
 
 ## Respaldo diario de workflows n8n hacia GitHub

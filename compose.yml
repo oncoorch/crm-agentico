@@ -37,6 +37,14 @@ x-chatwoot-env: &chatwoot-env
   INSTAGRAM_APP_SECRET: ${INSTAGRAM_APP_SECRET:-}
   INSTAGRAM_VERIFY_TOKEN: ${INSTAGRAM_VERIFY_TOKEN:-}
 
+x-chatwoot-image: &chatwoot-image
+  image: ${CHATWOOT_RUNTIME_IMAGE:-crm-agentico-chatwoot:latest}
+  build:
+    context: .
+    dockerfile: docker/chatwoot/Dockerfile
+    args:
+      CHATWOOT_BASE_IMAGE: ${CHATWOOT_IMAGE:-chatwoot/chatwoot:v4.6.0}
+
 services:
   chatwoot_postgres:
     image: pgvector/pgvector:pg15
@@ -73,7 +81,7 @@ services:
     networks: [internal]
 
   chatwoot:
-    image: ${CHATWOOT_IMAGE:-chatwoot/chatwoot:v4.6.0}
+    <<: *chatwoot-image
     restart: unless-stopped
     init: true
     depends_on:
@@ -96,7 +104,7 @@ services:
     networks: [internal, dokploy-network]
 
   chatwoot_sidekiq:
-    image: ${CHATWOOT_IMAGE:-chatwoot/chatwoot:v4.6.0}
+    <<: *chatwoot-image
     restart: unless-stopped
     init: true
     depends_on:

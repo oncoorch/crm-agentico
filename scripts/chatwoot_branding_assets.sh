@@ -29,3 +29,8 @@ docker exec "$APP_CONTAINER" sh -c "mkdir -p '$TARGET_DIR'"
 docker cp "$SOURCE_DIR/." "$APP_CONTAINER:$TARGET_DIR/"
 docker exec "$APP_CONTAINER" sh -c "cp -r '$TARGET_DIR'/. /app/public/ 2>/dev/null || true"
 log "Branding assets applied"
+
+PATCH_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/chatwoot_superadmin_ui_patch.sh"
+if [ -x "$PATCH_SCRIPT" ]; then
+  CHATWOOT_APP_CONTAINER="$APP_CONTAINER" "$PATCH_SCRIPT"
+fi

@@ -75,7 +75,8 @@ Todas las llamadas al bridge deben enviar el header `x-crm-secret` con el valor 
 Este repositorio incluye scripts para operar VPS nuevos con la misma base madura observada en los laboratorios:
 
 - `scripts/chatwoot_config_sync.sh`: sincroniza nombre publico, URLs y parametros visibles de Chatwoot desde variables de entorno.
-- `scripts/chatwoot_branding_assets.sh`: aplica imagenes e iconos autorizados desde `branding/chatwoot/public`.
+- `docker/chatwoot/Dockerfile`: construye la imagen `CRM-Komodo` desde la imagen base de Chatwoot, copiando branding y parcheando el login de SuperAdmin durante el build.
+- `scripts/chatwoot_branding_assets.sh`: aplica imagenes e iconos autorizados desde `branding/chatwoot/public` al VPS actual.
 - `scripts/install_maintenance_cron.sh`: instala las tareas periodicas en el servidor.
 - `scripts/n8n_export_backup.sh`: exporta workflows y credenciales de n8n a `private/n8n-backups`.
 - `scripts/n8n_seed_import.sh`: importa automaticamente workflows y credenciales semilla en n8n durante el despliegue.
@@ -105,7 +106,7 @@ Los respaldos y secretos reales deben quedar bajo `private/`, que esta excluida 
 
 ## Politica de licencia y marca
 
-Este repo evita automatizar desbloqueos, bypasses de licencia o reemplazos de marca no verificables. Si se usa una imagen custom de Chatwoot entregada por el proveedor o construida bajo licencia, configurala con `CHATWOOT_IMAGE`.
+Este repo evita automatizar desbloqueos, bypasses de licencia o reemplazos de marca no verificables. Si se usa una imagen custom de Chatwoot entregada por el proveedor o construida bajo licencia, configurala como `CHATWOOT_IMAGE`; el runtime final se construye como `CHATWOOT_RUNTIME_IMAGE`.
 
 Evolution API usa por defecto `EVOLUTION_IMAGE=evoapicloud/evolution-api:v2.2.3`, reemplazando la ruta historica `atendai/evolution-api:v2.2.3`.
 
