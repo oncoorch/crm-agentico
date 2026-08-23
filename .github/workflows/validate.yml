@@ -1,0 +1,15 @@
+name: validate
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate env example
+        run: python3 scripts/check-env-example.py
+      - name: Render compose
+        run: docker compose --env-file .env.example -f compose.yml config >/tmp/compose.yml

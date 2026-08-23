@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+keys/
+data/
+backups/
+.DS_Store
+__pycache__/
+.pytest_cache/

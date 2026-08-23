@@ -1,0 +1,300 @@
+name: crm-agentico
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "3"
+
+x-chatwoot-env: &chatwoot-env
+  NODE_ENV: production
+  RAILS_ENV: production
+  INSTALLATION_ENV: docker
+  RAILS_LOG_TO_STDOUT: "true"
+  RAILS_SERVE_STATIC_FILES: "true"
+  TZ: ${TZ:-America/Guayaquil}
+  POSTGRES_HOST: chatwoot_postgres
+  POSTGRES_USERNAME: chatwoot
+  POSTGRES_PASSWORD: ${CHATWOOT_POSTGRES_PASSWORD:?Set CHATWOOT_POSTGRES_PASSWORD}
+  POSTGRES_DATABASE: chatwoot_production
+  REDIS_URL: redis://:${CHATWOOT_REDIS_PASSWORD:?Set CHATWOOT_REDIS_PASSWORD}@chatwoot_redis:6379
+  SECRET_KEY_BASE: ${CHATWOOT_SECRET_KEY_BASE:?Set CHATWOOT_SECRET_KEY_BASE}
+  FRONTEND_URL: ${CRM_PUBLIC_URL:?Set CRM_PUBLIC_URL}
+  APP_URL: ${CRM_PUBLIC_URL:?Set CRM_PUBLIC_URL}
+  CHATWOOT_HUB_URL: ${CRM_PUBLIC_URL:?Set CRM_PUBLIC_URL}/app/#
+  DEFAULT_URL: ${CRM_PUBLIC_URL:?Set CRM_PUBLIC_URL}
+  ENABLE_AGENT_API: ${CHATWOOT_ENABLE_AGENT_API:-true}
+  ALLOW_AGENT_API_TOKENS: ${CHATWOOT_ALLOW_AGENT_API_TOKENS:-true}
+  ENABLE_AGENT_SIGNUP: ${CHATWOOT_ENABLE_AGENT_SIGNUP:-false}
+  ENABLE_INBOX_APPROVAL: ${CHATWOOT_ENABLE_INBOX_APPROVAL:-false}
+  RAILS_MAX_THREADS: ${CHATWOOT_RAILS_MAX_THREADS:-5}
+  SIDEKIQ_CONCURRENCY: ${CHATWOOT_SIDEKIQ_CONCURRENCY:-10}
+  FACEBOOK_APP_ID: ${FACEBOOK_APP_ID:-}
+  FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
+  FACEBOOK_VERIFY_TOKEN: ${FACEBOOK_VERIFY_TOKEN:-}
+  FACEBOOK_API_VERSION: ${FACEBOOK_API_VERSION:-v24.0}
+  INSTAGRAM_APP_ID: ${INSTAGRAM_APP_ID:-}
+  INSTAGRAM_APP_SECRET: ${INSTAGRAM_APP_SECRET:-}
+  INSTAGRAM_VERIFY_TOKEN: ${INSTAGRAM_VERIFY_TOKEN:-}
+
+services:
+  chatwoot_postgres:
+    image: pgvector/pgvector:pg15
+    restart: unless-stopped
+    shm_size: 256mb
+    environment:
+      POSTGRES_USER: chatwoot
+      POSTGRES_PASSWORD: ${CHATWOOT_POSTGRES_PASSWORD:?Set CHATWOOT_POSTGRES_PASSWORD}
+      POSTGRES_DB: chatwoot_production
+    volumes:
+      - chatwoot_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatwoot -d chatwoot_production"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *default-logging
+    networks: [internal]
+
+  chatwoot_redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["sh", "-c", "exec redis-server --appendonly yes --appendfsync everysec --requirepass \"$${REDIS_PASSWORD}\""]
+    environment:
+      REDIS_PASSWORD: ${CHATWOOT_REDIS_PASSWORD:?Set CHATWOOT_REDIS_PASSWORD}
+    volumes:
+      - chatwoot_redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *default-logging
+    networks: [internal]
+
+  chatwoot:
+    image: ${CHATWOOT_IMAGE:-chatwoot/chatwoot:v4.6.0}
+    restart: unless-stopped
+    init: true
+    depends_on:
+      chatwoot_postgres:
+        condition: service_healthy
+      chatwoot_redis:
+        condition: service_healthy
+    environment: *chatwoot-env
+    command: ["sh", "-c", "bundle exec rails db:prepare && exec bundle exec rails s -b 0.0.0.0 -p 3000"]
+    volumes:
+      - chatwoot_storage:/app/storage
+    expose: ["3000"]
+    healthcheck:
+      test: ["CMD", "ruby", "-rsocket", "-e", "TCPSocket.new('127.0.0.1', 3000).close"]
+      interval: 20s
+      timeout: 5s
+      retries: 12
+      start_period: 90s
+    logging: *default-logging
+    networks: [internal, dokploy-network]
+
+  chatwoot_sidekiq:
+    image: ${CHATWOOT_IMAGE:-chatwoot/chatwoot:v4.6.0}
+    restart: unless-stopped
+    init: true
+    depends_on:
+      chatwoot_postgres:
+        condition: service_healthy
+      chatwoot_redis:
+        condition: service_healthy
+      chatwoot:
+        condition: service_healthy
+    environment: *chatwoot-env
+    command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
+    volumes:
+      - chatwoot_storage:/app/storage
+    logging: *default-logging
+    networks: [internal]
+
+  n8n_postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: n8n
+      POSTGRES_PASSWORD: ${N8N_POSTGRES_PASSWORD:?Set N8N_POSTGRES_PASSWORD}
+      POSTGRES_DB: n8n_production
+    volumes:
+      - n8n_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U n8n -d n8n_production"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *default-logging
+    networks: [internal]
+
+  n8n_redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$${REDIS_PASSWORD}\""]
+    environment:
+      REDIS_PASSWORD: ${N8N_REDIS_PASSWORD:?Set N8N_REDIS_PASSWORD}
+    volumes:
+      - n8n_redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *default-logging
+    networks: [internal]
+
+  n8n:
+    image: n8nio/n8n:1.123.11
+    restart: unless-stopped
+    depends_on:
+      n8n_postgres:
+        condition: service_healthy
+      n8n_redis:
+        condition: service_healthy
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: n8n_postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: n8n_production
+      DB_POSTGRESDB_USER: n8n
+      DB_POSTGRESDB_PASSWORD: ${N8N_POSTGRES_PASSWORD:?Set N8N_POSTGRES_PASSWORD}
+      QUEUE_BULL_REDIS_HOST: n8n_redis
+      QUEUE_BULL_REDIS_PORT: 6379
+      QUEUE_BULL_REDIS_PASSWORD: ${N8N_REDIS_PASSWORD:?Set N8N_REDIS_PASSWORD}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?Set N8N_ENCRYPTION_KEY}
+      N8N_PROTOCOL: https
+      WEBHOOK_URL: ${N8N_PUBLIC_URL:?Set N8N_PUBLIC_URL}/
+      N8N_EDITOR_BASE_URL: ${N8N_PUBLIC_URL:?Set N8N_PUBLIC_URL}
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      N8N_RUNNERS_ENABLED: "true"
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      N8N_GIT_NODE_DISABLE_BARE_REPOS: "true"
+      N8N_BASIC_AUTH_ACTIVE: ${N8N_BASIC_AUTH_ACTIVE:-false}
+      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER:-}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD:-}
+      GENERIC_TIMEZONE: ${TZ:-America/Guayaquil}
+      TZ: ${TZ:-America/Guayaquil}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - n8n_backups:/opt/backups
+    expose: ["5678"]
+    logging: *default-logging
+    networks: [internal, dokploy-network]
+
+  evolution_postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: ${EVOLUTION_POSTGRES_PASSWORD:?Set EVOLUTION_POSTGRES_PASSWORD}
+      POSTGRES_DB: evolutiondb
+    volumes:
+      - evolution_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evolution -d evolutiondb"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *default-logging
+    networks: [internal]
+
+  evolution_redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - evolution_redis_data:/data
+    logging: *default-logging
+    networks: [internal]
+
+  evolution:
+    image: atendai/evolution-api:v2.2.3
+    restart: unless-stopped
+    depends_on:
+      evolution_postgres:
+        condition: service_healthy
+      evolution_redis:
+        condition: service_started
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:?Set EVOLUTION_API_KEY}
+      SERVER_TYPE: http
+      SERVER_URL: ${EVOLUTION_PUBLIC_URL:?Set EVOLUTION_PUBLIC_URL}
+      LOG_LEVEL: INFO
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://evolution:${EVOLUTION_POSTGRES_PASSWORD}@evolution_postgres:5432/evolutiondb
+      DATABASE_CONNECTION_CLIENT_NAME: evolution_exchange
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "true"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+      DATABASE_SAVE_DATA_LABELS: "true"
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: redis://evolution_redis:6379/6
+      CACHE_REDIS_PREFIX_KEY: evolution
+      CACHE_LOCAL_ENABLED: "false"
+      CHATWOOT_ENABLED: "true"
+      OPENAI_ENABLED: "true"
+      LANGUAGE: es
+      TZ: ${TZ:-America/Guayaquil}
+    volumes:
+      - evolution_instances:/evolution/instances
+      - evolution_data:/app/data
+    expose: ["8080"]
+    logging: *default-logging
+    networks: [internal, dokploy-network]
+
+  mcp_agentico:
+    build:
+      context: ./mcp_agentico
+    restart: unless-stopped
+    environment:
+      MCP_SHARED_SECRET: ${MCP_SHARED_SECRET:?Set MCP_SHARED_SECRET}
+      CHATWOOT_BASE_URL: ${CHATWOOT_BASE_URL:-http://chatwoot:3000}
+      CHATWOOT_API_ACCESS_TOKEN: ${CHATWOOT_API_ACCESS_TOKEN:-}
+      CHATWOOT_ACCOUNT_ID: ${CHATWOOT_ACCOUNT_ID:-1}
+      N8N_LEAD_WEBHOOK_URL: ${N8N_LEAD_WEBHOOK_URL:-}
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      SUPABASE_LEADS_TABLE: ${SUPABASE_LEADS_TABLE:-leads}
+    expose: ["8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=5).read()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging: *default-logging
+    networks: [internal, dokploy-network]
+
+  adminer:
+    image: adminer:latest
+    restart: unless-stopped
+    profiles: ["tools"]
+    environment:
+      ADMINER_DEFAULT_SERVER: chatwoot_postgres
+    expose: ["8080"]
+    logging: *default-logging
+    networks: [internal, dokploy-network]
+
+volumes:
+  chatwoot_postgres_data:
+  chatwoot_redis_data:
+  chatwoot_storage:
+  n8n_postgres_data:
+  n8n_redis_data:
+  n8n_data:
+  n8n_backups:
+  evolution_postgres_data:
+  evolution_redis_data:
+  evolution_instances:
+  evolution_data:
+
+networks:
+  internal:
+  dokploy-network:
+    external: true
