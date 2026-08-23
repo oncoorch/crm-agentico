@@ -10,13 +10,14 @@ Este archivo permite continuar el trabajo en otra conversacion.
 ## Estado actual
 
 - Compose principal: `compose.yml`.
-- Servicios: Chatwoot, Sidekiq, PostgreSQL/pgvector, Redis, n8n, Evolution API, MCP Agentico.
+- Servicios: Chatwoot, Sidekiq, PostgreSQL/pgvector, Redis, n8n, Evolution API, MCP Agentico, Prompt Manager.
 - Dokploy NICOP ya tiene un proyecto conectado a `main` con auto deploy.
 - Dominios usados en la primera instalacion:
   - `crm.oncoorch.com`
   - `automation-crm.oncoorch.com`
   - `evolution.oncoorch.com`
   - `crm-agent.oncoorch.com`
+  - `prompter.oncoorch.com` o dominio equivalente para Prompt Manager
 
 ## Referencias de arquitectura
 
@@ -35,6 +36,7 @@ Este archivo permite continuar el trabajo en otra conversacion.
 - `scripts/n8n_seed_resolve_project.js`: detecta automaticamente el proyecto Personal de n8n.
 - `scripts/n8n_seed_assign_folders.js`: crea/asigna carpetas por VPS.
 - `scripts/build_n8n_seed_credentials_bundle.py`: genera localmente `private/n8n-seed/N8N_SEED_CREDENTIALS_TGZ_B64.txt`.
+- `prompt-manager/`: aplicacion Next.js para editar prompts desde UI con login, preview Markdown y auditoria.
 
 ## Manuales
 
@@ -43,6 +45,18 @@ Este archivo permite continuar el trabajo en otra conversacion.
 - `docs/host-operations.md`: uso de wrappers instalables en `/opt/crm-agentico/bin`.
 - `docs/dokploy-runbook.md`: despliegue Dokploy.
 - `docs/source-vps-inventory.md`: origen de la arquitectura.
+- `docs/prompt-manager.md`: uso y despliegue de Prompt Manager.
+
+## Prompt Manager
+
+- Servicio compose: `prompt_manager`, puerto interno `3100`.
+- Dominio sugerido: `prompter.oncoorch.com`.
+- Lee workflows/nodos desde `n8n_postgres.workflow_entity`.
+- Carga/guarda prompts por `parameterKey`, por defecto `waba_system_promt`.
+- Guarda el prompt en Redis `n8n_redis`, DB `PROMPT_MANAGER_REDIS_DB` por defecto `1`.
+- Sincroniza respaldo en `n8n_postgres.public.parameters`.
+- Registra auditoria en `n8n_postgres.public.prompt_manager_audit`.
+- Usuarios por variable `PROMPT_MANAGER_USERS_B64`, generada con `prompt-manager/scripts/create-users.mjs`.
 
 ## Semilla n8n
 

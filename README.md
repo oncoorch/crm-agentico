@@ -16,6 +16,7 @@ La base del CRM es Chatwoot o una imagen derivada autorizada por la organizacion
 - `evolution`: Evolution API para WhatsApp.
 - `evolution_postgres` y `evolution_redis`: persistencia de Evolution.
 - `mcp_agentico`: bridge interno para leads, webhooks y herramientas del agente.
+- `prompt_manager`: editor web seguro para system prompts de agentes n8n.
 - `adminer`: perfil opcional de diagnostico.
 
 ## Despliegue en Dokploy
@@ -29,6 +30,7 @@ La base del CRM es Chatwoot o una imagen derivada autorizada por la organizacion
    - `automation-crm.oncoorch.com` -> servicio `n8n`, puerto `5678`.
    - `evolution.oncoorch.com` -> servicio `evolution`, puerto `8080`.
    - `crm-agent.oncoorch.com` -> servicio `mcp_agentico`, puerto `8000`.
+   - `prompter.oncoorch.com` -> servicio `prompt_manager`, puerto `3100`.
 6. Activar HTTPS con Let's Encrypt.
 
 Para exponer solo lo necesario, no publiques Postgres ni Redis. `adminer` debe usarse solo con perfil `tools` y Basic Auth/allowlist.
@@ -101,6 +103,7 @@ Los respaldos y secretos reales deben quedar bajo `private/`, que esta excluida 
 - `docs/mcp-connector.md`: uso e implementacion del conector MCP Agentico.
 - `docs/n8n-seed.md`: importacion reproducible de workflows y credenciales n8n desde GitHub/Dokploy.
 - `docs/host-operations.md`: scripts para ejecutar branding, config y respaldos desde el VPS.
+- `docs/prompt-manager.md`: uso, variables y despliegue de Prompt Manager.
 - `docs/source-vps-inventory.md`: VPS usados como referencia de arquitectura.
 - `CONTEXTO_GPT.md`: resumen para continuar el trabajo en futuras conversaciones.
 

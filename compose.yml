@@ -312,6 +312,41 @@ services:
     logging: *default-logging
     networks: [internal, dokploy-network]
 
+  prompt_manager:
+    build:
+      context: ./prompt-manager
+    restart: unless-stopped
+    depends_on:
+      n8n_postgres:
+        condition: service_healthy
+      n8n_redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3100
+      NEXT_PUBLIC_APP_NAME: Prompt Manager
+      PROMPT_MANAGER_PUBLIC_URL: ${PROMPT_MANAGER_PUBLIC_URL:?Set PROMPT_MANAGER_PUBLIC_URL}
+      PROMPT_MANAGER_SESSION_SECRET: ${PROMPT_MANAGER_SESSION_SECRET:?Set PROMPT_MANAGER_SESSION_SECRET}
+      PROMPT_MANAGER_USERS_B64: ${PROMPT_MANAGER_USERS_B64:?Set PROMPT_MANAGER_USERS_B64}
+      PROMPT_MANAGER_PG_HOST: n8n_postgres
+      PROMPT_MANAGER_PG_PORT: 5432
+      PROMPT_MANAGER_PG_DATABASE: n8n_production
+      PROMPT_MANAGER_PG_USER: n8n
+      PROMPT_MANAGER_PG_PASSWORD: ${N8N_POSTGRES_PASSWORD:?Set N8N_POSTGRES_PASSWORD}
+      PROMPT_MANAGER_REDIS_HOST: n8n_redis
+      PROMPT_MANAGER_REDIS_PORT: 6379
+      PROMPT_MANAGER_REDIS_PASSWORD: ${N8N_REDIS_PASSWORD:?Set N8N_REDIS_PASSWORD}
+      PROMPT_MANAGER_REDIS_DB: ${PROMPT_MANAGER_REDIS_DB:-1}
+    expose: ["3100"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3100').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging: *default-logging
+    networks: [internal, dokploy-network]
+
   adminer:
     image: adminer:latest
     restart: unless-stopped
