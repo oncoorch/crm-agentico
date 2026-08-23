@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_CONTAINER="${CHATWOOT_APP_CONTAINER:-chatwoot}"
+APP_CONTAINER="${CHATWOOT_APP_CONTAINER:-}"
 SOURCE_DIR="${CHATWOOT_BRANDING_SOURCE_DIR:-./branding/chatwoot/public}"
 TARGET_DIR="${CHATWOOT_BRANDING_TARGET_DIR:-/app/storage/public}"
 LOG_FILE="${LOG_FILE:-/var/log/chatwoot_branding_assets.log}"
@@ -9,6 +9,10 @@ LOG_FILE="${LOG_FILE:-/var/log/chatwoot_branding_assets.log}"
 log() {
   printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG_FILE"
 }
+
+if [ -z "$APP_CONTAINER" ]; then
+  APP_CONTAINER="$(docker ps --format '{{.Names}}' | grep -E '(^|-)chatwoot(-|$)' | grep -Ev 'sidekiq|postgres|redis' | head -n 1)"
+fi
 
 if ! docker ps --format '{{.Names}}' | grep -qx "$APP_CONTAINER"; then
   log "ERROR container '$APP_CONTAINER' is not running"

@@ -2,8 +2,8 @@
 set -euo pipefail
 
 LOG_FILE="${LOG_FILE:-/var/log/chatwoot_config_sync.log}"
-DB_CONTAINER="${CHATWOOT_DB_CONTAINER:-chatwoot_postgres}"
-APP_CONTAINER="${CHATWOOT_APP_CONTAINER:-chatwoot}"
+DB_CONTAINER="${CHATWOOT_DB_CONTAINER:-}"
+APP_CONTAINER="${CHATWOOT_APP_CONTAINER:-}"
 DB_USER="${CHATWOOT_DB_USER:-chatwoot}"
 DB_NAME="${CHATWOOT_DB_NAME:-chatwoot_production}"
 
@@ -29,6 +29,11 @@ require_container() {
   fi
 }
 
+detect_container() {
+  local pattern="$1"
+  docker ps --format '{{.Names}}' | grep -E "$pattern" | head -n 1
+}
+
 sql_escape_yaml_value() {
   printf '%s' "$1" | sed "s/'/''/g"
 }
@@ -47,6 +52,14 @@ value: ${escaped}
 WHERE name = '${name}';
 SQL
 }
+
+if [ -z "$DB_CONTAINER" ]; then
+  DB_CONTAINER="$(detect_container '(^|-)chatwoot_postgres(-|$)')"
+fi
+
+if [ -z "$APP_CONTAINER" ]; then
+  APP_CONTAINER="$(docker ps --format '{{.Names}}' | grep -E '(^|-)chatwoot(-|$)' | grep -Ev 'sidekiq|postgres|redis' | head -n 1)"
+fi
 
 require_container "$DB_CONTAINER"
 require_container "$APP_CONTAINER"

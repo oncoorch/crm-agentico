@@ -39,6 +39,7 @@ Este archivo permite continuar el trabajo en otra conversacion.
 
 - `docs/mcp-connector.md`: funcionamiento e implementacion del conector MCP.
 - `docs/n8n-seed.md`: semilla reproducible de workflows y credenciales n8n.
+- `docs/host-operations.md`: uso de wrappers instalables en `/opt/crm-agentico/bin`.
 - `docs/dokploy-runbook.md`: despliegue Dokploy.
 - `docs/source-vps-inventory.md`: origen de la arquitectura.
 
@@ -47,6 +48,13 @@ Este archivo permite continuar el trabajo en otra conversacion.
 - `n8n-seed/workflows/`: 203 workflows renombrados como `name_hostname`.
 - Las credenciales reales no se suben a GitHub; se pasan por la variable secreta `N8N_SEED_CREDENTIALS_TGZ_B64`.
 - Para el n8n actual de `automation-crm.oncoorch.com`, el proyecto Personal observado es `Wxcc72mwXx2dIsJU`; el seed puede autodetectarlo si `N8N_SEED_PROJECT_ID` esta vacio.
+
+## Operacion desde VPS
+
+- `scripts/install_host_ops.sh` instala wrappers en `/opt/crm-agentico/bin`.
+- `/opt/crm-agentico/bin/crm-komodo-config-sync` aplica nombre `CRM-Komodo`.
+- `/opt/crm-agentico/bin/crm-komodo-branding-apply` copia assets desde `/opt/crm_branding`.
+- `/opt/crm-agentico/bin/n8n-export-seed-commit` exporta workflows desde n8n vivo, sanea JSON y hace commit/push.
 
 ## Linea de seguridad
 
