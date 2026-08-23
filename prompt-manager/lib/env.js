@@ -12,6 +12,10 @@ export function optionalEnv(name, fallback = "") {
 
 export function parseUsers() {
   const encoded = process.env.PROMPT_MANAGER_USERS_B64;
+  if (encoded?.startsWith("change_me")) {
+    return [];
+  }
+
   const raw = encoded
     ? Buffer.from(encoded, "base64").toString("utf8")
     : process.env.PROMPT_MANAGER_USERS_JSON;
