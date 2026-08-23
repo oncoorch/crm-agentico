@@ -70,6 +70,36 @@ La activacion de cada destino se controla por variables de entorno.
 
 Todas las llamadas al bridge deben enviar el header `x-crm-secret` con el valor de `MCP_SHARED_SECRET`.
 
+## Operacion y respaldo
+
+Este repositorio incluye scripts para operar VPS nuevos con la misma base madura observada en los laboratorios:
+
+- `scripts/chatwoot_config_sync.sh`: sincroniza nombre publico, URLs y parametros visibles de Chatwoot desde variables de entorno.
+- `scripts/chatwoot_branding_assets.sh`: aplica imagenes e iconos autorizados desde `branding/chatwoot/public`.
+- `scripts/install_maintenance_cron.sh`: instala las tareas periodicas en el servidor.
+- `scripts/n8n_export_backup.sh`: exporta workflows y credenciales de n8n a `private/n8n-backups`.
+
+Para instalar las tareas periodicas en un VPS ya desplegado:
+
+```bash
+sudo scripts/install_maintenance_cron.sh
+```
+
+Para respaldar n8n desde el servidor:
+
+```bash
+scripts/n8n_export_backup.sh
+```
+
+Los respaldos y secretos reales deben quedar bajo `private/`, que esta excluida de Git.
+
+## Documentacion
+
+- `docs/dokploy-runbook.md`: despliegue en Dokploy.
+- `docs/mcp-connector.md`: uso e implementacion del conector MCP Agentico.
+- `docs/source-vps-inventory.md`: VPS usados como referencia de arquitectura.
+- `CONTEXTO_GPT.md`: resumen para continuar el trabajo en futuras conversaciones.
+
 ## Politica de licencia y marca
 
 Este repo evita automatizar desbloqueos, bypasses de licencia o reemplazos de marca no verificables. Si se usa una imagen custom de Chatwoot entregada por el proveedor o construida bajo licencia, configurala con `CHATWOOT_IMAGE`.

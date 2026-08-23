@@ -1,0 +1,51 @@
+# CONTEXTO GPT - CRM Agentico
+
+Este archivo permite continuar el trabajo en otra conversacion.
+
+## Repositorio
+
+- Repo: `https://github.com/oncoorch/crm-agentico`
+- Proposito: stack Dokploy para CRM agentico basado en la arquitectura Aigents madura observada en VPS de laboratorio.
+
+## Estado actual
+
+- Compose principal: `compose.yml`.
+- Servicios: Chatwoot, Sidekiq, PostgreSQL/pgvector, Redis, n8n, Evolution API, MCP Agentico.
+- Dokploy NICOP ya tiene un proyecto conectado a `main` con auto deploy.
+- Dominios usados en la primera instalacion:
+  - `crm.oncoorch.com`
+  - `automation-crm.oncoorch.com`
+  - `evolution.oncoorch.com`
+  - `crm-agent.oncoorch.com`
+
+## Referencias de arquitectura
+
+- Repo documental: `https://github.com/oncoorch/aigents_vps`
+- VPS referencia principal: Hyundai (`154.38.191.168`).
+- VPS referencia compacta: 1001talleres (`147.93.179.212`).
+
+## Scripts agregados
+
+- `scripts/chatwoot_config_sync.sh`: sincroniza nombre, URLs y configuraciones publicas autorizadas de Chatwoot.
+- `scripts/chatwoot_branding_assets.sh`: copia assets de marca autorizados al contenedor Chatwoot.
+- `scripts/install_maintenance_cron.sh`: instala cron para sync/branding.
+- `scripts/n8n_export_backup.sh`: exporta workflows y credenciales n8n a una carpeta privada local del servidor.
+
+## Manuales
+
+- `docs/mcp-connector.md`: funcionamiento e implementacion del conector MCP.
+- `docs/dokploy-runbook.md`: despliegue Dokploy.
+- `docs/source-vps-inventory.md`: origen de la arquitectura.
+
+## Linea de seguridad
+
+- No guardar `.env` reales ni backups privados en GitHub.
+- Usar `CHATWOOT_IMAGE` para imagen autorizada/custom.
+- Scripts de branding/config sync son parametrizables y no modifican plan/licencia.
+
+## Siguiente paso natural
+
+1. Revisar variables actuales de Dokploy.
+2. Si se desea, activar cron de mantenimiento en el VPS NICOP.
+3. Agregar modulos MCP avanzados segun necesidades: agenda, catalogo, sedes, estado conversacional y flujos WhatsApp.
+4. Desplegar en Dokploy cuando la version del repo este aprobada.
