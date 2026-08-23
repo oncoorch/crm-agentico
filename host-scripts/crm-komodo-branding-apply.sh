@@ -21,4 +21,8 @@ else
   exit 1
 fi
 
-"$SCRIPT_DIR/crm-komodo-config-sync.sh"
+if [ -x "$SCRIPT_DIR/crm-komodo-config-sync" ]; then
+  "$SCRIPT_DIR/crm-komodo-config-sync"
+else
+  "$SCRIPT_DIR/crm-komodo-config-sync.sh"
+fi
