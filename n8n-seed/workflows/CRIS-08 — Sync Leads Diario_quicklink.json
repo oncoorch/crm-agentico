@@ -1,0 +1,817 @@
+{
+  "id": "QLsyncLeads001_quicklink",
+  "name": "CRIS-08 — Sync Leads Diario_quicklink",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 9 * * *"
+            }
+          ]
+        }
+      },
+      "id": "f6d8813d-fc5d-4c69-8532-626234969846",
+      "name": "Sync Diario 09:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        208,
+        416
+      ]
+    },
+    {
+      "id": "348f9128-2d18-41d7-874d-690b0cdc8ced",
+      "name": "GET Leads KIA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        432,
+        176
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "XhQ9xLnmEt7Qr9Np_quicklink",
+          "name": "QuickLink Leads API Key_QUICKLINK"
+        }
+      },
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url || 'https://app.quicklink.com.ec:21305/api_kia/datos/kia/filtrados?limit=500&offset=0' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "6a189bc3-756c-4e23-b0ed-6a9bbce39bf2",
+      "name": "GET Leads Hyundai",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        432,
+        368
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "XhQ9xLnmEt7Qr9Np_quicklink",
+          "name": "QuickLink Leads API Key_QUICKLINK"
+        }
+      },
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url || 'https://app.quicklink.com.ec:21305/api_kia/datos/hyundai/filtrados?limit=500&offset=0' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "6eba0744-783b-4aab-9f71-52660e6a67fa",
+      "name": "Transform KIA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        656,
+        176
+      ],
+      "parameters": {
+        "jsCode": "const BRAND = 'KIA';\n\nfunction cleanText(v) {\n  if (v === undefined || v === null) return null;\n  const s = String(v).trim();\n  if (!s || /^(nat|null|none|nan|undefined|-)$/.test(s.toLowerCase())) return null;\n  return s;\n}\n\nfunction pick(d, keys) {\n  for (const key of keys) {\n    const v = cleanText(d[key]);\n    if (v) return v;\n  }\n  return null;\n}\n\nfunction cleanPhone(v) {\n  const s = cleanText(v);\n  if (!s) return null;\n  const normalized = s.replace(/\\.0$/, '').replace(/[^\\d+]/g, '');\n  const digits = normalized.replace(/\\D/g, '');\n  return digits.length >= 7 ? normalized : null;\n}\n\nfunction cleanSendPhone(v) {\n  const normalized = cleanPhone(v);\n  if (!normalized) return null;\n  const digits = normalized.replace(/\\D/g, '');\n  return digits.length >= 9 && digits.length <= 15 ? normalized : null;\n}\n\nfunction digitsOnly(v) {\n  const s = cleanText(v);\n  if (!s) return null;\n  const digits = s.replace(/\\D/g, '');\n  return digits || null;\n}\n\nfunction truncateText(rowNumber, quicklinkId, field, value, maxLength, warnings) {\n  const s = cleanText(value);\n  if (!s) return null;\n  if (s.length <= maxLength) return s;\n  warnings.push(syncError(rowNumber, quicklinkId, field, 'value_truncated', s, maxLength));\n  return s.slice(0, maxLength);\n}\n\nfunction parseDate(v) {\n  return cleanText(v);\n}\n\nfunction fieldLength(v) {\n  return v === undefined || v === null ? null : String(v).length;\n}\n\nfunction previewValue(v) {\n  const s = cleanText(v);\n  if (!s) return null;\n  return `[redacted:${s.length}]`;\n}\n\nfunction syncError(rowNumber, quicklinkId, field, reason, value, valueLimit = null) {\n  return {\n    row_number: rowNumber,\n    quicklink_id: Number.isInteger(quicklinkId) && quicklinkId > 0 ? quicklinkId : null,\n    field,\n    reason,\n    value_length: fieldLength(value),\n    value_limit: valueLimit,\n    value_preview: previewValue(value)\n  };\n}\n\nfunction skippedRow(rowNumber, quicklinkId, errors) {\n  return { json: {\n    quicklink_id: Number.isInteger(quicklinkId) && quicklinkId > 0 ? quicklinkId : null,\n    marca: BRAND,\n    nombre_cliente: null,\n    ci_ruc: null,\n    telefono_1: null,\n    telefono_2: null,\n    telefono_agente: null,\n    correo_cliente: null,\n    ciudad: null,\n    chasis: null,\n    modelo: null,\n    clave_modelo: null,\n    agencia: null,\n    nombre_vendedor_ql: null,\n    correo_vendedor_ql: null,\n    fecha_venta: null,\n    fecha_asignacion: null,\n    fecha_gestion: null,\n    fecha_final_gestion: null,\n    estado_ql: null,\n    observacion_ql: null,\n    _skip_upsert: true,\n    _sync_errors: errors\n  } };\n}\n\nfunction lengthErrors(rowNumber, quicklinkId, lead) {\n  const limits = { ci_ruc: 20, telefono_2: 20, telefono_agente: 256, chasis: 50 };\n  const errors = [];\n  for (const [field, maxLength] of Object.entries(limits)) {\n    const value = lead[field];\n    if (value !== null && value !== undefined && String(value).length > maxLength) {\n      errors.push(syncError(rowNumber, quicklinkId, field, 'value_too_long', value, maxLength));\n    }\n  }\n  return errors;\n}\n\nconst rows = $input.all();\nconst invalidRows = [];\nconst validRows = [];\nconst skippedRows = [];\nconst duplicateRows = [];\nconst seenQuicklinkIds = new Set();\nconst seenIdentityKeys = new Set();\n\nrows.forEach((item, index) => {\n  const d = item.json || {};\n  const rowNumber = index + 1;\n  const idRaw = pick(d, ['ID', 'id', 'quicklink_id']);\n  const quicklinkId = Number.parseInt(idRaw || '', 10);\n  const nombre = pick(d, ['NOMBRE CLIENTE', 'nombre_cliente', 'nombre']);\n  const ciRuc = pick(d, ['CI/RUC CLIENTE', 'CI RUC CLIENTE', 'ci_ruc']);\n  const phone1Raw = pick(d, ['TELEFONO 1', 'TELÉFONO 1', 'telefono_1']);\n  const phone2 = cleanPhone(pick(d, ['TELEFONO 2', 'TELÉFONO 2', 'telefono_2']));\n  const agentPhoneRaw = pick(d, ['TELEFONO AGENTE', 'TELÉFONO AGENTE', 'telefono_agente']);\n  const agentPhone = cleanSendPhone(agentPhoneRaw);\n  const ciRucKey = digitsOnly(ciRuc);\n  const agentPhoneKey = digitsOnly(agentPhone);\n  const errors = [];\n  const warnings = [];\n\n  if (!Number.isInteger(quicklinkId) || quicklinkId <= 0) errors.push(syncError(rowNumber, null, 'quicklink_id', 'invalid_id', idRaw));\n  if (!nombre) errors.push(syncError(rowNumber, quicklinkId, 'nombre_cliente', 'missing_name', nombre));\n  if (!agentPhoneRaw) errors.push(syncError(rowNumber, quicklinkId, 'telefono_agente', 'missing_agent_phone', null));\n  else if (!agentPhone) errors.push(syncError(rowNumber, quicklinkId, 'telefono_agente', 'invalid_agent_phone', agentPhoneRaw));\n\n  if (errors.length) {\n    invalidRows.push({ row: rowNumber, id: idRaw || null, reasons: errors.map(e => e.reason), errors });\n    skippedRows.push(skippedRow(rowNumber, quicklinkId, errors));\n    return;\n  }\n\n  if (seenQuicklinkIds.has(quicklinkId)) {\n    const duplicateErrors = [syncError(rowNumber, quicklinkId, 'quicklink_id', 'duplicate_id', quicklinkId)];\n    duplicateRows.push({ row: rowNumber, id: quicklinkId });\n    skippedRows.push(skippedRow(rowNumber, quicklinkId, duplicateErrors));\n    return;\n  }\n  seenQuicklinkIds.add(quicklinkId);\n\n  const lead = {\n    quicklink_id: quicklinkId,\n    marca: BRAND,\n    nombre_cliente: nombre,\n    ci_ruc: ciRuc,\n    telefono_1: truncateText(rowNumber, quicklinkId, 'telefono_1', phone1Raw, 256, warnings),\n    telefono_2: phone2,\n    telefono_agente: agentPhone,\n    correo_cliente: pick(d, ['CORREO CLIENTE', 'correo_cliente']),\n    ciudad: BRAND === 'HYUNDAI' ? pick(d, ['CIUDAD', 'ciudad']) : null,\n    chasis: pick(d, ['CHASIS', 'chasis']),\n    modelo: pick(d, ['MODELO', 'modelo']),\n    clave_modelo: BRAND === 'HYUNDAI' ? pick(d, ['CLAVE_MODELO', 'CLAVE MODELO', 'clave_modelo']) : null,\n    agencia: pick(d, ['AGENCIA', 'agencia']),\n    nombre_vendedor_ql: pick(d, ['NOMBRE VENDEDOR QL', 'nombre_vendedor_ql']),\n    correo_vendedor_ql: pick(d, ['CORREO VENDEDOR QL', 'correo_vendedor_ql']),\n    fecha_venta: parseDate(pick(d, ['FECHA VENTA', 'fecha_venta'])),\n    fecha_asignacion: parseDate(pick(d, ['FECHA ASIGNACION', 'FECHA ASIGNACIÓN', 'fecha_asignacion'])),\n    fecha_gestion: parseDate(pick(d, ['FECHA GESTIÓN', 'FECHA GESTION', 'fecha_gestion'])),\n    fecha_final_gestion: parseDate(pick(d, ['FECHA FINAL GESTIÓN', 'FECHA FINAL GESTION', 'fecha_final_gestion'])),\n    estado_ql: pick(d, ['ESTADO', 'estado']) || 'NEW_LEAD',\n    observacion_ql: pick(d, ['OBSERVACION', 'OBSERVACIÓN', 'observacion_ql']),\n    ultima_sync_at: new Date().toISOString(),\n    _sync_row_number: rowNumber\n  };\n\n  const schemaErrors = lengthErrors(rowNumber, quicklinkId, lead);\n  if (schemaErrors.length) {\n    invalidRows.push({ row: rowNumber, id: quicklinkId, reasons: schemaErrors.map(e => e.reason), errors: schemaErrors });\n    skippedRows.push(skippedRow(rowNumber, quicklinkId, schemaErrors));\n    return;\n  }\n\n  const identityKey = ciRucKey && agentPhoneKey ? `${ciRucKey}|${agentPhoneKey}` : null;\n  if (identityKey && seenIdentityKeys.has(identityKey)) {\n    const duplicateErrors = [syncError(rowNumber, quicklinkId, 'ci_ruc_telefono_agente', 'duplicate_cedula_agent_phone', identityKey)];\n    duplicateRows.push({ row: rowNumber, id: quicklinkId, reason: 'duplicate_cedula_agent_phone' });\n    skippedRows.push(skippedRow(rowNumber, quicklinkId, duplicateErrors));\n    return;\n  }\n  if (identityKey) seenIdentityKeys.add(identityKey);\n\n  if (warnings.length) lead._sync_errors = warnings;\n  validRows.push({ json: lead });\n});\n\nconst meta = {\n  brand: BRAND,\n  fetched: rows.length,\n  valid: validRows.length,\n  invalid: invalidRows.length,\n  duplicates: duplicateRows.length,\n  invalid_samples: invalidRows.slice(0, 5)\n};\n\nconst outputRows = validRows.concat(skippedRows);\n\nif (outputRows.length === 0) {\n  return [{ json: {\n    quicklink_id: null,\n    marca: BRAND,\n    nombre_cliente: null,\n    ci_ruc: null,\n    telefono_1: null,\n    telefono_2: null,\n    telefono_agente: null,\n    correo_cliente: null,\n    ciudad: null,\n    chasis: null,\n    modelo: null,\n    clave_modelo: null,\n    agencia: null,\n    nombre_vendedor_ql: null,\n    correo_vendedor_ql: null,\n    fecha_venta: null,\n    fecha_asignacion: null,\n    fecha_gestion: null,\n    fecha_final_gestion: null,\n    estado_ql: null,\n    observacion_ql: null,\n    _skip_upsert: true,\n    _sync_meta: meta\n  } }];\n}\n\nreturn outputRows.map(item => ({\n  json: {\n    ...item.json,\n    _sync_meta: meta\n  }\n}));"
+      }
+    },
+    {
+      "id": "14509fdc-40ce-448c-ae90-291cd7f83346",
+      "name": "Transform Hyundai",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        656,
+        368
+      ],
+      "parameters": {
+        "jsCode": "const BRAND = 'HYUNDAI';\n\nfunction cleanText(v) {\n  if (v === undefined || v === null) return null;\n  const s = String(v).trim();\n  if (!s || /^(nat|null|none|nan|undefined|-)$/.test(s.toLowerCase())) return null;\n  return s;\n}\n\nfunction pick(d, keys) {\n  for (const key of keys) {\n    const v = cleanText(d[key]);\n    if (v) return v;\n  }\n  return null;\n}\n\nfunction cleanPhone(v) {\n  const s = cleanText(v);\n  if (!s) return null;\n  const normalized = s.replace(/\\.0$/, '').replace(/[^\\d+]/g, '');\n  const digits = normalized.replace(/\\D/g, '');\n  return digits.length >= 7 ? normalized : null;\n}\n\nfunction cleanSendPhone(v) {\n  const normalized = cleanPhone(v);\n  if (!normalized) return null;\n  const digits = normalized.replace(/\\D/g, '');\n  return digits.length >= 9 && digits.length <= 15 ? normalized : null;\n}\n\nfunction digitsOnly(v) {\n  const s = cleanText(v);\n  if (!s) return null;\n  const digits = s.replace(/\\D/g, '');\n  return digits || null;\n}\n\nfunction truncateText(rowNumber, quicklinkId, field, value, maxLength, warnings) {\n  const s = cleanText(value);\n  if (!s) return null;\n  if (s.length <= maxLength) return s;\n  warnings.push(syncError(rowNumber, quicklinkId, field, 'value_truncated', s, maxLength));\n  return s.slice(0, maxLength);\n}\n\nfunction parseDate(v) {\n  return cleanText(v);\n}\n\nfunction fieldLength(v) {\n  return v === undefined || v === null ? null : String(v).length;\n}\n\nfunction previewValue(v) {\n  const s = cleanText(v);\n  if (!s) return null;\n  return `[redacted:${s.length}]`;\n}\n\nfunction syncError(rowNumber, quicklinkId, field, reason, value, valueLimit = null) {\n  return {\n    row_number: rowNumber,\n    quicklink_id: Number.isInteger(quicklinkId) && quicklinkId > 0 ? quicklinkId : null,\n    field,\n    reason,\n    value_length: fieldLength(value),\n    value_limit: valueLimit,\n    value_preview: previewValue(value)\n  };\n}\n\nfunction skippedRow(rowNumber, quicklinkId, errors) {\n  return { json: {\n    quicklink_id: Number.isInteger(quicklinkId) && quicklinkId > 0 ? quicklinkId : null,\n    marca: BRAND,\n    nombre_cliente: null,\n    ci_ruc: null,\n    telefono_1: null,\n    telefono_2: null,\n    telefono_agente: null,\n    correo_cliente: null,\n    ciudad: null,\n    chasis: null,\n    modelo: null,\n    clave_modelo: null,\n    agencia: null,\n    nombre_vendedor_ql: null,\n    correo_vendedor_ql: null,\n    fecha_venta: null,\n    fecha_asignacion: null,\n    fecha_gestion: null,\n    fecha_final_gestion: null,\n    estado_ql: null,\n    observacion_ql: null,\n    _skip_upsert: true,\n    _sync_errors: errors\n  } };\n}\n\nfunction lengthErrors(rowNumber, quicklinkId, lead) {\n  const limits = { ci_ruc: 20, telefono_2: 20, telefono_agente: 256, chasis: 50 };\n  const errors = [];\n  for (const [field, maxLength] of Object.entries(limits)) {\n    const value = lead[field];\n    if (value !== null && value !== undefined && String(value).length > maxLength) {\n      errors.push(syncError(rowNumber, quicklinkId, field, 'value_too_long', value, maxLength));\n    }\n  }\n  return errors;\n}\n\nconst rows = $input.all();\nconst invalidRows = [];\nconst validRows = [];\nconst skippedRows = [];\nconst duplicateRows = [];\nconst seenQuicklinkIds = new Set();\nconst seenIdentityKeys = new Set();\n\nrows.forEach((item, index) => {\n  const d = item.json || {};\n  const rowNumber = index + 1;\n  const idRaw = pick(d, ['ID', 'id', 'quicklink_id']);\n  const quicklinkId = Number.parseInt(idRaw || '', 10);\n  const nombre = pick(d, ['NOMBRE CLIENTE', 'nombre_cliente', 'nombre']);\n  const ciRuc = pick(d, ['CI/RUC CLIENTE', 'CI RUC CLIENTE', 'ci_ruc']);\n  const phone1Raw = pick(d, ['TELEFONO 1', 'TELÉFONO 1', 'telefono_1']);\n  const phone2 = cleanPhone(pick(d, ['TELEFONO 2', 'TELÉFONO 2', 'telefono_2']));\n  const agentPhoneRaw = pick(d, ['TELEFONO AGENTE', 'TELÉFONO AGENTE', 'telefono_agente']);\n  const agentPhone = cleanSendPhone(agentPhoneRaw);\n  const ciRucKey = digitsOnly(ciRuc);\n  const agentPhoneKey = digitsOnly(agentPhone);\n  const errors = [];\n  const warnings = [];\n\n  if (!Number.isInteger(quicklinkId) || quicklinkId <= 0) errors.push(syncError(rowNumber, null, 'quicklink_id', 'invalid_id', idRaw));\n  if (!nombre) errors.push(syncError(rowNumber, quicklinkId, 'nombre_cliente', 'missing_name', nombre));\n  if (!agentPhoneRaw) errors.push(syncError(rowNumber, quicklinkId, 'telefono_agente', 'missing_agent_phone', null));\n  else if (!agentPhone) errors.push(syncError(rowNumber, quicklinkId, 'telefono_agente', 'invalid_agent_phone', agentPhoneRaw));\n\n  if (errors.length) {\n    invalidRows.push({ row: rowNumber, id: idRaw || null, reasons: errors.map(e => e.reason), errors });\n    skippedRows.push(skippedRow(rowNumber, quicklinkId, errors));\n    return;\n  }\n\n  if (seenQuicklinkIds.has(quicklinkId)) {\n    const duplicateErrors = [syncError(rowNumber, quicklinkId, 'quicklink_id', 'duplicate_id', quicklinkId)];\n    duplicateRows.push({ row: rowNumber, id: quicklinkId });\n    skippedRows.push(skippedRow(rowNumber, quicklinkId, duplicateErrors));\n    return;\n  }\n  seenQuicklinkIds.add(quicklinkId);\n\n  const lead = {\n    quicklink_id: quicklinkId,\n    marca: BRAND,\n    nombre_cliente: nombre,\n    ci_ruc: ciRuc,\n    telefono_1: truncateText(rowNumber, quicklinkId, 'telefono_1', phone1Raw, 256, warnings),\n    telefono_2: phone2,\n    telefono_agente: agentPhone,\n    correo_cliente: pick(d, ['CORREO CLIENTE', 'correo_cliente']),\n    ciudad: BRAND === 'HYUNDAI' ? pick(d, ['CIUDAD', 'ciudad']) : null,\n    chasis: pick(d, ['CHASIS', 'chasis']),\n    modelo: pick(d, ['MODELO', 'modelo']),\n    clave_modelo: BRAND === 'HYUNDAI' ? pick(d, ['CLAVE_MODELO', 'CLAVE MODELO', 'clave_modelo']) : null,\n    agencia: pick(d, ['AGENCIA', 'agencia']),\n    nombre_vendedor_ql: pick(d, ['NOMBRE VENDEDOR QL', 'nombre_vendedor_ql']),\n    correo_vendedor_ql: pick(d, ['CORREO VENDEDOR QL', 'correo_vendedor_ql']),\n    fecha_venta: parseDate(pick(d, ['FECHA VENTA', 'fecha_venta'])),\n    fecha_asignacion: parseDate(pick(d, ['FECHA ASIGNACION', 'FECHA ASIGNACIÓN', 'fecha_asignacion'])),\n    fecha_gestion: parseDate(pick(d, ['FECHA GESTIÓN', 'FECHA GESTION', 'fecha_gestion'])),\n    fecha_final_gestion: parseDate(pick(d, ['FECHA FINAL GESTIÓN', 'FECHA FINAL GESTION', 'fecha_final_gestion'])),\n    estado_ql: pick(d, ['ESTADO', 'estado']) || 'NEW_LEAD',\n    observacion_ql: pick(d, ['OBSERVACION', 'OBSERVACIÓN', 'observacion_ql']),\n    ultima_sync_at: new Date().toISOString(),\n    _sync_row_number: rowNumber\n  };\n\n  const schemaErrors = lengthErrors(rowNumber, quicklinkId, lead);\n  if (schemaErrors.length) {\n    invalidRows.push({ row: rowNumber, id: quicklinkId, reasons: schemaErrors.map(e => e.reason), errors: schemaErrors });\n    skippedRows.push(skippedRow(rowNumber, quicklinkId, schemaErrors));\n    return;\n  }\n\n  const identityKey = ciRucKey && agentPhoneKey ? `${ciRucKey}|${agentPhoneKey}` : null;\n  if (identityKey && seenIdentityKeys.has(identityKey)) {\n    const duplicateErrors = [syncError(rowNumber, quicklinkId, 'ci_ruc_telefono_agente', 'duplicate_cedula_agent_phone', identityKey)];\n    duplicateRows.push({ row: rowNumber, id: quicklinkId, reason: 'duplicate_cedula_agent_phone' });\n    skippedRows.push(skippedRow(rowNumber, quicklinkId, duplicateErrors));\n    return;\n  }\n  if (identityKey) seenIdentityKeys.add(identityKey);\n\n  if (warnings.length) lead._sync_errors = warnings;\n  validRows.push({ json: lead });\n});\n\nconst meta = {\n  brand: BRAND,\n  fetched: rows.length,\n  valid: validRows.length,\n  invalid: invalidRows.length,\n  duplicates: duplicateRows.length,\n  invalid_samples: invalidRows.slice(0, 5)\n};\n\nconst outputRows = validRows.concat(skippedRows);\n\nif (outputRows.length === 0) {\n  return [{ json: {\n    quicklink_id: null,\n    marca: BRAND,\n    nombre_cliente: null,\n    ci_ruc: null,\n    telefono_1: null,\n    telefono_2: null,\n    telefono_agente: null,\n    correo_cliente: null,\n    ciudad: null,\n    chasis: null,\n    modelo: null,\n    clave_modelo: null,\n    agencia: null,\n    nombre_vendedor_ql: null,\n    correo_vendedor_ql: null,\n    fecha_venta: null,\n    fecha_asignacion: null,\n    fecha_gestion: null,\n    fecha_final_gestion: null,\n    estado_ql: null,\n    observacion_ql: null,\n    _skip_upsert: true,\n    _sync_meta: meta\n  } }];\n}\n\nreturn outputRows.map(item => ({\n  json: {\n    ...item.json,\n    _sync_meta: meta\n  }\n}));"
+      }
+    },
+    {
+      "id": "59284d1e-21ad-402c-9520-482fe2de0162",
+      "name": "Upsert KIA",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        880,
+        176
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH input AS (\n  SELECT\n    $1::int AS quicklink_id,\n    $2::sales_prod.marca_lead AS marca,\n    $3::text AS nombre_cliente,\n    $4::text AS ci_ruc,\n    $5::text AS telefono_1,\n    $6::text AS telefono_2,\n    $7::text AS telefono_agente,\n    $8::text AS correo_cliente,\n    $9::text AS ciudad,\n    $10::text AS chasis,\n    $11::text AS modelo,\n    $12::text AS clave_modelo,\n    $13::text AS agencia,\n    $14::text AS nombre_vendedor_ql,\n    $15::text AS correo_vendedor_ql,\n    NULLIF($16, '')::timestamptz AS fecha_venta,\n    NULLIF($17, '')::timestamptz AS fecha_asignacion,\n    NULLIF($18, '')::timestamptz AS fecha_gestion,\n    NULLIF($19, '')::timestamptz AS fecha_final_gestion,\n    $20::text AS estado_ql,\n    $21::text AS observacion_ql,\n    COALESCE($22::boolean, false) AS skip_upsert,\n    NULLIF($23::text, '')::integer AS row_number\n), candidate AS (\n  SELECT\n    i.*,\n    self.id AS existing_id,\n    NULLIF(regexp_replace(COALESCE(COALESCE(i.ci_ruc, self.ci_ruc), ''), '\\D', '', 'g'), '') AS duplicate_ci_key,\n    NULLIF(regexp_replace(COALESCE(i.telefono_agente, ''), '\\D', '', 'g'), '') AS duplicate_agent_phone_key\n  FROM input i\n  LEFT JOIN sales_prod.leads_quicklink AS self\n    ON self.quicklink_id = i.quicklink_id\n   AND self.marca = i.marca\n), duplicate_existing AS (\n  SELECT DISTINCT ON (c.quicklink_id, c.marca)\n    c.quicklink_id,\n    c.marca,\n    l.quicklink_id AS duplicate_quicklink_id,\n    l.marca::text AS duplicate_marca\n  FROM candidate c\n  JOIN sales_prod.leads_quicklink AS l\n    ON NULLIF(regexp_replace(COALESCE(l.ci_ruc, ''), '\\D', '', 'g'), '') = c.duplicate_ci_key\n   AND NULLIF(regexp_replace(COALESCE(l.telefono_agente, ''), '\\D', '', 'g'), '') = c.duplicate_agent_phone_key\n  WHERE NOT c.skip_upsert\n    AND c.duplicate_ci_key IS NOT NULL\n    AND c.duplicate_agent_phone_key IS NOT NULL\n    AND (c.existing_id IS NULL OR l.id <> c.existing_id)\n  ORDER BY c.quicklink_id, c.marca, l.created_at ASC NULLS LAST, l.updated_at ASC NULLS LAST\n), eligible AS (\n  SELECT c.*\n  FROM candidate c\n  WHERE NOT c.skip_upsert\n    AND c.duplicate_agent_phone_key IS NOT NULL\n    AND NOT EXISTS (\n      SELECT 1\n      FROM duplicate_existing d\n      WHERE d.quicklink_id = c.quicklink_id\n        AND d.marca = c.marca\n    )\n), updated AS (\n  UPDATE sales_prod.leads_quicklink AS l\n  SET\n    nombre_cliente = e.nombre_cliente,\n    ci_ruc = COALESCE(e.ci_ruc, l.ci_ruc),\n    telefono_1 = e.telefono_1,\n    telefono_2 = COALESCE(e.telefono_2, l.telefono_2),\n    telefono_agente = e.telefono_agente,\n    correo_cliente = COALESCE(e.correo_cliente, l.correo_cliente),\n    ciudad = COALESCE(e.ciudad, l.ciudad),\n    chasis = COALESCE(e.chasis, l.chasis),\n    modelo = COALESCE(e.modelo, l.modelo),\n    clave_modelo = COALESCE(e.clave_modelo, l.clave_modelo),\n    agencia = COALESCE(e.agencia, l.agencia),\n    nombre_vendedor_ql = COALESCE(e.nombre_vendedor_ql, l.nombre_vendedor_ql),\n    correo_vendedor_ql = COALESCE(e.correo_vendedor_ql, l.correo_vendedor_ql),\n    fecha_venta = COALESCE(e.fecha_venta, l.fecha_venta),\n    fecha_asignacion = COALESCE(e.fecha_asignacion, l.fecha_asignacion),\n    fecha_gestion = COALESCE(e.fecha_gestion, l.fecha_gestion),\n    fecha_final_gestion = COALESCE(e.fecha_final_gestion, l.fecha_final_gestion),\n    estado_ql = COALESCE(e.estado_ql, l.estado_ql),\n    observacion_ql = e.observacion_ql,\n    ultima_sync_at = NOW(),\n    veces_sincronizado = l.veces_sincronizado + 1,\n    updated_at = NOW()\n  FROM eligible e\n  WHERE l.id = e.existing_id\n  RETURNING l.quicklink_id, l.marca, false AS inserted, true AS affected\n), inserted AS (\n  INSERT INTO sales_prod.leads_quicklink (\n    quicklink_id, marca, nombre_cliente, ci_ruc, telefono_1, telefono_2, telefono_agente,\n    correo_cliente, ciudad, chasis, modelo, clave_modelo, agencia,\n    nombre_vendedor_ql, correo_vendedor_ql, fecha_venta, fecha_asignacion,\n    fecha_gestion, fecha_final_gestion, estado_ql, observacion_ql, ultima_sync_at\n  )\n  SELECT\n    quicklink_id, marca, nombre_cliente, ci_ruc, telefono_1, telefono_2, telefono_agente,\n    correo_cliente, ciudad, chasis, modelo, clave_modelo, agencia,\n    nombre_vendedor_ql, correo_vendedor_ql, fecha_venta, fecha_asignacion,\n    fecha_gestion, fecha_final_gestion, estado_ql, observacion_ql, NOW()\n  FROM eligible\n  WHERE existing_id IS NULL\n  ON CONFLICT DO NOTHING\n  RETURNING quicklink_id, marca, true AS inserted, true AS affected\n), affected AS (\n  SELECT quicklink_id, marca, inserted, affected FROM updated\n  UNION ALL\n  SELECT quicklink_id, marca, inserted, affected FROM inserted\n)\nSELECT\n  c.quicklink_id,\n  c.marca::text AS marca,\n  (\n    c.skip_upsert\n    OR c.duplicate_agent_phone_key IS NULL\n    OR d.quicklink_id IS NOT NULL\n    OR (NOT c.skip_upsert AND a.quicklink_id IS NULL)\n  ) AS skip_upsert,\n  COALESCE(a.inserted, false) AS inserted,\n  COALESCE(a.affected, false) AS affected,\n  CASE\n    WHEN c.skip_upsert THEN '[]'::jsonb\n    WHEN c.duplicate_agent_phone_key IS NULL THEN jsonb_build_array(jsonb_build_object(\n      'row_number', c.row_number,\n      'quicklink_id', c.quicklink_id,\n      'field', 'telefono_agente',\n      'reason', 'missing_agent_phone',\n      'value_length', NULL,\n      'value_limit', NULL,\n      'value_preview', NULL\n    ))\n    WHEN d.quicklink_id IS NOT NULL THEN jsonb_build_array(jsonb_build_object(\n      'row_number', c.row_number,\n      'quicklink_id', c.quicklink_id,\n      'field', 'ci_ruc_telefono_agente',\n      'reason', 'duplicate_cedula_agent_phone',\n      'value_length', length(COALESCE(c.duplicate_ci_key, '')) + length(COALESCE(c.duplicate_agent_phone_key, '')),\n      'value_limit', NULL,\n      'value_preview', concat('[redacted:', length(COALESCE(c.duplicate_ci_key, '')), '+', length(COALESCE(c.duplicate_agent_phone_key, '')), ']'),\n      'duplicate_quicklink_id', d.duplicate_quicklink_id,\n      'duplicate_marca', d.duplicate_marca\n    ))\n    WHEN a.quicklink_id IS NULL THEN jsonb_build_array(jsonb_build_object(\n      'row_number', c.row_number,\n      'quicklink_id', c.quicklink_id,\n      'field', 'ci_ruc_telefono_agente',\n      'reason', 'duplicate_cedula_agent_phone_conflict',\n      'value_length', length(COALESCE(c.duplicate_ci_key, '')) + length(COALESCE(c.duplicate_agent_phone_key, '')),\n      'value_limit', NULL,\n      'value_preview', concat('[redacted:', length(COALESCE(c.duplicate_ci_key, '')), '+', length(COALESCE(c.duplicate_agent_phone_key, '')), ']')\n    ))\n    ELSE '[]'::jsonb\n  END AS _sync_errors\nFROM candidate c\nLEFT JOIN affected a\n  ON a.quicklink_id = c.quicklink_id\n AND a.marca = c.marca\nLEFT JOIN duplicate_existing d\n  ON d.quicklink_id = c.quicklink_id\n AND d.marca = c.marca;",
+        "options": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [\n  $json.quicklink_id,\n  $json.marca,\n  $json.nombre_cliente,\n  $json.ci_ruc,\n  $json.telefono_1,\n  $json.telefono_2,\n  $json.telefono_agente,\n  $json.correo_cliente,\n  $json.ciudad,\n  $json.chasis,\n  $json.modelo,\n  $json.clave_modelo,\n  $json.agencia,\n  $json.nombre_vendedor_ql,\n  $json.correo_vendedor_ql,\n  $json.fecha_venta || '',\n  $json.fecha_asignacion || '',\n  $json.fecha_gestion || '',\n  $json.fecha_final_gestion || '',\n  $json.estado_ql,\n  $json.observacion_ql,\n  $json._skip_upsert === true,\n  $json._sync_row_number ?? ''\n] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "f4477b62-0a87-4981-871d-797df29f5601",
+      "name": "Upsert Hyundai",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        880,
+        368
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH input AS (\n  SELECT\n    $1::int AS quicklink_id,\n    $2::sales_prod.marca_lead AS marca,\n    $3::text AS nombre_cliente,\n    $4::text AS ci_ruc,\n    $5::text AS telefono_1,\n    $6::text AS telefono_2,\n    $7::text AS telefono_agente,\n    $8::text AS correo_cliente,\n    $9::text AS ciudad,\n    $10::text AS chasis,\n    $11::text AS modelo,\n    $12::text AS clave_modelo,\n    $13::text AS agencia,\n    $14::text AS nombre_vendedor_ql,\n    $15::text AS correo_vendedor_ql,\n    NULLIF($16, '')::timestamptz AS fecha_venta,\n    NULLIF($17, '')::timestamptz AS fecha_asignacion,\n    NULLIF($18, '')::timestamptz AS fecha_gestion,\n    NULLIF($19, '')::timestamptz AS fecha_final_gestion,\n    $20::text AS estado_ql,\n    $21::text AS observacion_ql,\n    COALESCE($22::boolean, false) AS skip_upsert,\n    NULLIF($23::text, '')::integer AS row_number\n), candidate AS (\n  SELECT\n    i.*,\n    self.id AS existing_id,\n    NULLIF(regexp_replace(COALESCE(COALESCE(i.ci_ruc, self.ci_ruc), ''), '\\D', '', 'g'), '') AS duplicate_ci_key,\n    NULLIF(regexp_replace(COALESCE(i.telefono_agente, ''), '\\D', '', 'g'), '') AS duplicate_agent_phone_key\n  FROM input i\n  LEFT JOIN sales_prod.leads_quicklink AS self\n    ON self.quicklink_id = i.quicklink_id\n   AND self.marca = i.marca\n), duplicate_existing AS (\n  SELECT DISTINCT ON (c.quicklink_id, c.marca)\n    c.quicklink_id,\n    c.marca,\n    l.quicklink_id AS duplicate_quicklink_id,\n    l.marca::text AS duplicate_marca\n  FROM candidate c\n  JOIN sales_prod.leads_quicklink AS l\n    ON NULLIF(regexp_replace(COALESCE(l.ci_ruc, ''), '\\D', '', 'g'), '') = c.duplicate_ci_key\n   AND NULLIF(regexp_replace(COALESCE(l.telefono_agente, ''), '\\D', '', 'g'), '') = c.duplicate_agent_phone_key\n  WHERE NOT c.skip_upsert\n    AND c.duplicate_ci_key IS NOT NULL\n    AND c.duplicate_agent_phone_key IS NOT NULL\n    AND (c.existing_id IS NULL OR l.id <> c.existing_id)\n  ORDER BY c.quicklink_id, c.marca, l.created_at ASC NULLS LAST, l.updated_at ASC NULLS LAST\n), eligible AS (\n  SELECT c.*\n  FROM candidate c\n  WHERE NOT c.skip_upsert\n    AND c.duplicate_agent_phone_key IS NOT NULL\n    AND NOT EXISTS (\n      SELECT 1\n      FROM duplicate_existing d\n      WHERE d.quicklink_id = c.quicklink_id\n        AND d.marca = c.marca\n    )\n), updated AS (\n  UPDATE sales_prod.leads_quicklink AS l\n  SET\n    nombre_cliente = e.nombre_cliente,\n    ci_ruc = COALESCE(e.ci_ruc, l.ci_ruc),\n    telefono_1 = e.telefono_1,\n    telefono_2 = COALESCE(e.telefono_2, l.telefono_2),\n    telefono_agente = e.telefono_agente,\n    correo_cliente = COALESCE(e.correo_cliente, l.correo_cliente),\n    ciudad = COALESCE(e.ciudad, l.ciudad),\n    chasis = COALESCE(e.chasis, l.chasis),\n    modelo = COALESCE(e.modelo, l.modelo),\n    clave_modelo = COALESCE(e.clave_modelo, l.clave_modelo),\n    agencia = COALESCE(e.agencia, l.agencia),\n    nombre_vendedor_ql = COALESCE(e.nombre_vendedor_ql, l.nombre_vendedor_ql),\n    correo_vendedor_ql = COALESCE(e.correo_vendedor_ql, l.correo_vendedor_ql),\n    fecha_venta = COALESCE(e.fecha_venta, l.fecha_venta),\n    fecha_asignacion = COALESCE(e.fecha_asignacion, l.fecha_asignacion),\n    fecha_gestion = COALESCE(e.fecha_gestion, l.fecha_gestion),\n    fecha_final_gestion = COALESCE(e.fecha_final_gestion, l.fecha_final_gestion),\n    estado_ql = COALESCE(e.estado_ql, l.estado_ql),\n    observacion_ql = e.observacion_ql,\n    ultima_sync_at = NOW(),\n    veces_sincronizado = l.veces_sincronizado + 1,\n    updated_at = NOW()\n  FROM eligible e\n  WHERE l.id = e.existing_id\n  RETURNING l.quicklink_id, l.marca, false AS inserted, true AS affected\n), inserted AS (\n  INSERT INTO sales_prod.leads_quicklink (\n    quicklink_id, marca, nombre_cliente, ci_ruc, telefono_1, telefono_2, telefono_agente,\n    correo_cliente, ciudad, chasis, modelo, clave_modelo, agencia,\n    nombre_vendedor_ql, correo_vendedor_ql, fecha_venta, fecha_asignacion,\n    fecha_gestion, fecha_final_gestion, estado_ql, observacion_ql, ultima_sync_at\n  )\n  SELECT\n    quicklink_id, marca, nombre_cliente, ci_ruc, telefono_1, telefono_2, telefono_agente,\n    correo_cliente, ciudad, chasis, modelo, clave_modelo, agencia,\n    nombre_vendedor_ql, correo_vendedor_ql, fecha_venta, fecha_asignacion,\n    fecha_gestion, fecha_final_gestion, estado_ql, observacion_ql, NOW()\n  FROM eligible\n  WHERE existing_id IS NULL\n  ON CONFLICT DO NOTHING\n  RETURNING quicklink_id, marca, true AS inserted, true AS affected\n), affected AS (\n  SELECT quicklink_id, marca, inserted, affected FROM updated\n  UNION ALL\n  SELECT quicklink_id, marca, inserted, affected FROM inserted\n)\nSELECT\n  c.quicklink_id,\n  c.marca::text AS marca,\n  (\n    c.skip_upsert\n    OR c.duplicate_agent_phone_key IS NULL\n    OR d.quicklink_id IS NOT NULL\n    OR (NOT c.skip_upsert AND a.quicklink_id IS NULL)\n  ) AS skip_upsert,\n  COALESCE(a.inserted, false) AS inserted,\n  COALESCE(a.affected, false) AS affected,\n  CASE\n    WHEN c.skip_upsert THEN '[]'::jsonb\n    WHEN c.duplicate_agent_phone_key IS NULL THEN jsonb_build_array(jsonb_build_object(\n      'row_number', c.row_number,\n      'quicklink_id', c.quicklink_id,\n      'field', 'telefono_agente',\n      'reason', 'missing_agent_phone',\n      'value_length', NULL,\n      'value_limit', NULL,\n      'value_preview', NULL\n    ))\n    WHEN d.quicklink_id IS NOT NULL THEN jsonb_build_array(jsonb_build_object(\n      'row_number', c.row_number,\n      'quicklink_id', c.quicklink_id,\n      'field', 'ci_ruc_telefono_agente',\n      'reason', 'duplicate_cedula_agent_phone',\n      'value_length', length(COALESCE(c.duplicate_ci_key, '')) + length(COALESCE(c.duplicate_agent_phone_key, '')),\n      'value_limit', NULL,\n      'value_preview', concat('[redacted:', length(COALESCE(c.duplicate_ci_key, '')), '+', length(COALESCE(c.duplicate_agent_phone_key, '')), ']'),\n      'duplicate_quicklink_id', d.duplicate_quicklink_id,\n      'duplicate_marca', d.duplicate_marca\n    ))\n    WHEN a.quicklink_id IS NULL THEN jsonb_build_array(jsonb_build_object(\n      'row_number', c.row_number,\n      'quicklink_id', c.quicklink_id,\n      'field', 'ci_ruc_telefono_agente',\n      'reason', 'duplicate_cedula_agent_phone_conflict',\n      'value_length', length(COALESCE(c.duplicate_ci_key, '')) + length(COALESCE(c.duplicate_agent_phone_key, '')),\n      'value_limit', NULL,\n      'value_preview', concat('[redacted:', length(COALESCE(c.duplicate_ci_key, '')), '+', length(COALESCE(c.duplicate_agent_phone_key, '')), ']')\n    ))\n    ELSE '[]'::jsonb\n  END AS _sync_errors\nFROM candidate c\nLEFT JOIN affected a\n  ON a.quicklink_id = c.quicklink_id\n AND a.marca = c.marca\nLEFT JOIN duplicate_existing d\n  ON d.quicklink_id = c.quicklink_id\n AND d.marca = c.marca;",
+        "options": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [\n  $json.quicklink_id,\n  $json.marca,\n  $json.nombre_cliente,\n  $json.ci_ruc,\n  $json.telefono_1,\n  $json.telefono_2,\n  $json.telefono_agente,\n  $json.correo_cliente,\n  $json.ciudad,\n  $json.chasis,\n  $json.modelo,\n  $json.clave_modelo,\n  $json.agencia,\n  $json.nombre_vendedor_ql,\n  $json.correo_vendedor_ql,\n  $json.fecha_venta || '',\n  $json.fecha_asignacion || '',\n  $json.fecha_gestion || '',\n  $json.fecha_final_gestion || '',\n  $json.estado_ql,\n  $json.observacion_ql,\n  $json._skip_upsert === true,\n  $json._sync_row_number ?? ''\n] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "c7d39cb7-4936-4331-8369-bd4179eb7a72",
+      "name": "Resumen Sync",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1328,
+        272
+      ],
+      "parameters": {
+        "jsCode": "function items(nodeName) {\n  try { return $(nodeName).all(); } catch (e) { return []; }\n}\n\nfunction count(nodeName) {\n  return items(nodeName).length;\n}\n\nfunction insertedCount(nodeName) {\n  return items(nodeName).filter(item => item?.json?.inserted === true || String(item?.json?.inserted) === 'true').length;\n}\n\nfunction affectedCount(nodeName) {\n  return items(nodeName).filter(item => item?.json?.affected === true || String(item?.json?.affected) === 'true' || item?.json?.inserted === true || String(item?.json?.inserted) === 'true').length;\n}\n\nfunction meta(nodeName) {\n  try {\n    const nodeItems = items(nodeName);\n    return nodeItems[0]?.json?._sync_meta || { fetched: count(nodeName), valid: count(nodeName), invalid: 0, invalid_samples: [] };\n  } catch (e) {\n    return { fetched: 0, valid: 0, invalid: 0, invalid_samples: [] };\n  }\n}\n\nconst kiaMeta = meta('Transform KIA');\nconst hyundaiMeta = meta('Transform Hyundai');\nconst kiaInserted = insertedCount('Upsert KIA');\nconst hyundaiInserted = insertedCount('Upsert Hyundai');\nconst kiaAffected = affectedCount('Upsert KIA');\nconst hyundaiAffected = affectedCount('Upsert Hyundai');\nconst source = count('Webhook Sync Manual') > 0 ? 'manual' : 'scheduled';\nconst summary = {\n  status: 'sync_ok',\n  mode: 'refresh_existing',\n  source,\n  timestamp: new Date().toISOString(),\n  kia_fetched: count('GET Leads KIA'),\n  kia_valid: kiaMeta.valid,\n  kia_invalid: kiaMeta.invalid,\n  kia_inserted: kiaInserted,\n  kia_refreshed: Math.max(kiaAffected - kiaInserted, 0),\n  kia_existing_skipped: Math.max((kiaMeta.valid || 0) - kiaAffected, 0),\n  kia_upserted: kiaAffected,\n  hyundai_fetched: count('GET Leads Hyundai'),\n  hyundai_valid: hyundaiMeta.valid,\n  hyundai_invalid: hyundaiMeta.invalid,\n  hyundai_inserted: hyundaiInserted,\n  hyundai_refreshed: Math.max(hyundaiAffected - hyundaiInserted, 0),\n  hyundai_existing_skipped: Math.max((hyundaiMeta.valid || 0) - hyundaiAffected, 0),\n  hyundai_upserted: hyundaiAffected,\n  invalid_samples: {\n    KIA: kiaMeta.invalid_samples || [],\n    HYUNDAI: hyundaiMeta.invalid_samples || []\n  }\n};\n\nconst problems = [];\nif (summary.kia_invalid > 0) problems.push(`KIA invalid rows: ${summary.kia_invalid}`);\nif (summary.hyundai_invalid > 0) problems.push(`HYUNDAI invalid rows: ${summary.hyundai_invalid}`);\nif (summary.kia_inserted > summary.kia_valid) problems.push(`KIA insert count invalid: valid=${summary.kia_valid} inserted=${summary.kia_inserted}`);\nif (summary.hyundai_inserted > summary.hyundai_valid) problems.push(`HYUNDAI insert count invalid: valid=${summary.hyundai_valid} inserted=${summary.hyundai_inserted}`);\n\nif (summary.kia_fetched === 0 && summary.hyundai_fetched === 0) {\n  summary.status = 'sync_empty';\n}\n\nif (problems.length) {\n  summary.status = 'sync_failed_validation';\n  summary.error = problems.join('; ');\n} else {\n  summary.error = null;\n}\n\nreturn [{ json: summary }];"
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ql-sync-manual",
+        "authentication": "headerAuth",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "webhook-manual-sync-001",
+      "name": "Webhook Sync Manual",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        208,
+        128
+      ],
+      "webhookId": "ql-sync-manual-permanent",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "0hYeKlozui5dMRDE_quicklink",
+          "name": "QL Sync Manual Webhook Token_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "append"
+      },
+      "id": "merge-qlsync-upsert-results",
+      "name": "Merge Upsert Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1104,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "path": "ql-get-by-brand",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "webhook-get-by-brand-001",
+      "name": "Webhook GET By Brand",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        208,
+        736
+      ],
+      "webhookId": "ql-get-by-brand-permanent",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "0hYeKlozui5dMRDE_quicklink",
+          "name": "QL Sync Manual Webhook Token_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const query = $json.query || {};\nconst rawBrand = query.brand ?? query.marca ?? $json.brand ?? $json.marca ?? '';\nconst brand = String(rawBrand || '').trim().toLowerCase();\nconst allowedBrands = ['kia', 'hyundai'];\n\nfunction intParam(value, fallback, min, max) {\n  const n = Number.parseInt(value ?? '', 10);\n  if (!Number.isInteger(n)) return fallback;\n  return Math.min(Math.max(n, min), max);\n}\n\nconst limit = intParam(query.limit ?? $json.limit, 100, 1, 500);\nconst offset = intParam(query.offset ?? $json.offset, 0, 0, 1000000);\nconst valid = allowedBrands.includes(brand);\n\nif (!valid) {\n  return [{ json: {\n    valid: false,\n    status: 'error',\n    error: 'invalid_brand',\n    message: 'Use brand=kia or brand=hyundai',\n    allowed_brands: allowedBrands,\n    received_brand: rawBrand || null\n  } }];\n}\n\nconst endpoint = `https://app.quicklink.com.ec:21305/api_kia/datos/${brand}/filtrados`;\nconst queryString = `limit=${encodeURIComponent(String(limit))}&offset=${encodeURIComponent(String(offset))}`;\n\nreturn [{ json: {\n  valid: true,\n  status: 'ok',\n  brand,\n  limit,\n  offset,\n  endpoint,\n  url: `${endpoint}?${queryString}`\n} }];"
+      },
+      "id": "code-get-by-brand-normalize-001",
+      "name": "Normalize GET By Brand",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        736
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "valid-brand",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "if-get-by-brand-valid-001",
+      "name": "IF Valid Brand",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        656,
+        736
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "http-get-by-brand-001",
+      "name": "GET Leads By Brand",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        640
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "XhQ9xLnmEt7Qr9Np_quicklink",
+          "name": "QuickLink Leads API Key_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Normalize GET By Brand').first().json;\nconst data = $input.all().map(item => item.json);\n\nreturn [{ json: {\n  status: 'ok',\n  source: 'quicklink',\n  brand: cfg.brand,\n  limit: cfg.limit,\n  offset: cfg.offset,\n  total: data.length,\n  fetched_at: new Date().toISOString(),\n  data\n} }];"
+      },
+      "id": "code-get-by-brand-response-001",
+      "name": "Format GET By Brand Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\n\nreturn [{ json: {\n  status: 'error',\n  error: item.error || 'invalid_request',\n  message: item.message || 'Invalid request',\n  allowed_brands: item.allowed_brands || ['kia', 'hyundai'],\n  received_brand: item.received_brand || null,\n  example: '/webhook/ql-get-by-brand?brand=kia&limit=100&offset=0'\n} }];"
+      },
+      "id": "code-get-by-brand-error-001",
+      "name": "GET By Brand Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "path": "ql-sync-history",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "a1b2c3d4-0808-4808-8808-sync08history1",
+      "name": "Webhook GET Sync History",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        208,
+        944
+      ],
+      "webhookId": "ql-sync-history-permanent",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "0hYeKlozui5dMRDE_quicklink",
+          "name": "QL Sync Manual Webhook Token_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH params AS (\n  SELECT CASE\n    WHEN $1::text ~ '^[0-9]+$' THEN LEAST(GREATEST(($1::text)::integer, 1), 200)\n    ELSE 30\n  END AS limit_rows\n), rows AS (\n  SELECT s.*\n  FROM sales_prod.sync_runs s, params p\n  ORDER BY s.run_at DESC\n  LIMIT (SELECT limit_rows FROM params)\n)\nSELECT\n  'ok'::text AS status,\n  'sales_prod.sync_runs'::text AS source,\n  params.limit_rows AS limit,\n  count(rows.id)::integer AS total,\n  now() AS fetched_at,\n  coalesce(jsonb_agg(to_jsonb(rows) ORDER BY rows.run_at DESC) FILTER (WHERE rows.id IS NOT NULL), '[]'::jsonb) AS data\nFROM params\nLEFT JOIN rows ON true\nGROUP BY params.limit_rows;",
+        "options": {
+          "queryReplacement": "={{ [ $json.query?.limit || '' ] }}"
+        }
+      },
+      "id": "a1b2c3d4-0808-4808-8808-sync08histqry1",
+      "name": "Query Sync History",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        432,
+        944
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "path": "cris08-panel",
+        "responseMode": "lastNode",
+        "options": {
+          "responsePropertyName": "page_html",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      },
+      "id": "a1b2c3d4-0808-4808-8808-sync08panelwh1",
+      "name": "Serve Panel Web",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        208,
+        1152
+      ],
+      "webhookId": "cris08-panel-permanent"
+    },
+    {
+      "parameters": {
+        "jsCode": "const q = $json.query || {};\nconst PANEL_TOKEN = 'QL08panel-7h2k-2026';\nif (String(q.token || '') !== PANEL_TOKEN) {\n  return [{ json: { page_html: \"<!doctype html><html lang=\\\"es\\\"><head><meta charset=\\\"utf-8\\\"><title>No autorizado</title><style>body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0f1115;color:#e7e9ee;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}.b{border:1px solid #2a2f3a;border-radius:12px;padding:28px 34px;text-align:center}h1{font-size:18px;margin:0 0 6px}p{color:#9aa3b2;font-size:14px;margin:0}</style></head><body><div class=\\\"b\\\"><h1>Acceso no autorizado</h1><p>Falta o es incorrecto el token del panel (?token=...).</p></div></body></html>\" } }];\n}\nconst page = \"<!DOCTYPE html>\\n<html lang=\\\"es\\\">\\n<head>\\n<meta charset=\\\"utf-8\\\" />\\n<meta name=\\\"viewport\\\" content=\\\"width=device-width, initial-scale=1\\\" />\\n<title>CRIS-08 \\u00b7 Sync Leads \\u2014 Consola de webhooks</title>\\n<style>\\n  :root {\\n    --bg:#0f1115; --card:#171a21; --card2:#1e222b; --line:#2a2f3a; --line2:#3a4150;\\n    --txt:#e7e9ee; --muted:#9aa3b2; --dim:#6b7382;\\n    --accent:#3b82f6; --accent-d:#1d4ed8; --ok:#22c55e; --okbg:#0e2a19;\\n    --err:#ef4444; --errbg:#2a1414; --warn:#f59e0b; --warnbg:#2a2110;\\n    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;\\n    --sans:-apple-system,BlinkMacSystemFont,\\\"Segoe UI\\\",Roboto,Helvetica,Arial,sans-serif;\\n  }\\n  * { box-sizing:border-box; }\\n  body { margin:0; background:var(--bg); color:var(--txt); font-family:var(--sans); font-size:15px; line-height:1.5; }\\n  .wrap { max-width:860px; margin:0 auto; padding:28px 20px 60px; }\\n  h1 { font-size:20px; font-weight:600; margin:0 0 2px; }\\n  .sub { color:var(--muted); font-size:13px; margin:0 0 22px; }\\n  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px 20px; margin-bottom:16px; }\\n  .row { display:flex; align-items:center; gap:8px; margin-bottom:6px; }\\n  .row .title { font-weight:600; }\\n  .tag { margin-left:auto; font-family:var(--mono); font-size:11px; padding:3px 9px; border-radius:7px; background:#12213a; color:#7cb0ff; border:1px solid #1e3a63; white-space:nowrap; }\\n  label { display:block; font-size:12px; color:var(--muted); margin:0 0 4px; }\\n  input, select { width:100%; height:38px; background:var(--card2); border:1px solid var(--line2); color:var(--txt);\\n    border-radius:9px; padding:0 11px; font-size:14px; font-family:var(--sans); outline:none; }\\n  input:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(59,130,246,.18); }\\n  .hint { font-size:12px; color:var(--dim); margin:6px 0 0; }\\n  button { cursor:pointer; height:38px; border-radius:9px; border:1px solid var(--line2); background:var(--card2);\\n    color:var(--txt); font-size:14px; font-family:var(--sans); padding:0 16px; transition:.12s; }\\n  button:hover { border-color:var(--line2); background:#252b36; }\\n  button:active { transform:scale(.985); }\\n  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:500; }\\n  button.primary:hover { background:var(--accent-d); border-color:var(--accent-d); }\\n  button:disabled { opacity:.5; cursor:default; }\\n  .btn-block { width:100%; }\\n  .grid4 { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:14px; }\\n  .stat { background:var(--card2); border-radius:9px; padding:10px 12px; }\\n  .stat .k { font-size:12px; color:var(--muted); }\\n  .stat .v { font-size:22px; font-weight:600; margin-top:2px; }\\n  .query { display:grid; grid-template-columns:1.5fr 1fr 1fr auto; gap:8px; align-items:end; }\\n  .tablewrap { margin-top:14px; border:1px solid var(--line); border-radius:10px; overflow:auto; max-height:440px; }\\n  table { width:100%; border-collapse:collapse; font-size:13px; }\\n  th { position:sticky; top:0; background:var(--card2); text-align:left; padding:8px 10px; font-weight:500; color:var(--muted); white-space:nowrap; }\\n  td { padding:7px 10px; border-top:1px solid var(--line); white-space:nowrap; }\\n  tr:hover td { background:#1b1f28; }\\n  .pager { display:flex; align-items:center; justify-content:space-between; margin-top:10px; gap:10px; flex-wrap:wrap; }\\n  .pager .meta { font-size:12px; color:var(--dim); }\\n  .pager .acts { display:flex; gap:6px; }\\n  .pager button { height:32px; font-size:12px; padding:0 12px; }\\n  .msg { margin-top:12px; font-size:13px; padding:10px 12px; border-radius:9px; display:none; }\\n  .msg.show { display:block; }\\n  .msg.ok { background:var(--okbg); color:#8ef0b0; border:1px solid #1c5233; }\\n  .msg.err { background:var(--errbg); color:#ffb0b0; border:1px solid #5a2020; }\\n  .msg.warn { background:var(--warnbg); color:#f4cd83; border:1px solid #5a4620; }\\n  .msg pre { margin:6px 0 0; font-family:var(--mono); font-size:11px; white-space:pre-wrap; word-break:break-word; color:inherit; opacity:.85; }\\n  .spin { display:inline-block; width:13px; height:13px; border:2px solid rgba(255,255,255,.35); border-top-color:#fff; border-radius:50%; animation:sp .7s linear infinite; vertical-align:-2px; margin-right:6px; }\\n  @keyframes sp { to { transform:rotate(360deg); } }\\n  .cfgline { display:flex; gap:8px; align-items:center; margin-top:10px; }\\n  .cfgline input { flex:1; font-family:var(--mono); font-size:12px; }\\n  @media (max-width:620px){ .grid4{grid-template-columns:repeat(2,1fr);} .query{grid-template-columns:1fr 1fr;} .query button{grid-column:1/-1;} }\\n</style>\\n</head>\\n<body>\\n<div class=\\\"wrap\\\">\\n  <h1>CRIS-08 \\u00b7 Sync Leads</h1>\\n  <p class=\\\"sub\\\">Consola para los webhooks del flujo diario de sincronizaci\\u00f3n de leads (KIA \\u00b7 Hyundai).</p>\\n\\n  <!-- Config / token -->\\n  <div class=\\\"card\\\">\\n    <div class=\\\"row\\\"><span class=\\\"title\\\">Configuraci\\u00f3n</span></div>\\n    <label for=\\\"token\\\">Token de acceso \\u00b7 header <code style=\\\"font-family:var(--mono);font-size:12px\\\">x-ql-sync-token</code></label>\\n    <input id=\\\"token\\\" type=\\\"password\\\" placeholder=\\\"pega aqu\\u00ed el token\\\" autocomplete=\\\"off\\\" />\\n    <div class=\\\"cfgline\\\">\\n      <input id=\\\"base\\\" type=\\\"text\\\" spellcheck=\\\"false\\\" />\\n      <button id=\\\"saveCfg\\\" title=\\\"Guardar en este navegador\\\">Guardar</button>\\n    </div>\\n    <p class=\\\"hint\\\">El token y la URL base se recuerdan en este navegador (localStorage). No se comparten.</p>\\n  </div>\\n\\n  <!-- Sync manual -->\\n  <div class=\\\"card\\\">\\n    <div class=\\\"row\\\">\\n      <span class=\\\"title\\\">Sincronizar leads ahora</span>\\n      <span class=\\\"tag\\\">POST \\u00b7 ql-sync-manual</span>\\n    </div>\\n    <p class=\\\"hint\\\" style=\\\"margin:0 0 12px;color:var(--muted)\\\">Trae leads KIA y Hyundai desde QuickLink y los actualiza en Supabase. Equivale al cron de las 09:30.</p>\\n    <button id=\\\"btnSync\\\" class=\\\"primary btn-block\\\">Ejecutar sync</button>\\n    <div class=\\\"grid4\\\" id=\\\"syncStats\\\" style=\\\"display:none\\\">\\n      <div class=\\\"stat\\\"><div class=\\\"k\\\">KIA fetched</div><div class=\\\"v\\\" id=\\\"s-kf\\\">\\u2013</div></div>\\n      <div class=\\\"stat\\\"><div class=\\\"k\\\">Hyundai fetched</div><div class=\\\"v\\\" id=\\\"s-hf\\\">\\u2013</div></div>\\n      <div class=\\\"stat\\\"><div class=\\\"k\\\">Upserted</div><div class=\\\"v\\\" id=\\\"s-up\\\">\\u2013</div></div>\\n      <div class=\\\"stat\\\"><div class=\\\"k\\\">Inv\\u00e1lidos</div><div class=\\\"v\\\" id=\\\"s-inv\\\">\\u2013</div></div>\\n    </div>\\n    <div class=\\\"msg\\\" id=\\\"syncMsg\\\"></div>\\n  </div>\\n\\n  <!-- Consulta por marca -->\\n  <div class=\\\"card\\\">\\n    <div class=\\\"row\\\">\\n      <span class=\\\"title\\\">Consultar leads por marca</span>\\n      <span class=\\\"tag\\\">GET \\u00b7 ql-get-by-brand</span>\\n    </div>\\n    <div class=\\\"query\\\">\\n      <div>\\n        <label for=\\\"brand\\\">Marca</label>\\n        <select id=\\\"brand\\\"><option value=\\\"kia\\\">kia</option><option value=\\\"hyundai\\\">hyundai</option></select>\\n      </div>\\n      <div><label for=\\\"limit\\\">L\\u00edmite (1\\u2013500)</label><input id=\\\"limit\\\" type=\\\"number\\\" min=\\\"1\\\" max=\\\"500\\\" value=\\\"100\\\" /></div>\\n      <div><label for=\\\"offset\\\">Offset</label><input id=\\\"offset\\\" type=\\\"number\\\" min=\\\"0\\\" value=\\\"0\\\" /></div>\\n      <button id=\\\"btnGet\\\" class=\\\"primary\\\">Consultar</button>\\n    </div>\\n    <div class=\\\"msg\\\" id=\\\"getMsg\\\"></div>\\n    <div id=\\\"results\\\" style=\\\"display:none\\\">\\n      <div class=\\\"tablewrap\\\"><table><thead id=\\\"thead\\\"></thead><tbody id=\\\"tbody\\\"></tbody></table></div>\\n      <div class=\\\"pager\\\">\\n        <span class=\\\"meta\\\" id=\\\"getMeta\\\"></span>\\n        <div class=\\\"acts\\\">\\n          <button id=\\\"prev\\\">\\u2039 Anterior</button>\\n          <button id=\\\"next\\\">Siguiente \\u203a</button>\\n          <button id=\\\"csv\\\">Descargar CSV</button>\\n        </div>\\n      </div>\\n    </div>\\n  </div>\\n\\n  <!-- Hist\\u00f3rico de ejecuciones -->\\n  <div class=\\\"card\\\">\\n    <div class=\\\"row\\\">\\n      <span class=\\\"title\\\">Hist\\u00f3rico de ejecuciones</span>\\n      <span class=\\\"tag\\\">GET \\u00b7 ql-sync-history</span>\\n    </div>\\n    <p class=\\\"hint\\\" style=\\\"margin:0 0 12px;color:var(--muted)\\\">Cada corrida guardada: la programada de las 09:30 y cada sync manual. Se registra desde el 16 jul 2026.</p>\\n    <div style=\\\"display:flex; gap:8px; align-items:end;\\\">\\n      <div style=\\\"width:140px\\\"><label for=\\\"histLimit\\\">Mostrar</label><input id=\\\"histLimit\\\" type=\\\"number\\\" min=\\\"1\\\" max=\\\"200\\\" value=\\\"30\\\" /></div>\\n      <button id=\\\"btnHist\\\">Actualizar</button>\\n    </div>\\n    <div class=\\\"msg\\\" id=\\\"histMsg\\\"></div>\\n    <div id=\\\"histResults\\\" style=\\\"display:none\\\">\\n      <div class=\\\"tablewrap\\\">\\n        <table>\\n          <thead><tr>\\n            <th>Fecha / hora</th><th>Origen</th><th>Estado</th>\\n            <th>KIA (fetch\\u2192upsert)</th><th>Hyundai (fetch\\u2192upsert)</th><th>Inv\\u00e1lidos</th>\\n          </tr></thead>\\n          <tbody id=\\\"histBody\\\"></tbody>\\n        </table>\\n      </div>\\n      <div class=\\\"pager\\\"><span class=\\\"meta\\\" id=\\\"histMeta\\\"></span></div>\\n    </div>\\n  </div>\\n\\n  <!-- Reporte de errores omitidos -->\\n  <div class=\\\"card\\\">\\n    <div class=\\\"row\\\">\\n      <span class=\\\"title\\\">Errores omitidos</span>\\n      <span class=\\\"tag\\\">GET · ql-sync-errors</span>\\n    </div>\\n    <p class=\\\"hint\\\" style=\\\"margin:0 0 12px;color:var(--muted)\\\">Leads rechazados antes del upsert por datos invalidos o campos demasiado largos.</p>\\n    <div style=\\\"display:flex; gap:8px; align-items:end; flex-wrap:wrap;\\\">\\n      <div style=\\\"width:120px\\\"><label for=\\\"errLimit\\\">Mostrar</label><input id=\\\"errLimit\\\" type=\\\"number\\\" min=\\\"1\\\" max=\\\"500\\\" value=\\\"100\\\" /></div>\\n      <div style=\\\"width:140px\\\"><label for=\\\"errRun\\\">Run ID</label><input id=\\\"errRun\\\" type=\\\"number\\\" min=\\\"1\\\" placeholder=\\\"opcional\\\" /></div>\\n      <div style=\\\"width:150px\\\"><label for=\\\"errBrand\\\">Marca</label><select id=\\\"errBrand\\\"><option value=\\\"\\\">Todas</option><option value=\\\"kia\\\">KIA</option><option value=\\\"hyundai\\\">Hyundai</option></select></div>\\n      <button id=\\\"btnErrors\\\">Actualizar</button>\\n    </div>\\n    <div class=\\\"msg\\\" id=\\\"errMsg\\\"></div>\\n    <div id=\\\"errResults\\\" style=\\\"display:none\\\">\\n      <div class=\\\"tablewrap\\\">\\n        <table>\\n          <thead><tr>\\n            <th>Fecha / hora</th><th>Run</th><th>Marca</th><th>Lead</th><th>Fila</th><th>Campo</th><th>Motivo</th><th>Largo</th><th>Preview</th>\\n          </tr></thead>\\n          <tbody id=\\\"errBody\\\"></tbody>\\n        </table>\\n      </div>\\n      <div class=\\\"pager\\\"><span class=\\\"meta\\\" id=\\\"errMeta\\\"></span></div>\\n    </div>\\n  </div>\\n</div>\\n\\n<script>\\n(function(){\\n  const DEFAULT_BASE = \\\"https://quicklink.bkn.aigentss.cloud\\\";\\n  const $ = id => document.getElementById(id);\\n  const LS = { token:\\\"ql08_token\\\", base:\\\"ql08_base\\\" };\\n  // localStorage puede lanzar SecurityError en documentos sandbox (webhook n8n): blindar.\\n  const store = {\\n    get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } },\\n    set(k,v){ try { localStorage.setItem(k,v); } catch(e){} }\\n  };\\n\\n  // ---- config load/save ----\\n  $(\\\"token\\\").value = store.get(LS.token) || \\\"__INJECT_TOKEN__\\\";\\n  $(\\\"base\\\").value  = store.get(LS.base)  || DEFAULT_BASE;\\n  $(\\\"saveCfg\\\").onclick = () => {\\n    store.set(LS.token, $(\\\"token\\\").value.trim());\\n    store.set(LS.base, ($(\\\"base\\\").value.trim() || DEFAULT_BASE).replace(/\\\\/+$/,\\\"\\\"));\\n    flash($(\\\"syncMsg\\\"),\\\"ok\\\",\\\"Configuraci\\u00f3n guardada.\\\");\\n  };\\n  const persistToken = () => store.set(LS.token, $(\\\"token\\\").value.trim());\\n  $(\\\"token\\\").addEventListener(\\\"change\\\", persistToken);\\n\\n  const baseUrl = () => ($(\\\"base\\\").value.trim() || DEFAULT_BASE).replace(/\\\\/+$/,\\\"\\\");\\n  const token   = () => $(\\\"token\\\").value.trim();\\n\\n  function flash(el, kind, text, detail){\\n    el.className = \\\"msg show \\\" + kind;\\n    el.innerHTML = text + (detail ? \\\"<pre>\\\"+escapeHtml(detail)+\\\"</pre>\\\" : \\\"\\\");\\n  }\\n  function hide(el){ el.className = \\\"msg\\\"; el.innerHTML=\\\"\\\"; }\\n  function escapeHtml(s){ return String(s).replace(/[&<>]/g, c => ({\\\"&\\\":\\\"&amp;\\\",\\\"<\\\":\\\"&lt;\\\",\\\">\\\":\\\"&gt;\\\"}[c])); }\\n  function corsHelp(e){\\n    return \\\"No se pudo contactar el webhook. Causa m\\u00e1s probable: CORS no est\\u00e1 habilitado en el nodo webhook de n8n \\\"+\\n           \\\"(agregar Allowed Origins). Tambi\\u00e9n verifica la URL base y que el flujo est\\u00e9 activo.\\\\n\\\\nDetalle: \\\"+ (e && e.message || e);\\n  }\\n\\n  // ---- Sync manual (POST) ----\\n  $(\\\"btnSync\\\").onclick = async () => {\\n    if(!token()){ flash($(\\\"syncMsg\\\"),\\\"warn\\\",\\\"Falta el token de acceso.\\\"); return; }\\n    persistToken();\\n    const btn = $(\\\"btnSync\\\"); btn.disabled = true; const old = btn.textContent;\\n    btn.innerHTML = '<span class=\\\"spin\\\"></span>Ejecutando\\u2026';\\n    hide($(\\\"syncMsg\\\")); $(\\\"syncStats\\\").style.display = \\\"none\\\";\\n    try {\\n      const r = await fetch(baseUrl()+\\\"/webhook/ql-sync-manual\\\", {\\n        method:\\\"POST\\\",\\n        headers:{ \\\"Content-Type\\\":\\\"application/json\\\", \\\"x-ql-sync-token\\\": token() },\\n        body:\\\"{}\\\"\\n      });\\n      const raw = await r.text();\\n      let data = null; try { data = JSON.parse(raw); } catch(_){}\\n      if(!r.ok){ flash($(\\\"syncMsg\\\"),\\\"err\\\",\\\"Error \\\"+r.status+\\\" al ejecutar el sync.\\\", raw.slice(0,600)); return; }\\n      // onReceived puede devolver vac\\u00edo; mostramos lo que haya\\n      const s = (data && (data.summary || data)) || {};\\n      const kf = pick(s,\\\"kia_fetched\\\"), hf = pick(s,\\\"hyundai_fetched\\\");\\n      const up = num(pick(s,\\\"kia_upserted\\\")) + num(pick(s,\\\"hyundai_upserted\\\"));\\n      const inv = num(pick(s,\\\"kia_invalid\\\")) + num(pick(s,\\\"hyundai_invalid\\\"));\\n      if(kf!=null || hf!=null){\\n        $(\\\"s-kf\\\").textContent  = fmt(kf);\\n        $(\\\"s-hf\\\").textContent  = fmt(hf);\\n        $(\\\"s-up\\\").textContent  = fmt(up);\\n        $(\\\"s-inv\\\").textContent = fmt(inv);\\n        $(\\\"syncStats\\\").style.display = \\\"grid\\\";\\n        flash($(\\\"syncMsg\\\"),\\\"ok\\\",\\\"Sync ejecutado.\\\");\\n        loadHistory();\\n        loadErrors();\\n      } else {\\n        flash($(\\\"syncMsg\\\"),\\\"ok\\\",\\\"Sync disparado. Corriendo en segundo plano; el hist\\u00f3rico se actualizar\\u00e1 en unos segundos.\\\");\\n        setTimeout(loadHistory, 8000);\\n        setTimeout(loadHistory, 18000);\\n        setTimeout(loadErrors, 18000);\\n      }\\n    } catch(e){\\n      flash($(\\\"syncMsg\\\"),\\\"err\\\", corsHelp(e));\\n    } finally { btn.disabled=false; btn.textContent = old; }\\n  };\\n\\n  // ---- Consulta por marca (GET) ----\\n  let lastRows = [], lastBrand = \\\"\\\";\\n  const clampInt = (v,min,max,def) => { let n=parseInt(v,10); if(!Number.isInteger(n)) n=def; return Math.min(Math.max(n,min),max); };\\n\\n  async function runQuery(){\\n    if(!token()){ flash($(\\\"getMsg\\\"),\\\"warn\\\",\\\"Falta el token de acceso.\\\"); return; }\\n    persistToken();\\n    const brand = $(\\\"brand\\\").value;\\n    const limit = clampInt($(\\\"limit\\\").value,1,500,100);\\n    const offset= clampInt($(\\\"offset\\\").value,0,1000000,0);\\n    $(\\\"limit\\\").value=limit; $(\\\"offset\\\").value=offset;\\n    const btn=$(\\\"btnGet\\\"); btn.disabled=true; const old=btn.textContent; btn.innerHTML='<span class=\\\"spin\\\"></span>';\\n    hide($(\\\"getMsg\\\"));\\n    try {\\n      const url = baseUrl()+\\\"/webhook/ql-get-by-brand?brand=\\\"+encodeURIComponent(brand)+\\\"&limit=\\\"+limit+\\\"&offset=\\\"+offset;\\n      const r = await fetch(url, { method:\\\"GET\\\", headers:{ \\\"x-ql-sync-token\\\": token() } });\\n      const raw = await r.text();\\n      let data=null; try{ data=JSON.parse(raw);}catch(_){}\\n      if(!r.ok){ flash($(\\\"getMsg\\\"),\\\"err\\\",\\\"Error \\\"+r.status+\\\" en la consulta.\\\", raw.slice(0,600)); $(\\\"results\\\").style.display=\\\"none\\\"; return; }\\n      if(data && data.status===\\\"error\\\"){ flash($(\\\"getMsg\\\"),\\\"warn\\\", (data.message||\\\"Solicitud inv\\u00e1lida.\\\")+\\\" (\\\"+(data.received_brand||\\\"\\\")+\\\")\\\"); $(\\\"results\\\").style.display=\\\"none\\\"; return; }\\n      const rows = (data && data.data) || [];\\n      lastRows = rows; lastBrand = brand;\\n      renderTable(rows);\\n      $(\\\"getMeta\\\").textContent = rows.length+\\\" filas \\u00b7 marca \\\"+brand+\\\" \\u00b7 l\\u00edmite \\\"+limit+\\\" \\u00b7 offset \\\"+offset;\\n      $(\\\"results\\\").style.display = rows.length ? \\\"block\\\" : \\\"block\\\";\\n      if(!rows.length) flash($(\\\"getMsg\\\"),\\\"warn\\\",\\\"Sin resultados para esos par\\u00e1metros.\\\");\\n    } catch(e){\\n      flash($(\\\"getMsg\\\"),\\\"err\\\", corsHelp(e)); $(\\\"results\\\").style.display=\\\"none\\\";\\n    } finally { btn.disabled=false; btn.textContent=old; }\\n  }\\n  $(\\\"btnGet\\\").onclick = runQuery;\\n\\n  const PREF = [\\\"telefono\\\",\\\"phone\\\",\\\"nombre\\\",\\\"name\\\",\\\"nombres\\\",\\\"modelo\\\",\\\"model\\\",\\\"vehiculo\\\",\\\"marca\\\",\\\"brand\\\",\\\"ciudad\\\",\\\"city\\\",\\\"placa\\\",\\\"email\\\",\\\"correo\\\"];\\n  function columns(rows){\\n    const seen = new Set();\\n    rows.forEach(r => Object.keys(r||{}).forEach(k=>seen.add(k)));\\n    const all = [...seen];\\n    const ordered = PREF.filter(k=>seen.has(k)).concat(all.filter(k=>!PREF.includes(k)));\\n    return ordered.slice(0,10);\\n  }\\n  function renderTable(rows){\\n    const cols = columns(rows);\\n    $(\\\"thead\\\").innerHTML = \\\"<tr>\\\"+cols.map(c=>\\\"<th>\\\"+escapeHtml(c)+\\\"</th>\\\").join(\\\"\\\")+\\\"</tr>\\\";\\n    $(\\\"tbody\\\").innerHTML = rows.map(r=>\\\"<tr>\\\"+cols.map(c=>{\\n      let v=r?r[c]:\\\"\\\"; if(v==null)v=\\\"\\\"; if(typeof v===\\\"object\\\")v=JSON.stringify(v);\\n      return \\\"<td>\\\"+escapeHtml(String(v))+\\\"</td>\\\";\\n    }).join(\\\"\\\")+\\\"</tr>\\\").join(\\\"\\\");\\n  }\\n\\n  $(\\\"prev\\\").onclick = () => { const l=clampInt($(\\\"limit\\\").value,1,500,100); const o=clampInt($(\\\"offset\\\").value,0,1e9,0); $(\\\"offset\\\").value=Math.max(0,o-l); runQuery(); };\\n  $(\\\"next\\\").onclick = () => { const l=clampInt($(\\\"limit\\\").value,1,500,100); const o=clampInt($(\\\"offset\\\").value,0,1e9,0); $(\\\"offset\\\").value=o+l; runQuery(); };\\n\\n  $(\\\"csv\\\").onclick = () => {\\n    if(!lastRows.length) return;\\n    const cols = columns(lastRows);\\n    const esc = v => { if(v==null)v=\\\"\\\"; if(typeof v===\\\"object\\\")v=JSON.stringify(v); v=String(v); return /[\\\",\\\\n]/.test(v)?'\\\"'+v.replace(/\\\"/g,'\\\"\\\"')+'\\\"':v; };\\n    const csv = [cols.join(\\\",\\\")].concat(lastRows.map(r=>cols.map(c=>esc(r?r[c]:\\\"\\\")).join(\\\",\\\"))).join(\\\"\\\\n\\\");\\n    const blob = new Blob([csv],{type:\\\"text/csv;charset=utf-8\\\"});\\n    const a=document.createElement(\\\"a\\\"); a.href=URL.createObjectURL(blob);\\n    a.download=\\\"leads_\\\"+lastBrand+\\\"_\\\"+new Date().toISOString().slice(0,10)+\\\".csv\\\"; a.click();\\n  };\\n\\n  // ---- Hist\\u00f3rico (GET ql-sync-history) ----\\n  const ORIGEN = { scheduled:\\\"09:30 (auto)\\\", manual:\\\"Manual\\\" };\\n  const ESTADO = {\\n    sync_ok:{t:\\\"OK\\\",c:\\\"var(--ok)\\\"}, sync_empty:{t:\\\"Vac\\u00edo\\\",c:\\\"var(--warn)\\\"},\\n    sync_failed_validation:{t:\\\"Fall\\u00f3\\\",c:\\\"var(--err)\\\"}\\n  };\\n  function fmtDate(iso){\\n    if(!iso) return \\\"\\u2013\\\";\\n    const d = new Date(iso); if(isNaN(d)) return iso;\\n    return d.toLocaleString(\\\"es-EC\\\",{day:\\\"2-digit\\\",month:\\\"2-digit\\\",year:\\\"numeric\\\",hour:\\\"2-digit\\\",minute:\\\"2-digit\\\"});\\n  }\\n  async function loadHistory(){\\n    if(!token()){ flash($(\\\"histMsg\\\"),\\\"warn\\\",\\\"Falta el token de acceso.\\\"); return; }\\n    const limit = clampInt($(\\\"histLimit\\\").value,1,200,30); $(\\\"histLimit\\\").value=limit;\\n    const btn=$(\\\"btnHist\\\"); btn.disabled=true; const old=btn.textContent; btn.innerHTML='<span class=\\\"spin\\\"></span>';\\n    hide($(\\\"histMsg\\\"));\\n    try {\\n      const r = await fetch(baseUrl()+\\\"/webhook/ql-sync-history?limit=\\\"+limit, { method:\\\"GET\\\", headers:{ \\\"x-ql-sync-token\\\": token() } });\\n      const raw = await r.text(); let data=null; try{ data=JSON.parse(raw);}catch(_){}\\n      if(!r.ok){ flash($(\\\"histMsg\\\"),\\\"err\\\",\\\"Error \\\"+r.status+\\\" al leer el hist\\u00f3rico.\\\", raw.slice(0,500)); $(\\\"histResults\\\").style.display=\\\"none\\\"; return; }\\n      const rows = (data && data.data) || [];\\n      if(!rows.length){ $(\\\"histResults\\\").style.display=\\\"none\\\"; flash($(\\\"histMsg\\\"),\\\"warn\\\",\\\"A\\u00fan no hay corridas registradas. Ejecuta un sync o espera la corrida de las 09:30.\\\"); return; }\\n      $(\\\"histBody\\\").innerHTML = rows.map(x=>{\\n        const est = ESTADO[x.status] || {t:x.status,c:\\\"var(--muted)\\\"};\\n        const org = ORIGEN[x.source] || x.source || \\\"\\u2013\\\";\\n        return \\\"<tr>\\\"+\\n          \\\"<td>\\\"+escapeHtml(fmtDate(x.run_at))+\\\"</td>\\\"+\\n          \\\"<td>\\\"+escapeHtml(org)+\\\"</td>\\\"+\\n          \\\"<td><span style='color:\\\"+est.c+\\\"'>&#9679; \\\"+escapeHtml(est.t)+\\\"</span></td>\\\"+\\n          \\\"<td>\\\"+num(x.kia_fetched)+\\\" &rarr; \\\"+num(x.kia_upserted)+\\\"</td>\\\"+\\n          \\\"<td>\\\"+num(x.hyundai_fetched)+\\\" &rarr; \\\"+num(x.hyundai_upserted)+\\\"</td>\\\"+\\n          \\\"<td>\\\"+(num(x.kia_invalid)+num(x.hyundai_invalid))+\\\"</td>\\\"+\\n        \\\"</tr>\\\";\\n      }).join(\\\"\\\");\\n      $(\\\"histResults\\\").style.display=\\\"block\\\";\\n      $(\\\"histMeta\\\").textContent = rows.length+\\\" corridas \\u00b7 m\\u00e1s reciente arriba\\\";\\n    } catch(e){ flash($(\\\"histMsg\\\"),\\\"err\\\", corsHelp(e)); $(\\\"histResults\\\").style.display=\\\"none\\\"; }\\n    finally { btn.disabled=false; btn.textContent=old; }\\n  }\\n  $(\\\"btnHist\\\").onclick = loadHistory;\\n\\n\\n  // ---- Errores omitidos (GET ql-sync-errors) ----\\n  async function loadErrors(){\\n    if(!token()){ flash($(\\\"errMsg\\\"),\\\"warn\\\",\\\"Falta el token de acceso.\\\"); return; }\\n    const limit = clampInt($(\\\"errLimit\\\").value,1,500,100); $(\\\"errLimit\\\").value=limit;\\n    const runId = $(\\\"errRun\\\").value.trim();\\n    const brand = $(\\\"errBrand\\\").value;\\n    const qs = new URLSearchParams({ limit:String(limit) });\\n    if(runId) qs.set(\\\"sync_run_id\\\", runId);\\n    if(brand) qs.set(\\\"brand\\\", brand);\\n    const btn=$(\\\"btnErrors\\\"); btn.disabled=true; const old=btn.textContent; btn.innerHTML='<span class=\\\"spin\\\"></span>';\\n    hide($(\\\"errMsg\\\"));\\n    try {\\n      const r = await fetch(baseUrl()+\\\"/webhook/ql-sync-errors?\\\"+qs.toString(), { method:\\\"GET\\\", headers:{ \\\"x-ql-sync-token\\\": token() } });\\n      const raw = await r.text(); let data=null; try{ data=JSON.parse(raw);}catch(_){ }\\n      if(!r.ok){ flash($(\\\"errMsg\\\"),\\\"err\\\",\\\"Error \\\"+r.status+\\\" al leer errores.\\\", raw.slice(0,500)); $(\\\"errResults\\\").style.display=\\\"none\\\"; return; }\\n      const rows = (data && data.data) || [];\\n      if(!rows.length){ $(\\\"errResults\\\").style.display=\\\"none\\\"; flash($(\\\"errMsg\\\"),\\\"ok\\\",\\\"No hay errores registrados para esos filtros.\\\"); return; }\\n      $(\\\"errBody\\\").innerHTML = rows.map(x=>{\\n        const length = x.value_limit ? num(x.value_length)+\\\"/\\\"+num(x.value_limit) : (x.value_length == null ? \\\"\\\" : String(x.value_length));\\n        return \\\"<tr>\\\"+\\n          \\\"<td>\\\"+escapeHtml(fmtDate(x.run_at))+\\\"</td>\\\"+\\n          \\\"<td>\\\"+escapeHtml(String(x.sync_run_id || \\\"\\\"))+\\\"</td>\\\"+\\n          \\\"<td>\\\"+escapeHtml(x.marca || \\\"\\\")+\\\"</td>\\\"+\\n          \\\"<td>\\\"+escapeHtml(String(x.quicklink_id || \\\"\\\"))+\\\"</td>\\\"+\\n          \\\"<td>\\\"+escapeHtml(String(x.row_number || \\\"\\\"))+\\\"</td>\\\"+\\n          \\\"<td>\\\"+escapeHtml(x.field || \\\"\\\")+\\\"</td>\\\"+\\n          \\\"<td>\\\"+escapeHtml(x.reason || \\\"\\\")+\\\"</td>\\\"+\\n          \\\"<td>\\\"+escapeHtml(length)+\\\"</td>\\\"+\\n          \\\"<td>\\\"+escapeHtml(x.value_preview || \\\"\\\")+\\\"</td>\\\"+\\n        \\\"</tr>\\\";\\n      }).join(\\\"\\\");\\n      $(\\\"errResults\\\").style.display=\\\"block\\\";\\n      $(\\\"errMeta\\\").textContent = rows.length+\\\" errores · mas reciente arriba\\\";\\n    } catch(e){ flash($(\\\"errMsg\\\"),\\\"err\\\", corsHelp(e)); $(\\\"errResults\\\").style.display=\\\"none\\\"; }\\n    finally { btn.disabled=false; btn.textContent=old; }\\n  }\\n  $(\\\"btnErrors\\\").onclick = loadErrors;\\n\\n  // helpers\\n  function pick(o,k){ return o && o[k]!==undefined ? o[k] : null; }\\n  function num(v){ const n=Number(v); return Number.isFinite(n)?n:0; }\\n  function fmt(v){ return v==null?\\\"\\u2013\\\":(Number.isFinite(Number(v))?Number(v).toLocaleString():String(v)); }\\n\\n  // carga inicial del hist\\u00f3rico si ya hay token guardado\\n  if(token()) { loadHistory(); loadErrors(); }\\n})();\\n</script>\\n</body>\\n</html>\\n\";\nreturn [{ json: { page_html: page.split('__INJECT_TOKEN__').join('') } }];"
+      },
+      "id": "a1b2c3d4-0808-4808-8808-sync08render01",
+      "name": "Render Panel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        1152
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH input AS (\n  SELECT\n    $1::text AS source,\n    $2::text AS status,\n    $3::integer AS kia_fetched,\n    $4::integer AS kia_valid,\n    $5::integer AS kia_invalid,\n    $6::integer AS kia_upserted,\n    $7::integer AS hyundai_fetched,\n    $8::integer AS hyundai_valid,\n    $9::integer AS hyundai_invalid,\n    $10::integer AS hyundai_upserted,\n    NULLIF($11::text, '') AS error\n), inserted AS (\n  INSERT INTO sales_prod.sync_runs (\n    source, status,\n    kia_fetched, kia_valid, kia_invalid, kia_upserted,\n    hyundai_fetched, hyundai_valid, hyundai_invalid, hyundai_upserted,\n    error\n  )\n  SELECT\n    source, status,\n    kia_fetched, kia_valid, kia_invalid, kia_upserted,\n    hyundai_fetched, hyundai_valid, hyundai_invalid, hyundai_upserted,\n    error\n  FROM input\n  RETURNING id, run_at\n)\nSELECT\n  input.status,\n  'refresh_existing'::text AS mode,\n  input.source,\n  (SELECT run_at FROM inserted) AS timestamp,\n  (SELECT id FROM inserted) AS sync_run_id,\n  input.kia_fetched,\n  input.kia_valid,\n  input.kia_invalid,\n  input.kia_upserted AS kia_inserted,\n  GREATEST(input.kia_valid - input.kia_upserted, 0) AS kia_existing_skipped,\n  input.kia_upserted,\n  input.hyundai_fetched,\n  input.hyundai_valid,\n  input.hyundai_invalid,\n  input.hyundai_upserted AS hyundai_inserted,\n  GREATEST(input.hyundai_valid - input.hyundai_upserted, 0) AS hyundai_existing_skipped,\n  input.hyundai_upserted,\n  input.error\nFROM input;",
+        "options": {
+          "queryReplacement": "={{ [\n  $json.source,\n  $json.status,\n  $json.kia_fetched,\n  $json.kia_valid,\n  $json.kia_invalid,\n  $json.kia_inserted,\n  $json.hyundai_fetched,\n  $json.hyundai_valid,\n  $json.hyundai_invalid,\n  $json.hyundai_inserted,\n  $json.error || ''\n] }}"
+        }
+      },
+      "id": "log-qlsync-run-sales-prod",
+      "name": "Log Sync Run",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1648,
+        304
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "build-qlsync-kia-pages-001",
+      "name": "Build KIA Pages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        176
+      ],
+      "parameters": {
+        "jsCode": "const brand = 'kia';\nconst endpoint = 'https://app.quicklink.com.ec:21305/api_kia/datos/kia/filtrados';\nconst limit = 500;\nconst maxPages = 10;\n\nreturn Array.from({ length: maxPages }, (_, page) => {\n  const offset = page * limit;\n  return { json: {\n    brand,\n    page: page + 1,\n    limit,\n    offset,\n    url: `${endpoint}?limit=${encodeURIComponent(String(limit))}&offset=${encodeURIComponent(String(offset))}`\n  } };\n});"
+      }
+    },
+    {
+      "id": "build-qlsync-hyundai-pages-001",
+      "name": "Build Hyundai Pages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        368
+      ],
+      "parameters": {
+        "jsCode": "const brand = 'hyundai';\nconst endpoint = 'https://app.quicklink.com.ec:21305/api_kia/datos/hyundai/filtrados';\nconst limit = 500;\nconst maxPages = 10;\n\nreturn Array.from({ length: maxPages }, (_, page) => {\n  const offset = page * limit;\n  return { json: {\n    brand,\n    page: page + 1,\n    limit,\n    offset,\n    url: `${endpoint}?limit=${encodeURIComponent(String(limit))}&offset=${encodeURIComponent(String(offset))}`\n  } };\n});"
+      }
+    },
+    {
+      "id": "prepare-qlsync-lead-errors",
+      "name": "Prepare Sync Lead Errors",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1880,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const run = $input.first()?.json || {};\n\nfunction items(nodeName) {\n  try { return $(nodeName).all(); } catch (e) { return []; }\n}\n\nfunction errorRows(nodeName, brand) {\n  const rows = [];\n  for (const item of items(nodeName)) {\n    const json = item?.json || {};\n    let errors = Array.isArray(json._sync_errors) ? json._sync_errors : [];\n    if (!errors.length && typeof json._sync_errors === 'string') {\n      try {\n        const parsed = JSON.parse(json._sync_errors);\n        errors = Array.isArray(parsed) ? parsed : [];\n      } catch (e) {\n        errors = [];\n      }\n    }\n    for (const err of errors) {\n      rows.push({ json: {\n        sync_run_id: run.sync_run_id || null,\n        run_at: run.timestamp || new Date().toISOString(),\n        source: run.source || 'scheduled',\n        marca: err.marca || json.marca || brand,\n        quicklink_id: err.quicklink_id ?? json.quicklink_id ?? null,\n        row_number: err.row_number ?? null,\n        field: err.field || 'row',\n        reason: err.reason || 'invalid_row',\n        value_length: err.value_length ?? null,\n        value_limit: err.value_limit ?? null,\n        value_preview: err.value_preview ?? null\n      } });\n    }\n  }\n  return rows;\n}\n\nreturn errorRows('Transform KIA', 'KIA')\n  .concat(errorRows('Transform Hyundai', 'HYUNDAI'))\n  .concat(errorRows('Upsert KIA', 'KIA'))\n  .concat(errorRows('Upsert Hyundai', 'HYUNDAI'));"
+      }
+    },
+    {
+      "id": "log-qlsync-lead-errors-sales-prod",
+      "name": "Log Sync Lead Errors",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2120,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO sales_prod.sync_lead_errors (\n  sync_run_id, run_at, source, marca, quicklink_id, row_number,\n  field, reason, value_length, value_limit, value_preview\n)\nSELECT\n  $1::bigint,\n  COALESCE(NULLIF($2::text, '')::timestamptz, now()),\n  COALESCE(NULLIF($3::text, ''), 'scheduled'),\n  $4::sales_prod.marca_lead,\n  NULLIF($5::text, '')::integer,\n  NULLIF($6::text, '')::integer,\n  $7::text,\n  $8::text,\n  NULLIF($9::text, '')::integer,\n  NULLIF($10::text, '')::integer,\n  NULLIF($11::text, '')\nRETURNING id, sync_run_id;",
+        "options": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [\n  $json.sync_run_id,\n  $json.run_at || '',\n  $json.source || 'scheduled',\n  $json.marca,\n  $json.quicklink_id ?? '',\n  $json.row_number ?? '',\n  $json.field,\n  $json.reason,\n  $json.value_length ?? '',\n  $json.value_limit ?? '',\n  $json.value_preview || ''\n] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "webhook-qlsync-errors-001",
+      "name": "Webhook GET Sync Errors",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        208,
+        1360
+      ],
+      "parameters": {
+        "path": "ql-sync-errors",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "0hYeKlozui5dMRDE_quicklink",
+          "name": "QL Sync Manual Webhook Token_QUICKLINK"
+        }
+      },
+      "webhookId": "ql-sync-errors-permanent"
+    },
+    {
+      "id": "query-qlsync-errors-sales-prod",
+      "name": "Query Sync Errors",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        432,
+        1360
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH params AS (\n  SELECT\n    CASE\n      WHEN $1::text ~ '^[0-9]+$' THEN LEAST(GREATEST(($1::text)::integer, 1), 500)\n      ELSE 100\n    END AS limit_rows,\n    CASE\n      WHEN $2::text ~ '^[0-9]+$' THEN ($2::text)::bigint\n      ELSE NULL\n    END AS sync_run_id,\n    CASE\n      WHEN upper($3::text) IN ('KIA', 'HYUNDAI') THEN upper($3::text)::sales_prod.marca_lead\n      ELSE NULL\n    END AS marca\n), rows AS (\n  SELECT e.*\n  FROM sales_prod.sync_lead_errors e, params p\n  WHERE (p.sync_run_id IS NULL OR e.sync_run_id = p.sync_run_id)\n    AND (p.marca IS NULL OR e.marca = p.marca)\n  ORDER BY e.run_at DESC, e.id DESC\n  LIMIT (SELECT limit_rows FROM params)\n)\nSELECT\n  'ok'::text AS status,\n  'sales_prod.sync_lead_errors'::text AS source,\n  params.limit_rows AS limit,\n  params.sync_run_id,\n  params.marca::text AS marca,\n  count(rows.id)::integer AS total,\n  now() AS fetched_at,\n  coalesce(jsonb_agg(to_jsonb(rows) ORDER BY rows.run_at DESC, rows.id DESC) FILTER (WHERE rows.id IS NOT NULL), '[]'::jsonb) AS data\nFROM params\nLEFT JOIN rows ON true\nGROUP BY params.limit_rows, params.sync_run_id, params.marca;",
+        "options": {
+          "queryReplacement": "={{ [ $json.query?.limit || '', $json.query?.sync_run_id || '', $json.query?.brand || $json.query?.marca || '' ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "GET Leads KIA": {
+      "main": [
+        [
+          {
+            "node": "Transform KIA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Leads Hyundai": {
+      "main": [
+        [
+          {
+            "node": "Transform Hyundai",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform KIA": {
+      "main": [
+        [
+          {
+            "node": "Upsert KIA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform Hyundai": {
+      "main": [
+        [
+          {
+            "node": "Upsert Hyundai",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert KIA": {
+      "main": [
+        [
+          {
+            "node": "Merge Upsert Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Hyundai": {
+      "main": [
+        [
+          {
+            "node": "Merge Upsert Results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Sync Diario 09:30": {
+      "main": [
+        [
+          {
+            "node": "Build KIA Pages",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Build Hyundai Pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Sync Manual": {
+      "main": [
+        [
+          {
+            "node": "Build KIA Pages",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Build Hyundai Pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Upsert Results": {
+      "main": [
+        [
+          {
+            "node": "Resumen Sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook GET By Brand": {
+      "main": [
+        [
+          {
+            "node": "Normalize GET By Brand",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize GET By Brand": {
+      "main": [
+        [
+          {
+            "node": "IF Valid Brand",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Valid Brand": {
+      "main": [
+        [
+          {
+            "node": "GET Leads By Brand",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "GET By Brand Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Leads By Brand": {
+      "main": [
+        [
+          {
+            "node": "Format GET By Brand Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook GET Sync History": {
+      "main": [
+        [
+          {
+            "node": "Query Sync History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Serve Panel Web": {
+      "main": [
+        [
+          {
+            "node": "Render Panel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resumen Sync": {
+      "main": [
+        [
+          {
+            "node": "Log Sync Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build KIA Pages": {
+      "main": [
+        [
+          {
+            "node": "GET Leads KIA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Hyundai Pages": {
+      "main": [
+        [
+          {
+            "node": "GET Leads Hyundai",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Sync Run": {
+      "main": [
+        [
+          {
+            "node": "Prepare Sync Lead Errors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Sync Lead Errors": {
+      "main": [
+        [
+          {
+            "node": "Log Sync Lead Errors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook GET Sync Errors": {
+      "main": [
+        [
+          {
+            "node": "Query Sync Errors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "0605aec6-b34e-5344-b7e0-8eaa8fd73c56",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

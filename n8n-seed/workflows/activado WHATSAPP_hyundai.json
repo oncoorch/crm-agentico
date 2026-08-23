@@ -1,0 +1,15 @@
+{
+  "id": "SWwCPynHsYPPOpJG_hyundai",
+  "name": "activado WHATSAPP_hyundai",
+  "nodes": [],
+  "connections": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "18d22a0e-8b6c-591f-aff1-4bab8b684de5",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

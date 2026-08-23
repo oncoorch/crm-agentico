@@ -1,0 +1,304 @@
+{
+  "id": "cNm5XJSLWoHaL9SZ_hyundai",
+  "name": "WABA Hyundai Daily Report_hyundai",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1e55498f-e674-4f42-a016-d019449d3a03",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -304,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 1 * * *"
+            }
+          ]
+        }
+      },
+      "id": "93b3fdaf-455e-4c8d-bd6e-a24113f0ccbb",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -304,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst inputConfig = $input.first()?.json || {};\nconst config = {\n  chatwootBaseUrl: 'http://chatwoot:3000',\n  accountId: 2,\n  inboxId: 9,\n  apiToken: 'Ee8z4N8PX1iD77U7uoMjv7jK',\n  timezone: 'America/Guayaquil',\n  filterMode: 'created_at',\n  requireInboxMatch: true,\n  maxPages: Number(inputConfig.maxPages || 200),\n  concurrency: Number(inputConfig.concurrency || 8),\n  dateMode: inputConfig.dateMode || 'custom',\n  customStartDate: inputConfig.customStartDate || '2026-04-22',\n  customEndDate: inputConfig.customEndDate || '2026-04-24',\n};\n\nlet rangeStart;\nlet rangeEnd;\n\nif (config.dateMode === 'custom') {\n  rangeStart = DateTime.fromISO(config.customStartDate, { zone: config.timezone }).startOf('day');\n  rangeEnd = DateTime.fromISO(config.customEndDate, { zone: config.timezone }).endOf('day');\n} else {\n  const yesterday = DateTime.now().setZone(config.timezone).minus({ days: 1 });\n  rangeStart = yesterday.startOf('day');\n  rangeEnd = yesterday.endOf('day');\n}\n\nfunction pick(...values) {\n  for (const value of values) {\n    if (value === undefined || value === null) continue;\n    if (typeof value === 'string' && value.trim() === '') continue;\n    return value;\n  }\n  return null;\n}\n\nfunction asText(value) {\n  if (value === undefined || value === null) return null;\n  const text = String(value).trim();\n  return text === '' ? null : text;\n}\n\nfunction asIsoDateTime(value) {\n  if (value === undefined || value === null || value === '') return null;\n  if (typeof value === 'number') {\n    const millis = value > 9999999999 ? value : value * 1000;\n    return DateTime.fromMillis(millis, { zone: 'utc' }).toISO();\n  }\n  if (typeof value === 'string') {\n    const numeric = Number(value);\n    if (!Number.isNaN(numeric) && value.trim() !== '') {\n      const millis = numeric > 9999999999 ? numeric : numeric * 1000;\n      return DateTime.fromMillis(millis, { zone: 'utc' }).toISO();\n    }\n    const parsed = DateTime.fromISO(value, { zone: 'utc' });\n    if (parsed.isValid) return parsed.toISO();\n  }\n  return null;\n}\n\nfunction inRange(value) {\n  const iso = asIsoDateTime(value);\n  if (!iso) return false;\n  const dt = DateTime.fromISO(iso, { zone: 'utc' }).setZone(config.timezone);\n  return dt >= rangeStart && dt <= rangeEnd;\n}\n\nfunction localDateFromIso(value) {\n  if (!value) return null;\n  return DateTime.fromISO(value, { zone: 'utc' }).setZone(config.timezone).toISODate();\n}\n\nfunction normalizeKey(value) {\n  return String(value || '')\n    .trim()\n    .toLowerCase()\n    .replace(/[^a-z0-9]+/g, '_')\n    .replace(/^_+|_+$/g, '');\n}\n\nfunction parseStructuredText(text) {\n  const parsed = {};\n  const lines = String(text || '')\n    .split(String.fromCharCode(10))\n    .map((line) => line.replaceAll(String.fromCharCode(13), ''));\n  for (const line of lines) {\n    const match = line.match(/^\\s*([A-Za-z0-9_ ]+)\\s*:\\s*(.+?)\\s*$/);\n    if (!match) continue;\n    parsed[normalizeKey(match[1])] = match[2].trim();\n  }\n  return parsed;\n}\n\nfunction parseFlowMessage(text) {\n  const parsed = parseStructuredText(text);\n  const required = ['name', 'identifier', 'email', 'city'];\n  const complete = required.every((key) => asText(parsed[key]));\n  const hasFlowSignal = asText(parsed.flow_token) || complete;\n  return {\n    found: Boolean(hasFlowSignal),\n    complete,\n    fields: {\n      name: asText(parsed.name),\n      identifier: asText(parsed.identifier),\n      email: asText(parsed.email),\n      city: asText(parsed.city),\n      intent: asText(parsed.intent),\n      flow_token: asText(parsed.flow_token),\n    },\n    raw: hasFlowSignal ? String(text || '') : null,\n  };\n}\n\nfunction normalizeText(value) {\n  return String(value || '')\n    .normalize('NFD')\n    .replace(/[̀-ͯ]/g, '')\n    .toLowerCase()\n    .replace(/[^a-z0-9]+/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nconst MODEL_PATTERNS = [\n  { key: 'grand_i10_hatchback', label: 'GRAND I10 HATCHBACK', regex: /\\bgrand\\s*i10\\s*(hb|hatchback)\\b/i },\n  { key: 'grand_i10_sedan', label: 'GRAND I10 SEDAN', regex: /\\bgrand\\s*i10\\s*sedan\\b/i },\n  { key: 'grand_i10', label: 'GRAND I10', regex: /\\bgrand\\s*i10\\b/i },\n  { key: 'accent', label: 'ACCENT', regex: /\\baccent\\b/i },\n  { key: 'creta', label: 'CRETA', regex: /\\bcreta\\b/i },\n  { key: 'tucson', label: 'TUCSON', regex: /\\btucson\\b/i },\n  { key: 'venue', label: 'VENUE', regex: /\\bvenue\\b/i },\n  { key: 'kona', label: 'KONA', regex: /\\bkona\\b/i },\n  { key: 'santa_fe', label: 'SANTA FE', regex: /\\bsanta\\s*fe\\b/i },\n];\n\nfunction detectModelFromText(text) {\n  const source = String(text || '');\n  for (const pattern of MODEL_PATTERNS) {\n    if (pattern.regex.test(source)) {\n      return {\n        key: pattern.key,\n        label: pattern.label,\n        source,\n      };\n    }\n  }\n  return null;\n}\n\nfunction modelKeyFromValue(value) {\n  const normalized = normalizeText(value);\n  if (!normalized) return null;\n  const matched = MODEL_PATTERNS.find((pattern) => pattern.regex.test(normalized));\n  return matched ? matched.key : normalized;\n}\n\nfunction getFirstUserMessage(messages) {\n  return messages.find((message) => {\n    const senderType = String(message?.sender?.type || message?.sender_type || '').toLowerCase();\n    return senderType === 'contact' || Number(message?.message_type) === 0;\n  }) || null;\n}\n\nfunction firstPayloadArray(response) {\n  if (Array.isArray(response)) return response;\n  if (Array.isArray(response?.payload)) return response.payload;\n  if (Array.isArray(response?.data?.payload)) return response.data.payload;\n  if (Array.isArray(response?.data)) return response.data;\n  return [];\n}\n\nfunction firstPayloadObject(response) {\n  if (response?.payload && !Array.isArray(response.payload)) return response.payload;\n  if (response?.data?.payload && !Array.isArray(response.data.payload)) return response.data.payload;\n  if (response?.data && !Array.isArray(response.data)) return response.data;\n  return response;\n}\n\n\nasync function apiRequest(method, path, options = {}) {\n  let lastError = null;\n  for (let attempt = 1; attempt <= 3; attempt += 1) {\n    try {\n      return await this.helpers.httpRequest({\n        method,\n        url: `${config.chatwootBaseUrl}/api/v1/accounts/${config.accountId}${path}`,\n        headers: {\n          'Api-Access-Token': config.apiToken,\n          Accept: 'application/json',\n        },\n        json: true,\n        timeout: 30000,\n        ...options,\n      });\n    } catch (error) {\n      lastError = error;\n      const statusCode = Number(error?.response?.status || error?.statusCode || 0);\n      const retriable = statusCode >= 500 || statusCode === 429 || statusCode === 0;\n      if (!retriable || attempt === 3) break;\n      await new Promise((resolve) => setTimeout(resolve, attempt * 1000));\n    }\n  }\n  throw lastError;\n}\n\n\n\nasync function fetchConversations() {\n  const all = [];\n  const previousDate = rangeStart.minus({ days: 1 }).toISODate();\n  const nextDate = rangeEnd.plus({ days: 2 }).startOf('day').toISODate();\n  const payload = [\n    {\n      attribute_key: 'inbox_id',\n      filter_operator: 'equal_to',\n      values: [String(config.inboxId)],\n      query_operator: 'AND',\n    },\n    {\n      attribute_key: 'created_at',\n      filter_operator: 'is_greater_than',\n      values: [previousDate],\n      query_operator: 'AND',\n    },\n    {\n      attribute_key: 'created_at',\n      filter_operator: 'is_less_than',\n      values: [nextDate],\n      query_operator: '',\n    },\n  ];\n\n  for (let page = 1; page <= config.maxPages; page += 1) {\n    const response = await apiRequest('POST', '/conversations/filter', {\n      qs: { page },\n      body: { payload },\n    });\n    const conversations = firstPayloadArray(response);\n    if (!conversations.length) break;\n    all.push(...conversations);\n  }\n\n  return all;\n}\n\n\nasync function fetchMessages(conversationId) {\n  const response = await apiRequest('GET', `/conversations/${conversationId}/messages`);\n  return firstPayloadArray(response);\n}\n\nasync function fetchContact(contactId) {\n  if (!contactId) return null;\n  try {\n    const response = await apiRequest('GET', `/contacts/${contactId}`);\n    return firstPayloadObject(response);\n  } catch (error) {\n    return null;\n  }\n}\n\nfunction buildStep(customAttributes, completedData, completedStep6) {\n  const phase = asText(customAttributes.booking_phase) || asText(customAttributes.booking_intent) || 'sin_dato';\n  if (completedStep6) return 'paso6';\n  if (completedData) return 'paso4';\n  return phase;\n}\n\nconst conversations = await fetchConversations();\nconst inScopeConversations = conversations.filter((conversation) => {\n  const inboxId = Number(conversation.inbox_id || conversation?.meta?.inbox?.id || 0);\n  if (config.requireInboxMatch && inboxId !== config.inboxId) return false;\n\n  const createdInRange = inRange(conversation.created_at);\n  return createdInRange;\n});\n\nasync function processConversation(conversation) {\n  const inboxId = Number(conversation.inbox_id || conversation?.meta?.inbox?.id || 0);\n  const createdInRange = inRange(conversation.created_at);\n  const activeInRange = inRange(conversation.last_activity_at || conversation.timestamp || conversation.updated_at);\n  const customAttributes = conversation.custom_attributes || {};\n  const additionalAttributes = conversation.additional_attributes || {};\n  const sender = conversation?.meta?.sender || {};\n  const [contactResult, messagesResult] = await Promise.allSettled([\n    fetchContact(sender.id || conversation.contact_id || conversation?.meta?.sender?.id),\n    fetchMessages(conversation.id),\n  ]);\n  const contact = contactResult.status === 'fulfilled' ? contactResult.value : null;\n  const messages = messagesResult.status === 'fulfilled' ? messagesResult.value : [];\n  const contactPayload = contact?.payload || contact || {};\n  const contactAttrs = contactPayload.custom_attributes || {};\n\n  let flowMatch = null;\n  for (const message of messages) {\n    const parsed = parseFlowMessage(message.content || message.processed_message_content || '');\n    if (parsed.found) {\n      flowMatch = {\n        message_id: message.id,\n        created_at: asIsoDateTime(message.created_at || message.updated_at),\n        ...parsed,\n      };\n      if (parsed.complete) break;\n    }\n  }\n\n  const firstUserMessage = getFirstUserMessage(messages);\n  const firstUserMessageText = asText(firstUserMessage?.content || firstUserMessage?.processed_message_content);\n  const firstUserMessageModel = detectModelFromText(firstUserMessageText);\n\n  const number = asText(pick(sender.phone_number, contactPayload.phone_number, contactPayload.identifier, customAttributes.phone, customAttributes.customer_phone));\n  const name = asText(pick(customAttributes.name, contactPayload.name, sender.name, customAttributes.customer_name, flowMatch?.fields?.name));\n  const email = asText(pick(customAttributes.email, contactPayload.email, sender.email, contactAttrs.email, flowMatch?.fields?.email));\n  const identifier = asText(pick(customAttributes.identifier, contactPayload.identifier, contactAttrs.identifier, flowMatch?.fields?.identifier));\n  const city = asText(pick(customAttributes.selected_city, customAttributes.city, contactAttrs.city, flowMatch?.fields?.city));\n  const latestSelectedModel = asText(pick(customAttributes.latest_selected_model, customAttributes.selected_model, firstUserMessageModel?.label));\n  const model = asText(pick(customAttributes.selected_model, customAttributes.latest_selected_model, firstUserMessageModel?.label));\n  const establishment = asText(pick(customAttributes.selected_establishment_name, customAttributes.establishment_name));\n  const appointmentDate = asText(customAttributes.selected_date);\n  const appointmentTime = asText(customAttributes.selected_time);\n  const advisorName = asText(pick(customAttributes.selected_advisor_name, customAttributes.advisor_name, customAttributes.sales_advisor_name));\n  const leadStatus = asText(pick(customAttributes.lead_status, customAttributes.booking_phase, customAttributes.booking_intent));\n\n  const structuredComplete = [name, email, identifier, number, city].every(Boolean);\n  const flowComplete = Boolean(flowMatch?.complete);\n  const completedData = structuredComplete || flowComplete || customAttributes.booking_personal_data_complete === true;\n  const completedStep6 = Boolean(\n    customAttributes.active_appointment_id ||\n    (appointmentDate && appointmentTime) ||\n    customAttributes.booking_phase6_ready === true\n  );\n  const selectedModelKey = modelKeyFromValue(model);\n  const firstMessageModelKey = firstUserMessageModel?.key || null;\n  const firstMessageModelMatchesSelected = Boolean(selectedModelKey && firstMessageModelKey && selectedModelKey === firstMessageModelKey);\n  const createdAt = asIsoDateTime(conversation.created_at);\n  const lastActivityAt = asIsoDateTime(conversation.last_activity_at || conversation.timestamp || conversation.updated_at);\n  const reportDate = localDateFromIso(createdAt) || rangeStart.toISODate();\n  const labels = Array.isArray(conversation.labels) ? conversation.labels : [];\n\n  return {\n    json: {\n      conversation_id: conversation.id,\n      contact_id: sender.id || contactPayload.id || conversation.contact_id || null,\n      account_id: config.accountId,\n      inbox_id: inboxId,\n      inbox_name: asText(conversation?.meta?.inbox?.name) || asText(conversation?.inbox?.name) || 'WABA Hyundai',\n      conversation_status: asText(conversation.status),\n      created_at: createdAt,\n      last_activity_at: lastActivityAt,\n      report_start_at: rangeStart.toUTC().toISO(),\n      report_end_at: rangeEnd.toUTC().toISO(),\n      report_date: reportDate,\n      created_in_range: createdInRange,\n      active_in_range: activeInRange,\n      report_basis: 'created_at',\n      created_yesterday: createdInRange,\n      active_yesterday: activeInRange,\n      number,\n      name,\n      email,\n      identifier,\n      city,\n      model,\n      latest_selected_model: latestSelectedModel,\n      establishment,\n      appointment_date: appointmentDate,\n      appointment_time: appointmentTime,\n      advisor_name: advisorName,\n      lead_status: leadStatus,\n      assignee_name: asText(conversation?.meta?.assignee?.name),\n      team_name: asText(conversation?.meta?.team?.name),\n      first_user_message_text: firstUserMessageText,\n      first_message_model_detected: firstUserMessageModel?.label || null,\n      first_message_model_key: firstMessageModelKey,\n      first_message_model_matches_selected: firstMessageModelMatchesSelected,\n      step: buildStep(customAttributes, completedData, completedStep6),\n      completed_data: completedData,\n      completed_data_source: structuredComplete ? 'structured_fields' : (flowComplete ? 'flow_message' : (customAttributes.booking_personal_data_complete === true ? 'conversation_flag' : 'not_completed')),\n      completed_step6: completedStep6,\n      validation: {\n        has_name: Boolean(name),\n        has_email: Boolean(email),\n        has_identifier: Boolean(identifier),\n        has_number: Boolean(number),\n        has_city: Boolean(city),\n        structured_complete: structuredComplete,\n        flow_complete: flowComplete,\n      },\n      flow_message_match: flowMatch,\n      labels,\n      custom_attributes: customAttributes,\n      additional_attributes: additionalAttributes,\n      contact_snapshot: {\n        id: sender.id || contactPayload.id || null,\n        name: asText(contactPayload.name) || asText(sender.name),\n        email: asText(contactPayload.email) || asText(sender.email),\n        phone_number: asText(contactPayload.phone_number) || asText(sender.phone_number),\n      },\n      message_count: messages.length,\n      fetch_warnings: {\n        contact_failed: contactResult.status === 'rejected',\n        messages_failed: messagesResult.status === 'rejected',\n      },\n      raw_payload: conversation,\n    },\n  };\n}\n\nasync function mapWithConcurrency(items, limit, mapper) {\n  const results = [];\n  for (let index = 0; index < items.length; index += limit) {\n    const batch = items.slice(index, index + limit);\n    const batchResults = await Promise.all(batch.map(mapper));\n    results.push(...batchResults);\n  }\n  return results;\n}\n\nconst filtered = await mapWithConcurrency(inScopeConversations, Math.max(1, config.concurrency), processConversation);\n\nfiltered.sort((a, b) => {\n  const aDate = a.json.last_activity_at || a.json.created_at || '';\n  const bDate = b.json.last_activity_at || b.json.created_at || '';\n  return aDate < bDate ? 1 : -1;\n});\n\nreturn filtered;\n"
+      },
+      "id": "9a0de919-5e02-47d2-ad6b-ad81572ebae2",
+      "name": "Fetch Chatwoot Conversations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst items = $input.all();\nconst details = items.map((item) => item.json);\nconst createdInRange = details.filter((item) => item.created_in_range);\nconst completedData = createdInRange.filter((item) => item.completed_data);\nconst completedStep6 = createdInRange.filter((item) => item.completed_step6);\nconst reportDates = [...new Set(details.map((item) => item.report_date).filter(Boolean))].sort();\nconst reportStartAt = details[0]?.report_start_at || null;\nconst reportEndAt = details[0]?.report_end_at || null;\n\nreturn [{\n  json: {\n    workflow_name: 'Chatwoot - WABA Hyundai Daily Validation',\n    report_date: reportDates.length === 1 ? reportDates[0] : null,\n    report_dates: reportDates,\n    report_start_at: reportStartAt,\n    report_end_at: reportEndAt,\n    inbox_id: 9,\n    inbox_name: 'WABA Hyundai',\n    account_id: 2,\n    summary: {\n      conversations_with_activity: details.length,\n      conversations_created_in_range: createdInRange.length,\n      completed_data: completedData.length,\n      completed_step6: completedStep6.length,\n      stayed_step4: completedData.length - completedStep6.length,\n    },\n    details,\n  },\n}];\n"
+      },
+      "id": "0604150b-8fb1-49b6-b61d-37e1f47a6ece",
+      "name": "Summarize Conversations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst payload = $input.first().json;\nconst summary = payload.summary || {};\nconst details = payload.details || [];\n\nfunction esc(value) {\n  if (value === undefined || value === null || value === '') return '-';\n  return String(value).replace(/\\|/g, '\\\\|').replace(/\\n/g, ' ').trim() || '-';\n}\n\nconst lines = [];\nlines.push('# Reporte Chatwoot - ' + payload.inbox_name);\nlines.push('');\nlines.push('- Rango analizado: `' + esc(payload.report_start_at) + '` a `' + esc(payload.report_end_at) + '`');\nlines.push('- Fechas del detalle: `' + esc((payload.report_dates || []).join(', ')) + '`');\nlines.push('- Account ID: `' + payload.account_id + '`');\nlines.push('- Inbox ID: `' + payload.inbox_id + '`');\nlines.push('');\nlines.push('## Resumen');\nlines.push('');\nlines.push('| Indicador | Valor |');\nlines.push('| --- | ---: |');\nlines.push('| Conversaciones con actividad | ' + (summary.conversations_with_activity || 0) + ' |');\nlines.push('| Conversaciones creadas en rango | ' + (summary.conversations_created_in_range || 0) + ' |');\nlines.push('| Completaron datos | ' + (summary.completed_data || 0) + ' |');\nlines.push('| Llegaron a paso6 | ' + (summary.completed_step6 || 0) + ' |');\nlines.push('| Se quedaron en paso4 | ' + (summary.stayed_step4 || 0) + ' |');\nlines.push('');\nlines.push('## Detalle');\nlines.push('');\nlines.push('| report_date | numero | nombre | correo | identificacion | ciudad | modelo | establecimiento | paso | completed_data | fuente |');\nlines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');\nfor (const item of details) {\n  lines.push('| ' + esc(item.report_date) + ' | ' + esc(item.number) + ' | ' + esc(item.name) + ' | ' + esc(item.email) + ' | ' + esc(item.identifier) + ' | ' + esc(item.city) + ' | ' + esc(item.model) + ' | ' + esc(item.establishment) + ' | ' + esc(item.step) + ' | ' + (item.completed_data ? 'true' : 'false') + ' | ' + esc(item.completed_data_source) + ' |');\n}\n\nreturn [{\n  json: {\n    ...payload,\n    markdown: lines.join('\\n'),\n  },\n}];\n"
+      },
+      "id": "4da749c4-c2d9-43ad-a8f4-9cf03934ce9f",
+      "name": "Build Markdown Preview",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst payload = $input.first().json;\nconst details = payload.details || [];\n\nreturn details.map((item) => ({\n  json: {\n    report_date: item.report_date || null,\n    conversation_id: item.conversation_id || null,\n    number: item.number || null,\n    name: item.name || null,\n    email: item.email || null,\n    identifier: item.identifier || null,\n    city: item.city || null,\n    model: item.model || null,\n    first_message_model_detected: item.first_message_model_detected || null,\n    first_message_model_matches_selected: item.first_message_model_matches_selected || false,\n    establishment: item.establishment || null,\n    appointment_date: item.appointment_date || null,\n    appointment_time: item.appointment_time || null,\n    step: item.step || null,\n  },\n}));\n"
+      },
+      "id": "dffa7d8b-d3c9-401b-b3a4-4048ea8c2672",
+      "name": "Conversation Table",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $input.first().json;\nconst details = payload.details || [];\n\nconst rows = [{\n  metric: 'report_date',\n  value: payload.report_date || (Array.isArray(payload.report_dates) ? payload.report_dates.join(', ') : null),\n}, {\n  metric: 'total_conversations',\n  value: details.length,\n}, {\n  metric: 'completed_data',\n  value: details.filter((item) => item.completed_data).length,\n}, {\n  metric: 'with_model_selected',\n  value: details.filter((item) => item.model).length,\n}, {\n  metric: 'with_model_selected_first_message',\n  value: details.filter((item) => item.first_message_model_detected).length,\n}, {\n  metric: 'with_model_match_first_message',\n  value: details.filter((item) => item.first_message_model_matches_selected).length,\n}, {\n  metric: 'with_establishment_selected',\n  value: details.filter((item) => item.establishment).length,\n}, {\n  metric: 'with_appointment_date',\n  value: details.filter((item) => item.custom_attributes?.selected_date).length,\n}, {\n  metric: 'with_appointment_time',\n  value: details.filter((item) => item.custom_attributes?.selected_time).length,\n}];\n\nreturn rows.map((row) => ({ json: row }));"
+      },
+      "id": "69581cd8-9a59-436a-a843-e2549e4afd5d",
+      "name": "Summary Table",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "83074564-0a2d-4161-970a-a9df8207a217",
+              "name": "dateMode",
+              "value": "={{ $json.query?.date ? 'custom' : 'yesterday' }}",
+              "type": "string"
+            },
+            {
+              "id": "bf452c3f-2a4b-4588-b040-836e4ce02561",
+              "name": "customStartDate",
+              "value": "={{ $json.query?.date || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "9c99d4f3-e4e9-4f9b-958a-681cec41dd41",
+              "name": "customEndDate",
+              "value": "={{ $json.query?.date || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "b5da3ab5-dca0-4bad-99bf-80d3b81e1b30",
+              "name": "maxPages",
+              "value": "={{ $json.query?.maxPages || '120' }}",
+              "type": "string"
+            },
+            {
+              "id": "1098ddfc-074e-44a6-9743-9ea2d0a18484",
+              "name": "concurrency",
+              "value": "={{ $json.query?.concurrency || '8' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "45caf822-e4f6-470d-995c-bfae814a40ba",
+      "name": "Set Report Range",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        16,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction sqlText(value) {\n  if (value === undefined || value === null || value === '') return 'NULL';\n  return \"'\" + String(value).replace(/'/g, \"''\") + \"'\";\n}\n\nfunction sqlNumber(value) {\n  const parsed = Number(value);\n  return Number.isFinite(parsed) ? String(parsed) : 'NULL';\n}\n\nfunction sqlBoolean(value) {\n  return value ? 'TRUE' : 'FALSE';\n}\n\nfunction sqlJson(value) {\n  const json = JSON.stringify(value ?? {});\n  return \"'\" + json.replace(/'/g, \"''\") + \"'::jsonb\";\n}\n\nconst items = $input.all();\n\nreturn items.map((item) => {\n  const row = item.json;\n  const sgcSyncRequired = Boolean(row.completed_data);\n  const sgcSyncStatus = sgcSyncRequired ? 'ready' : 'pending';\n\n  const query = [\n    'INSERT INTO public.waba_leads (',\n    '  chatwoot_account_id,',\n    '  chatwoot_inbox_id,',\n    '  chatwoot_conversation_id,',\n    '  chatwoot_contact_id,',\n    '  contact_name,',\n    '  phone,',\n    '  email,',\n    '  identification,',\n    '  city,',\n    '  conversation_status,',\n    '  conversation_created_at,',\n    '  last_message_at,',\n    '  first_user_message,',\n    '  assignee_name,',\n    '  team_name,',\n    '  selected_model,',\n    '  latest_selected_model,',\n    '  first_message_model_detected,',\n    '  first_message_model_matches_selected,',\n    '  appointment_date,',\n    '  appointment_time,',\n    '  advisor_name,',\n    '  lead_status,',\n    '  lead_source,',\n    '  report_date,',\n    '  report_start_at,',\n    '  report_end_at,',\n    '  labels,',\n    '  custom_attributes,',\n    '  additional_attributes,',\n    '  raw_payload,',\n    '  sgc_sync_status,',\n    '  sgc_sync_required',\n    ') VALUES (',\n    '  ' + sqlNumber(row.account_id) + ',',\n    '  ' + sqlNumber(row.inbox_id) + ',',\n    '  ' + sqlNumber(row.conversation_id) + ',',\n    '  ' + sqlNumber(row.contact_id) + ',',\n    '  ' + sqlText(row.name) + ',',\n    '  ' + sqlText(row.number) + ',',\n    '  ' + sqlText(row.email) + ',',\n    '  ' + sqlText(row.identifier) + ',',\n    '  ' + sqlText(row.city) + ',',\n    '  ' + sqlText(row.conversation_status) + ',',\n    '  ' + sqlText(row.created_at) + '::timestamptz,',\n    '  ' + sqlText(row.last_activity_at) + '::timestamptz,',\n    '  ' + sqlText(row.first_user_message_text) + ',',\n    '  ' + sqlText(row.assignee_name) + ',',\n    '  ' + sqlText(row.team_name) + ',',\n    '  ' + sqlText(row.model) + ',',\n    '  ' + sqlText(row.latest_selected_model) + ',',\n    '  ' + sqlText(row.first_message_model_detected) + ',',\n    '  ' + sqlBoolean(row.first_message_model_matches_selected) + ',',\n    '  ' + sqlText(row.appointment_date) + '::date,',\n    '  ' + sqlText(row.appointment_time) + ',',\n    '  ' + sqlText(row.advisor_name) + ',',\n    '  ' + sqlText(row.lead_status) + ',',\n    \"  'waba_chatwoot',\",\n    '  ' + sqlText(row.report_date) + '::date,',\n    '  ' + sqlText(row.report_start_at) + '::timestamptz,',\n    '  ' + sqlText(row.report_end_at) + '::timestamptz,',\n    '  ' + sqlJson(row.labels ?? []) + ',',\n    '  ' + sqlJson(row.custom_attributes ?? {}) + ',',\n    '  ' + sqlJson(row.additional_attributes ?? {}) + ',',\n    '  ' + sqlJson(row.raw_payload ?? {}) + ',',\n    '  ' + sqlText(sgcSyncStatus) + ',',\n    '  ' + sqlBoolean(sgcSyncRequired),\n    ')',\n    'ON CONFLICT (chatwoot_account_id, chatwoot_conversation_id, report_date)',\n    'DO UPDATE SET',\n    '  chatwoot_inbox_id = EXCLUDED.chatwoot_inbox_id,',\n    '  chatwoot_contact_id = EXCLUDED.chatwoot_contact_id,',\n    '  contact_name = EXCLUDED.contact_name,',\n    '  phone = EXCLUDED.phone,',\n    '  email = EXCLUDED.email,',\n    '  identification = EXCLUDED.identification,',\n    '  city = EXCLUDED.city,',\n    '  conversation_status = EXCLUDED.conversation_status,',\n    '  conversation_created_at = EXCLUDED.conversation_created_at,',\n    '  last_message_at = EXCLUDED.last_message_at,',\n    '  first_user_message = EXCLUDED.first_user_message,',\n    '  assignee_name = EXCLUDED.assignee_name,',\n    '  team_name = EXCLUDED.team_name,',\n    '  selected_model = EXCLUDED.selected_model,',\n    '  latest_selected_model = EXCLUDED.latest_selected_model,',\n    '  first_message_model_detected = EXCLUDED.first_message_model_detected,',\n    '  first_message_model_matches_selected = EXCLUDED.first_message_model_matches_selected,',\n    '  appointment_date = EXCLUDED.appointment_date,',\n    '  appointment_time = EXCLUDED.appointment_time,',\n    '  advisor_name = EXCLUDED.advisor_name,',\n    '  lead_status = EXCLUDED.lead_status,',\n    '  lead_source = EXCLUDED.lead_source,',\n    '  report_start_at = EXCLUDED.report_start_at,',\n    '  report_end_at = EXCLUDED.report_end_at,',\n    '  labels = EXCLUDED.labels,',\n    '  custom_attributes = EXCLUDED.custom_attributes,',\n    '  additional_attributes = EXCLUDED.additional_attributes,',\n    '  raw_payload = EXCLUDED.raw_payload,',\n    '  sgc_sync_required = public.waba_leads.sgc_sync_required OR EXCLUDED.sgc_sync_required,',\n    '  updated_at = now();',\n  ].join('\\n');\n\n  return {\n    json: {\n      ...row,\n      sgc_sync_required: sgcSyncRequired,\n      sgc_sync_status: sgcSyncStatus,\n      upsert_query: query,\n    },\n  };\n});\n"
+      },
+      "id": "85aab3dd-33f0-4bc3-b683-a777e4ad35b6",
+      "name": "Prepare Leads Upsert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.upsert_query }}",
+        "options": {}
+      },
+      "id": "75ad55d7-2dbb-4ef1-b5eb-4fa08dbd1147",
+      "name": "Persist Leads Detail",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        800,
+        384
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "oaLqS6SkJ0wZfqRH_hyundai",
+          "name": "Supabase VPS_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "path": "waba-hyundai-daily-report-run",
+        "options": {}
+      },
+      "id": "39867191-11b1-482e-b6ff-31e71c0b90a1",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -304,
+        -256
+      ],
+      "webhookId": "14e6adaa-61a4-47df-a7e6-a98752a5bc5e"
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set Report Range",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set Report Range",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Chatwoot Conversations": {
+      "main": [
+        [
+          {
+            "node": "Summarize Conversations",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Prepare Leads Upsert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize Conversations": {
+      "main": [
+        [
+          {
+            "node": "Build Markdown Preview",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Conversation Table",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Summary Table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Report Range": {
+      "main": [
+        [
+          {
+            "node": "Fetch Chatwoot Conversations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Leads Upsert": {
+      "main": [
+        [
+          {
+            "node": "Persist Leads Detail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set Report Range",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "5f07ee89-da3b-52c4-ac09-d08ffa6b006e",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

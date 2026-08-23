@@ -1,0 +1,987 @@
+{
+  "id": "Cn7FBdEmLTKQEMFJ_quicklink",
+  "name": "CRIS-03 — Handoff Chatwoot_quicklink",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cris-handoff",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wh-h4-001",
+      "name": "Webhook - Handoff Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        9984
+      ],
+      "webhookId": "69d3a571-07c0-482a-b060-ec3519e8d6a5"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst headers = item.headers || item.body?.headers || {};\nconst authHeader = headers.authorization || headers.Authorization || '';\nconst token = headers['x-cris-handoff-token'] || headers['X-CRIS-Handoff-Token'] || authHeader.replace(/^Bearer\\s+/i, '') || '';\nconst expectedHash = '87d8280cddb1392428ccebd221ac6f87106b96810649cbcc1756270c24b6ed74';\n\nfunction sha256(ascii) {\n  function rightRotate(value, amount) { return (value >>> amount) | (value << (32 - amount)); }\n  const mathPow = Math.pow;\n  const maxWord = mathPow(2, 32);\n  const lengthProperty = 'length';\n  let i, j;\n  let result = '';\n  const words = [];\n  const asciiBitLength = ascii[lengthProperty] * 8;\n  const hash = sha256.h = sha256.h || [];\n  const k = sha256.k = sha256.k || [];\n  let primeCounter = k[lengthProperty];\n  const isComposite = {};\n  for (let candidate = 2; primeCounter < 64; candidate++) {\n    if (!isComposite[candidate]) {\n      for (i = 0; i < 313; i += candidate) isComposite[i] = candidate;\n      hash[primeCounter] = (mathPow(candidate, 0.5) * maxWord) | 0;\n      k[primeCounter++] = (mathPow(candidate, 1 / 3) * maxWord) | 0;\n    }\n  }\n  ascii += '\\x80';\n  while (ascii[lengthProperty] % 64 - 56) ascii += '\\x00';\n  for (i = 0; i < ascii[lengthProperty]; i++) {\n    j = ascii.charCodeAt(i);\n    if (j >> 8) return '';\n    words[i >> 2] |= j << ((3 - i) % 4) * 8;\n  }\n  words[words[lengthProperty]] = ((asciiBitLength / maxWord) | 0);\n  words[words[lengthProperty]] = (asciiBitLength);\n  for (j = 0; j < words[lengthProperty];) {\n    const w = words.slice(j, j += 16);\n    const oldHash = hash.slice(0);\n    for (i = 0; i < 64; i++) {\n      const w15 = w[i - 15], w2 = w[i - 2];\n      const a = hash[0], e = hash[4];\n      const temp1 = hash[7]\n        + (rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25))\n        + ((e & hash[5]) ^ ((~e) & hash[6]))\n        + k[i]\n        + (w[i] = (i < 16) ? w[i] : (\n          w[i - 16]\n          + (rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3))\n          + w[i - 7]\n          + (rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10))\n        ) | 0);\n      const temp2 = (rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22))\n        + ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));\n      hash.pop();\n      hash.unshift((temp1 + temp2) | 0);\n      hash[4] = (hash[4] + temp1) | 0;\n    }\n    for (i = 0; i < 8; i++) hash[i] = (hash[i] + oldHash[i]) | 0;\n  }\n  for (i = 0; i < 8; i++) {\n    for (j = 3; j + 1; j--) {\n      const b = (hash[i] >> (j * 8)) & 255;\n      result += ((b < 16) ? '0' : '') + b.toString(16);\n    }\n  }\n  return result;\n}\n\nconst actualHash = sha256(String(token));\nconst authorized = Boolean(token) && actualHash === expectedHash;\n\nreturn [{\n  json: {\n    ...item,\n    handoff_auth_authorized: authorized,\n    handoff_auth_reason: authorized ? 'authorized' : 'missing_or_invalid_token',\n  }\n}];"
+      },
+      "id": "auth-h4-token-001",
+      "name": "AUTH - Handoff Token Guard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        768,
+        9984
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "auth-h4-ok",
+              "leftValue": "={{ $json.handoff_auth_authorized === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-h4-auth-001",
+      "name": "IF - Handoff Authorized",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        960,
+        9984
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst body = item.body || {};\nconst rawConvId = String(body.conv_id || '').trim();\nconst UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nconst valid = UUID_REGEX.test(rawConvId);\nreturn [{\n  json: {\n    ...item,\n    requested_conv_id: rawConvId || null,\n    handoff_request_valid: valid,\n    handoff_error: valid ? null : {\n      success: false,\n      error: 'invalid_conv_id',\n      message: 'conv_id is required and must be a valid UUID',\n      conv_id: rawConvId || null,\n      response_code: 400,\n    },\n  }\n}];"
+      },
+      "id": "code-h4-validate-request",
+      "name": "Code - Validate Handoff Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1168,
+        9984
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: \"unauthorized\", message: \"Missing or invalid handoff token\" }) }}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "respond-h4-unauth",
+      "name": "Respond - Unauthorized Handoff",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1168,
+        10160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "h4-valid-conv-id",
+              "leftValue": "={{ $json.handoff_request_valid === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-h4-valid-request",
+      "name": "IF - Handoff Request Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        9984
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH req AS (\n  SELECT $1::uuid AS requested_conv_id\n)\nSELECT\n  req.requested_conv_id::text AS requested_conv_id,\n  c.id AS conv_id,\n  lq.nombre_cliente AS nombre,\n  lq.telefono_1 AS telefono,\n  c.marca,\n  lq.modelo,\n  c.estado,\n  lq.quicklink_id::text AS quicklink_id,\n  c.chatwoot_conv_id,\n  c.chatwoot_contact_id,\n  c.plan_interes,\n  COALESCE(cm.chatwoot_inbox_id, 2) AS inbox_id\nFROM req\nLEFT JOIN conversaciones c ON c.id = req.requested_conv_id\nLEFT JOIN leads_quicklink lq ON lq.id = c.lead_id\nLEFT JOIN configuracion_marcas cm ON cm.marca = c.marca\nLIMIT 1",
+        "options": {
+          "queryReplacement": "={{ $json.requested_conv_id }}"
+        }
+      },
+      "id": "pg-h4-001",
+      "name": "PG - Get Conv Data",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        272,
+        9984
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({\n  success: false,\n  error: $json.handoff_error?.error || $json.not_ready_reason || 'handoff_not_ready',\n  message: $json.handoff_error?.message || $json.response_message || 'Handoff request could not be completed.',\n  conv_id: $json.conv_id || $json.requested_conv_id || null\n}) }}",
+        "options": {
+          "responseCode": "={{ $json.handoff_error?.response_code || $json.response_code || 400 }}"
+        }
+      },
+      "id": "respond-h4-controlled-error",
+      "name": "Respond - Handoff Controlled Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1312,
+        10368
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const pg = $input.first().json;\nconst body = $('Webhook - Handoff Trigger').first().json.body || {};\nconst requestedConvId = pg.requested_conv_id || body.conv_id || null;\n\nif (!pg.conv_id) {\n  return [{ json: {\n    conv_id: null,\n    requested_conv_id: requestedConvId,\n    has_conv: false,\n    not_ready_reason: 'conversation_not_found',\n    response_code: 404,\n    response_message: 'Conversation not found for provided conv_id.',\n    chatwoot_conv_id: null,\n    estado: null,\n    note_body: null,\n    resumen_ia: '',\n    plan_interes: '',\n    nivel_interes: 'ALTO',\n    evento_payload: '{}'\n  }}];\n}\n\nif (pg.estado === 'HANDOFF_HUMAN') {\n  return [{ json: {\n    conv_id: pg.conv_id,\n    requested_conv_id: requestedConvId,\n    chatwoot_conv_id: pg.chatwoot_conv_id,\n    has_conv: false,\n    not_ready_reason: 'already_transferred',\n    response_code: 409,\n    response_message: 'Conversation is already transferred to a human agent.',\n    estado: pg.estado,\n    note_body: null,\n    resumen_ia: '',\n    plan_interes: '',\n    nivel_interes: 'ALTO',\n    evento_payload: '{}'\n  }}];\n}\n\nconst resumen = body.resumen ||\n  `Cliente interesado en ${pg.marca || ''} ${pg.modelo || ''}. Solicita hablar con asesor.`;\nconst planInteres = body.plan_interes || pg.plan_interes || '';\n\nconst VALID_NIVELES = ['ALTO', 'MEDIO', 'BAJO'];\nconst nivelInteres = VALID_NIVELES.includes(body.nivel_interes) ? body.nivel_interes : 'ALTO';\n\nconst noteContent = [\n  '🤝 *Handoff — Agente IA CRIS*',\n  '',\n  `*Cliente:* ${pg.nombre || 'Prospecto'}`,\n  `*Teléfono:* ${pg.telefono || ''}`,\n  `*Vehículo:* ${[pg.marca, pg.modelo].filter(Boolean).join(' ')}`,\n  `*Estado CRIS:* ${pg.estado || ''}`,\n  `*Nivel de interés:* ${nivelInteres}`,\n  `*Plan de interés:* ${planInteres || '—'}`,\n  `*QuickLink ID:* ${pg.quicklink_id || ''}`,\n  '',\n  '*Resumen IA:*',\n  resumen,\n  '',\n  '⚡ _Acción: Contactar al cliente para cerrar la venta._'\n].join('\\n');\n\nconst noteBody = JSON.stringify({\n  content: noteContent,\n  message_type: 'outgoing',\n  private: true\n});\n\nconst eventoPayload = JSON.stringify({\n  chatwoot_conv_id: pg.chatwoot_conv_id,\n  chatwoot_contact_id: pg.chatwoot_contact_id,\n  nivel_interes: nivelInteres,\n  plan_interes: planInteres\n});\n\nconst hasChatwoot = !!(pg.chatwoot_conv_id && pg.chatwoot_contact_id);\nreturn [{ json: {\n  conv_id: pg.conv_id,\n  requested_conv_id: requestedConvId,\n  nombre: pg.nombre || 'Prospecto',\n  telefono: pg.telefono,\n  marca: pg.marca,\n  modelo: pg.modelo,\n  estado: pg.estado,\n  quicklink_id: pg.quicklink_id,\n  chatwoot_conv_id: pg.chatwoot_conv_id,\n  chatwoot_contact_id: pg.chatwoot_contact_id,\n  has_conv: hasChatwoot,\n  not_ready_reason: hasChatwoot ? null : 'chatwoot_not_synced',\n  response_code: hasChatwoot ? 200 : 202,\n  response_message: hasChatwoot ? 'Handoff ready.' : 'Chatwoot not yet synced. Retry in 5 minutes.',\n  note_body: noteBody,\n  resumen_ia: resumen,\n  plan_interes: planInteres,\n  nivel_interes: nivelInteres,\n  evento_payload: eventoPayload\n}}];"
+      },
+      "id": "code-h4-prep",
+      "name": "Code - Prepare Handoff",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        528,
+        9984
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-hc",
+              "leftValue": "={{ $json.has_conv }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-h4-ready",
+      "name": "IF - Conv Ready",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        784,
+        9984
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://chatwoot:3000/api/v1/accounts/2/conversations/{{ $json.chatwoot_conv_id }}/toggle_status",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"status\":\"open\"}",
+        "options": {}
+      },
+      "id": "http-h4-open",
+      "name": "HTTP - Open Conv",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1040,
+        9984
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "h4-can-log-pending",
+              "leftValue": "={{ !!$json.conv_id && $json.not_ready_reason === \"chatwoot_not_synced\" }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-h4-can-log-pending",
+      "name": "IF - Handoff Can Log Pending",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        10192
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nINSERT INTO eventos_conversacion (conversation_id, tipo_evento, actor, payload) VALUES ($1::uuid, 'chatwoot_handoff_pendiente', 'sistema', $2)",
+        "options": {
+          "queryReplacement": "={{ [$json.conv_id, $json.evento_payload] }}"
+        }
+      },
+      "id": "pg-h4-pending",
+      "name": "PG - Log Handoff Pending",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1040,
+        10192
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: $json.not_ready_reason, message: $json.response_message || 'Chatwoot not yet synced. Retry in 5 minutes.', conv_id: $json.conv_id }) }}",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "id": "respond-h4-fail",
+      "name": "Respond - Not Ready",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1312,
+        10192
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://chatwoot:3000/api/v1/accounts/2/conversations/{{ $('Code - Prepare Handoff').first().json.chatwoot_conv_id }}/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Code - Prepare Handoff').first().json.note_body }}",
+        "options": {}
+      },
+      "id": "http-h4-note",
+      "name": "HTTP - Post Handoff Note",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1312,
+        9984
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://chatwoot:3000/api/v1/accounts/2/conversations/{{ $('Code - Prepare Handoff').first().json.chatwoot_conv_id }}/assignments",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"team_id\":2}",
+        "options": {}
+      },
+      "id": "http-h4-assign",
+      "name": "HTTP - Assign QuickLink Team",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1568,
+        9984
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH src AS (\n  SELECT\n    $1::uuid AS conv_id,\n    $2::integer AS chatwoot_conv_id,\n    $3::integer AS chatwoot_contact_id,\n    NULLIF($4, '')::text AS resumen_ia,\n    NULLIF($5, '')::text AS plan_interes,\n    COALESCE(NULLIF($6, ''), 'ALTO')::text AS nivel_interes,\n    COALESCE(NULLIF($7, ''), 'Cliente')::text AS nombre_cliente,\n    NULLIF($8, '')::text AS telefono,\n    COALESCE(NULLIF($9, ''), 'UNKNOWN')::text AS marca,\n    NULLIF($10, '')::text AS modelo\n), inserted AS (\n  INSERT INTO transferencias_humano (\n    conversacion_id, conversation_id, chatwoot_conv_id, chatwoot_contact_id,\n    nombre_cliente, telefono, marca, modelo,\n    asesor_nombre, asesor_asignado,\n    resumen_conversacion, resumen_ia, plan_interes, plan_sugerido,\n    razon_transferencia, nivel_interes, estado_handoff, notificado_chatwoot, notificado_at\n  )\n  SELECT\n    conv_id, conv_id, chatwoot_conv_id, chatwoot_contact_id,\n    nombre_cliente, telefono, marca, modelo,\n    'Equipo QuickLink', 'Equipo QuickLink',\n    COALESCE(resumen_ia, 'Handoff iniciado desde CRIS'),\n    COALESCE(resumen_ia, 'Handoff iniciado desde CRIS'),\n    plan_interes, plan_interes,\n    'handoff_cris', nivel_interes, 'INICIADO', true, now()\n  FROM src\n  WHERE NOT EXISTS (\n    SELECT 1\n    FROM transferencias_humano th\n    WHERE th.conversacion_id = src.conv_id\n       OR th.conversation_id = src.conv_id\n  )\n  RETURNING id\n)\nSELECT id FROM inserted\nUNION ALL\nSELECT th.id\nFROM transferencias_humano th, src\nWHERE th.conversacion_id = src.conv_id\n   OR th.conversation_id = src.conv_id\nLIMIT 1",
+        "options": {
+          "queryReplacement": "={{ [$('Code - Prepare Handoff').first().json.conv_id, $('Code - Prepare Handoff').first().json.chatwoot_conv_id, $('Code - Prepare Handoff').first().json.chatwoot_contact_id, $('Code - Prepare Handoff').first().json.resumen_ia, $('Code - Prepare Handoff').first().json.plan_interes, $('Code - Prepare Handoff').first().json.nivel_interes, $('Code - Prepare Handoff').first().json.nombre, $('Code - Prepare Handoff').first().json.telefono, $('Code - Prepare Handoff').first().json.marca, $('Code - Prepare Handoff').first().json.modelo] }}"
+        }
+      },
+      "id": "pg-h4-insert",
+      "name": "PG - Insert Transferencia",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1824,
+        9984
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH state_result AS (\n  SELECT *\n  FROM set_conversation_state($1::uuid, 'HANDOFF_HUMAN', 'cris_handoff_chatwoot', jsonb_build_object('workflow', 'CRIS-03'))\n), conv AS (\n  SELECT c.id, c.lead_id\n  FROM conversaciones c\n  JOIN state_result sr ON sr.conversation_id = c.id\n  WHERE sr.changed OR sr.reason = 'no_change'\n), mem AS (\n  UPDATE lead_memory lm\n  SET conversation_state = 'HANDOFF_HUMAN',\n      asesor_requerido = true,\n      outbound_sequence_status = 'PAUSED',\n      customer_engaged = true,\n      updated_at = now()\n  FROM conv\n  WHERE lm.conversation_id = conv.id\n     OR lm.lead_id = conv.lead_id\n  RETURNING lm.phone\n)\nSELECT (SELECT id FROM conv) AS conv_id, COUNT(*)::integer AS memory_rows, (SELECT reason FROM state_result) AS state_reason FROM mem",
+        "options": {
+          "queryReplacement": "={{ [$('Code - Prepare Handoff').first().json.conv_id] }}"
+        }
+      },
+      "id": "pg-h4-estado",
+      "name": "PG - Update Estado",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2080,
+        9984
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nINSERT INTO eventos_conversacion (conversation_id, tipo_evento, actor, estado_origen, estado_destino, payload) VALUES ($1::uuid, 'chatwoot_handoff_iniciado', 'sistema', $2, 'HANDOFF_HUMAN', $3)",
+        "options": {
+          "queryReplacement": "={{ [$('Code - Prepare Handoff').first().json.conv_id, $('Code - Prepare Handoff').first().json.estado, $('Code - Prepare Handoff').first().json.evento_payload] }}"
+        }
+      },
+      "id": "pg-h4-log",
+      "name": "PG - Log Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2352,
+        9984
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, conv_id: $('Code - Prepare Handoff').first().json.conv_id, chatwoot_conv_id: $('Code - Prepare Handoff').first().json.chatwoot_conv_id, message: 'Handoff completado' }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-h4-ok",
+      "name": "Respond - Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2608,
+        9984
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nSELECT c.id AS conv_id, lq.nombre_cliente AS nombre, lq.telefono_1 AS telefono, c.marca, lq.modelo, c.estado, lq.quicklink_id::text AS quicklink_id, c.chatwoot_conv_id, c.chatwoot_contact_id, (SELECT json_agg(e ORDER BY e.created_at) FROM (SELECT tipo_evento, actor, contenido AS contenido_msg, NULL AS direccion, created_at FROM eventos_conversacion WHERE conversation_id = c.id AND contenido IS NOT NULL ORDER BY created_at ASC LIMIT 15) e) AS mensajes FROM conversaciones c JOIN leads_quicklink lq ON lq.id = c.lead_id WHERE c.chatwoot_conv_id IS NOT NULL AND c.chatwoot_attrs_updated_at IS NULL AND c.estado NOT IN ('NEW_LEAD','DISCARDED') ORDER BY c.created_at ASC LIMIT 50",
+        "options": {}
+      },
+      "id": "pg-c2-001",
+      "name": "PG - Get Synced No Notes",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        272,
+        6784
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "loop-c2-001",
+      "name": "F2 Loop - Each Conv",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        528,
+        6784
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "status",
+              "value": "notes_done",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "finished_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-c2-done",
+      "name": "Set - Notes Done",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        752,
+        6992
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json || {};\nif (!item.conv_id || !item.chatwoot_conv_id) {\n  return [];\n}\nconst mensajes = Array.isArray(item.mensajes) ? item.mensajes : [];\n\nconst lines = [\n  '🤖 *CRIS — Contexto del Lead*',\n  '',\n  `*Cliente:* ${item.nombre || 'Prospecto'}`,\n  `*Teléfono:* ${item.telefono || ''}`,\n  `*Vehículo:* ${[item.marca, item.modelo].filter(Boolean).join(' ')}`,\n  `*Estado CRIS:* ${item.estado || ''}`,\n  `*QuickLink ID:* ${item.quicklink_id || ''}`,\n];\n\nif (mensajes.length > 0) {\n  lines.push('');\n  lines.push(`*Historial de mensajes (${mensajes.length}):*`);\n  mensajes.forEach(m => {\n    const ts = m.created_at\n      ? new Date(m.created_at).toLocaleString('es-EC', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})\n      : '';\n    const dir = m.direccion === 'inbound' ? '← Lead' : '→ CRIS';\n    const texto = (m.contenido_msg || '').substring(0, 200);\n    lines.push(`[${ts}] ${dir}: ${texto}`);\n  });\n}\n\nlines.push('');\nlines.push('_Sincronizado automáticamente desde el agente CRIS._');\n\nconst noteContent = lines.join('\\n');\n\nconst noteBody = JSON.stringify({\n  content: noteContent,\n  message_type: 'outgoing',\n  private: true\n});\n\nconst eventoPayload = JSON.stringify({\n  chatwoot_conv_id: item.chatwoot_conv_id,\n  mensajes_incluidos: mensajes.length\n}).replace(/'/g, \"''\");\n\nreturn [{\n  json: {\n    conv_id: item.conv_id,\n    chatwoot_conv_id: item.chatwoot_conv_id,\n    note_body: noteBody,\n    evento_payload: eventoPayload\n  }\n}];"
+      },
+      "id": "code-c2-build",
+      "name": "Code - Build Lead Note",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        752,
+        6784
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://chatwoot:3000/api/v1/accounts/2/conversations/{{ $json.chatwoot_conv_id }}/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.note_body }}",
+        "options": {}
+      },
+      "id": "http-c2-note",
+      "name": "HTTP - Post Private Note",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1008,
+        6784
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SET search_path TO sales_prod, public, extensions;\nUPDATE conversaciones SET chatwoot_attrs_updated_at = now(), updated_at = now() WHERE id = '{{ $('Code - Build Lead Note').first().json.conv_id }}'::uuid",
+        "options": {}
+      },
+      "id": "pg-c2-mark",
+      "name": "PG - Mark Note Synced",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1264,
+        6784
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SET search_path TO sales_prod, public, extensions;\nINSERT INTO eventos_conversacion (conversation_id, tipo_evento, actor, payload) VALUES ('{{ $('Code - Build Lead Note').first().json.conv_id }}'::uuid, 'chatwoot_nota_enviada', 'sistema', '{{ $('Code - Build Lead Note').first().json.evento_payload }}')",
+        "options": {}
+      },
+      "id": "pg-c2-log",
+      "name": "PG - Log Note Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1520,
+        6784
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/cris-tags-sync",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ conv_id: $('Code - Prepare Handoff').first().json.conv_id, source: 'CRIS-03-Handoff-Chatwoot' }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "wf09-sync-handoff",
+      "name": "WF09 - Sync Tags Handoff",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2544,
+        9792
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Requests immediate WF-09 tag sync. WF-09 remains the only Chatwoot labels writer."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://chatwoot:3000/api/v1/accounts/2/conversations/{{ $('Code - Prepare Handoff').first().json.chatwoot_conv_id }}/assignments",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"assignee_id\":null}",
+        "options": {}
+      },
+      "id": "http-h4-clear-assignee",
+      "name": "HTTP - Clear Individual Assignee",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1808,
+        9984
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 20
+            }
+          ]
+        }
+      },
+      "id": "cron-c2-001",
+      "name": "F2 CRON 20 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        6784
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook - Handoff Trigger": {
+      "main": [
+        [
+          {
+            "node": "AUTH - Handoff Token Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AUTH - Handoff Token Guard": {
+      "main": [
+        [
+          {
+            "node": "IF - Handoff Authorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Handoff Authorized": {
+      "main": [
+        [
+          {
+            "node": "Code - Validate Handoff Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond - Unauthorized Handoff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Validate Handoff Request": {
+      "main": [
+        [
+          {
+            "node": "IF - Handoff Request Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Handoff Request Valid": {
+      "main": [
+        [
+          {
+            "node": "PG - Get Conv Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond - Handoff Controlled Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Get Conv Data": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Handoff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare Handoff": {
+      "main": [
+        [
+          {
+            "node": "IF - Conv Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Conv Ready": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Open Conv",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF - Handoff Can Log Pending",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Open Conv": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Post Handoff Note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Handoff Can Log Pending": {
+      "main": [
+        [
+          {
+            "node": "PG - Log Handoff Pending",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond - Handoff Controlled Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Log Handoff Pending": {
+      "main": [
+        [
+          {
+            "node": "Respond - Not Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Post Handoff Note": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Assign QuickLink Team",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Insert Transferencia": {
+      "main": [
+        [
+          {
+            "node": "PG - Update Estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Update Estado": {
+      "main": [
+        [
+          {
+            "node": "PG - Log Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Log Event": {
+      "main": [
+        [
+          {
+            "node": "Respond - Success",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "WF09 - Sync Tags Handoff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Get Synced No Notes": {
+      "main": [
+        [
+          {
+            "node": "F2 Loop - Each Conv",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "F2 Loop - Each Conv": {
+      "main": [
+        [
+          {
+            "node": "Set - Notes Done",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Build Lead Note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Lead Note": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Post Private Note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Post Private Note": {
+      "main": [
+        [
+          {
+            "node": "PG - Mark Note Synced",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Mark Note Synced": {
+      "main": [
+        [
+          {
+            "node": "PG - Log Note Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Log Note Event": {
+      "main": [
+        [
+          {
+            "node": "F2 Loop - Each Conv",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WF09 - Sync Tags Handoff": {
+      "main": [
+        []
+      ]
+    },
+    "HTTP - Assign QuickLink Team": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Clear Individual Assignee",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Clear Individual Assignee": {
+      "main": [
+        [
+          {
+            "node": "PG - Insert Transferencia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "F2 CRON 20 min": {
+      "main": [
+        [
+          {
+            "node": "PG - Get Synced No Notes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "f6d30155-16ed-58e1-aceb-13504dc67ccc",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

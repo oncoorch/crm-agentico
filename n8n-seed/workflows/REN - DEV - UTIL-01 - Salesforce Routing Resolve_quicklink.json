@@ -1,0 +1,113 @@
+{
+  "id": "DBK4DKou4nGkU4Hf_quicklink",
+  "name": "REN - DEV - UTIL-01 - Salesforce Routing Resolve_quicklink",
+  "nodes": [
+    {
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -620,
+        240
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "renov/dev/salesforce-routing-resolve",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "renov-dev-salesforce-routing-resolve"
+    },
+    {
+      "id": "code-resolve-salesforce-routing",
+      "name": "Code - Resolve Salesforce Routing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -360,
+        240
+      ],
+      "parameters": {
+        "jsCode": "const startedAt = Date.now();\nconst input = $json ?? {};\nconst body = input.body ?? {};\nconst query = input.query ?? {};\nconst headers = input.headers ?? {};\n\nfunction readHeader(name) {\n  const target = name.toLowerCase();\n  for (const [key, value] of Object.entries(headers)) {\n    if (String(key).toLowerCase() === target) return Array.isArray(value) ? value[0] : value;\n  }\n  return null;\n}\n\nfunction env(name, fallback = null) {\n  try {\n    return $env[name] || fallback;\n  } catch (e) {\n    return fallback;\n  }\n}\n\nfunction result(httpStatus, status, message, extra = {}) {\n  const failureStatuses = ['UNAUTHORIZED', 'CONFIG_ERROR', 'SALESFORCE_AUTH_ERROR', 'SALESFORCE_REQUEST_ERROR', 'INVALID_RESPONSE', 'INVALID_REQUEST', 'INTERNAL_ERROR'];\n  return [{ json: {\n    success: httpStatus >= 200 && httpStatus < 300 && !failureStatuses.includes(status),\n    http_status: httpStatus,\n    status,\n    message: message ?? null,\n    duration_ms: Date.now() - startedAt,\n    ...extra\n  }}];\n}\n\nconst expectedToken = env('RENOV_INTERNAL_TOKEN');\nif (!expectedToken) {\n  return result(500, 'CONFIG_ERROR', 'RENOV_INTERNAL_TOKEN no esta configurado en n8n.');\n}\n\nconst auth = String(readHeader('authorization') ?? '');\nconst bearer = auth.match(/^Bearer\\s+(.+)$/i)?.[1] ?? null;\nconst providedToken = readHeader('x-internal-token') ?? bearer;\nif (providedToken !== expectedToken) {\n  return result(401, 'UNAUTHORIZED', 'Token interno invalido.');\n}\n\nconst phone = String(body.phone ?? query.phone ?? '').trim();\nconst accountId = String(body.accountId ?? query.accountId ?? '').trim();\nif (!phone && !accountId) {\n  return result(400, 'INVALID_REQUEST', 'Debe enviar phone o accountId.');\n}\nif (phone && !/^\\+[1-9][0-9]{7,14}$/.test(phone)) {\n  return result(400, 'INVALID_REQUEST', 'phone debe estar en formato E.164.');\n}\n\nconst salesforceBaseUrl = env('SALESFORCE_DEV_BASE_URL', 'https://quicklink--uat.sandbox.my.salesforce.com').replace(/\\/+$/, '');\nconst tokenUrl = env('SALESFORCE_DEV_TOKEN_URL', `${salesforceBaseUrl}/services/oauth2/token`);\nconst clientId = env('SALESFORCE_DEV_CLIENT_ID');\nconst clientSecret = env('SALESFORCE_DEV_CLIENT_SECRET');\nif (!clientId || !clientSecret) {\n  return result(500, 'CONFIG_ERROR', 'Credenciales Salesforce DEV no configuradas.');\n}\n\ntry {\n  const tokenResponse = await fetch(tokenUrl, {\n    method: 'POST',\n    headers: { 'content-type': 'application/x-www-form-urlencoded' },\n    body: new URLSearchParams({\n      grant_type: 'client_credentials',\n      client_id: clientId,\n      client_secret: clientSecret\n    })\n  });\n  const tokenText = await tokenResponse.text();\n  let tokenBody = {};\n  try { tokenBody = tokenText ? JSON.parse(tokenText) : {}; } catch (e) { tokenBody = {}; }\n  if (!tokenResponse.ok || !tokenBody.access_token) {\n    return result(502, 'SALESFORCE_AUTH_ERROR', 'No se pudo obtener token Salesforce DEV.', { salesforce_http_status: tokenResponse.status });\n  }\n\n  const routingUrl = new URL(`${salesforceBaseUrl}/services/apexrest/quicklink/v1/routing/resolve`);\n  if (phone) routingUrl.searchParams.set('phone', phone);\n  if (accountId) routingUrl.searchParams.set('accountId', accountId);\n\n  const routingResponse = await fetch(routingUrl, {\n    method: 'GET',\n    headers: {\n      authorization: `Bearer ${tokenBody.access_token}`,\n      accept: 'application/json'\n    }\n  });\n  const routingText = await routingResponse.text();\n  let routingBody = {};\n  try { routingBody = routingText ? JSON.parse(routingText) : {}; } catch (e) {\n    return result(502, 'INVALID_RESPONSE', 'Salesforce devolvio una respuesta no JSON.', { salesforce_http_status: routingResponse.status });\n  }\n\n  const allowedStatuses = ['MATCHED', 'MULTI_MATCH', 'NOT_FOUND', 'INVALID_REQUEST', 'INTERNAL_ERROR'];\n  const businessStatus = String(routingBody.status ?? 'INVALID_RESPONSE');\n  if (!allowedStatuses.includes(businessStatus)) {\n    return result(502, 'INVALID_RESPONSE', 'Salesforce devolvio status no reconocido.', { salesforce_http_status: routingResponse.status, raw_status: businessStatus });\n  }\n\n  const routingAction = {\n    MATCHED: 'matched',\n    MULTI_MATCH: 'escalate_multi_match',\n    NOT_FOUND: 'not_found',\n    INVALID_REQUEST: 'invalid_request',\n    INTERNAL_ERROR: 'escalate_internal_error'\n  }[businessStatus];\n\n  return result(routingResponse.status, businessStatus, routingBody.message ?? null, {\n    salesforce_http_status: routingResponse.status,\n    routing_action: routingAction,\n    phone: routingBody.phone ?? phone ?? null,\n    accountId: routingBody.accountId ?? accountId ?? null,\n    accountName: routingBody.accountName ?? null,\n    accountActive: routingBody.accountActive ?? null,\n    ownerId: routingBody.ownerId ?? null,\n    ownerName: routingBody.ownerName ?? null,\n    vehicleId: routingBody.vehicleId ?? null,\n    vehiclePlate: routingBody.vehiclePlate ?? null,\n    contractId: routingBody.contractId ?? null,\n    contractNumber: routingBody.contractNumber ?? null,\n    contractStatus: routingBody.contractStatus ?? null,\n    contractEndDate: routingBody.contractEndDate ?? null,\n    resolvedBy: routingBody.resolvedBy ?? null,\n    candidateAccountIds: routingBody.candidateAccountIds ?? null,\n    escalate: routingBody.escalate ?? (businessStatus === 'MULTI_MATCH' || businessStatus === 'INTERNAL_ERROR')\n  });\n} catch (error) {\n  return result(502, 'SALESFORCE_REQUEST_ERROR', 'Fallo consultando Salesforce routing resolve.', { error_message: String(error?.message ?? error) });\n}\n"
+      }
+    },
+    {
+      "id": "respond-routing-result",
+      "name": "Respond - Routing Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -100,
+        240
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": "={{ $json.http_status || 200 }}"
+        }
+      }
+    },
+    {
+      "id": "sticky-note",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1120,
+        -20
+      ],
+      "parameters": {
+        "content": "## REN - DEV - UTIL-01 - Salesforce Routing Resolve\n\nInternal/test utility for WF-03. Resolves inbound routing against Salesforce sandbox:\n\nGET /services/apexrest/quicklink/v1/routing/resolve\n\nInputs: phone (E.164) or accountId. Business result is in body.status, even on HTTP 200.\n\nExpected env vars:\n- RENOV_INTERNAL_TOKEN\n- SALESFORCE_DEV_CLIENT_ID\n- SALESFORCE_DEV_CLIENT_SECRET\n- SALESFORCE_DEV_BASE_URL (optional; defaults to Salesforce sandbox URL provided for integration)\n- SALESFORCE_DEV_TOKEN_URL (optional)\n\nDo not store Consumer Key/Secret in workflow JSON.",
+        "height": 560,
+        "width": 420
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code - Resolve Salesforce Routing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Resolve Salesforce Routing": {
+      "main": [
+        [
+          {
+            "node": "Respond - Routing Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond - Routing Result": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "executionTimeout": 30,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "bd4b19ec-fb90-5ac3-b5b6-3cc24fffa550",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

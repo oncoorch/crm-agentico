@@ -1,0 +1,1786 @@
+{
+  "id": "DncDs1Ar7mRlzm18_quicklink",
+  "name": "CRIS-04 — Outbound Intake_quicklink",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "quicklink-lead-inbound",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "1e8eb1d4-c587-415e-9c4f-efd6a35d168f",
+      "name": "Webhook — Recibir Lead",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        2448
+      ],
+      "webhookId": "2e46ebb4-b410-4823-a65b-7d2ce7aad93b"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json || {};\nconst headers = item.headers || {};\nconst body = item.body || {};\nconst host = String(headers.host || headers.Host || '').toLowerCase();\nconst forwardedHost = String(headers['x-forwarded-host'] || headers['X-Forwarded-Host'] || '').toLowerCase();\nconst authHeader = String(headers.authorization || headers.Authorization || '');\nconst token = String(headers['x-ql-sync-token'] || headers['X-QL-Sync-Token'] || authHeader.replace(/^Bearer\\s+/i, '') || '');\nconst expectedHash = '2b1af5eccaafa1ec6b1bdb820c7bcea416bd4d07e98891b4517b6bca2d6d571e';\n\nfunction sha256(ascii) {\n  function rightRotate(value, amount) { return (value >>> amount) | (value << (32 - amount)); }\n  const mathPow = Math.pow;\n  const maxWord = mathPow(2, 32);\n  const lengthProperty = 'length';\n  let i, j;\n  let result = '';\n  const words = [];\n  const asciiBitLength = ascii[lengthProperty] * 8;\n  const hash = sha256.h = sha256.h || [];\n  const k = sha256.k = sha256.k || [];\n  let primeCounter = k[lengthProperty];\n  const isComposite = {};\n  for (let candidate = 2; primeCounter < 64; candidate++) {\n    if (!isComposite[candidate]) {\n      for (i = 0; i < 313; i += candidate) isComposite[i] = candidate;\n      hash[primeCounter] = (mathPow(candidate, 0.5) * maxWord) | 0;\n      k[primeCounter++] = (mathPow(candidate, 1 / 3) * maxWord) | 0;\n    }\n  }\n  ascii += '\\x80';\n  while (ascii[lengthProperty] % 64 - 56) ascii += '\\x00';\n  for (i = 0; i < ascii[lengthProperty]; i++) {\n    j = ascii.charCodeAt(i);\n    if (j >> 8) return '';\n    words[i >> 2] |= j << ((3 - i) % 4) * 8;\n  }\n  words[words[lengthProperty]] = ((asciiBitLength / maxWord) | 0);\n  words[words[lengthProperty]] = (asciiBitLength);\n  for (j = 0; j < words[lengthProperty];) {\n    const w = words.slice(j, j += 16);\n    const oldHash = hash.slice(0);\n    for (i = 0; i < 64; i++) {\n      const w15 = w[i - 15], w2 = w[i - 2];\n      const a = hash[0], e = hash[4];\n      const temp1 = hash[7]\n        + (rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25))\n        + ((e & hash[5]) ^ ((~e) & hash[6]))\n        + k[i]\n        + (w[i] = (i < 16) ? w[i] : (\n          w[i - 16]\n          + (rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3))\n          + w[i - 7]\n          + (rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10))\n        ) | 0);\n      const temp2 = (rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22))\n        + ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));\n      hash.pop();\n      hash.unshift((temp1 + temp2) | 0);\n      hash[4] = (hash[4] + temp1) | 0;\n    }\n    for (i = 0; i < 8; i++) hash[i] = (hash[i] + oldHash[i]) | 0;\n  }\n  for (i = 0; i < 8; i++) {\n    for (j = 3; j + 1; j--) {\n      const b = (hash[i] >> (j * 8)) & 255;\n      result += ((b < 16) ? '0' : '') + b.toString(16);\n    }\n  }\n  return result;\n}\n\nconst tokenOk = Boolean(token) && sha256(token) === expectedHash;\nconst internalHost = /^(localhost|127\\.0\\.0\\.1|n8n)(:|$)/.test(host)\n  || /^(localhost|127\\.0\\.0\\.1|n8n)(:|$)/.test(forwardedHost);\n\nif (!tokenOk && !internalHost) {\n  throw new Error('[AUTH OUTBOUND] unauthorized quicklink-lead-inbound');\n}\n\nconst SAFETY_REAL_SENDS_ENABLED = false;\nfunction normalizeDigits(value) {\n  return String(value || '').replace(/\\D/g, '');\n}\nconst outboundPhoneDigits = normalizeDigits(body.phone || body.telefono_1 || body.to_phone || '');\nconst requestSource = String(body.source || '');\nconst outboundDispatcherAllowed = internalHost\n  && requestSource === 'outbound-dispatcher'\n  && outboundPhoneDigits.length >= 9\n  && outboundPhoneDigits.length <= 15;\nconst panelBatchKey = String(body.batch_key || '');\nconst panelLeadId = String(body.lead_id || '');\nconst panelRequestId = String(body.request_id || '');\nconst panelOperatorAllowed = internalHost\n  && tokenOk\n  && requestSource === 'panel-operador'\n  && /^ops05:\\d+$/.test(panelBatchKey)\n  && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(panelLeadId)\n  && panelRequestId === panelBatchKey + ':' + panelLeadId\n  && outboundPhoneDigits.length >= 9\n  && outboundPhoneDigits.length <= 15;\nif (!SAFETY_REAL_SENDS_ENABLED && !outboundDispatcherAllowed && !panelOperatorAllowed) {\n  throw new Error('[SAFETY OUTBOUND] real_sends_disabled_while_resolving_error');\n}\n\nreturn [{ json: {\n  ...item,\n  body,\n  outbound_intake_auth: tokenOk ? 'token' : 'internal',\n  outbound_dispatcher_guard: outboundDispatcherAllowed ? 'allowlisted_internal_dispatcher' : (panelOperatorAllowed ? 'panel_operator_tracking' : 'safety_disabled'),\n  outbound_intake_guard: outboundDispatcherAllowed ? 'allowlisted_internal_dispatcher' : (panelOperatorAllowed ? 'panel_operator_tracking' : 'safety_disabled'),\n} }];"
+      },
+      "id": "auth-outbound-intake-guard-001",
+      "name": "AUTH - Outbound Intake Guard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        464,
+        2448
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "auth-outbound-intake-ok",
+              "leftValue": "={{ $json.outbound_intake_auth === 'token' || $json.outbound_intake_auth === 'internal' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-outbound-intake-auth-001",
+      "name": "IF - Outbound Intake Authorized",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        688,
+        2448
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, accepted: true, status: 'accepted', request_id: $json.request_id || null, batch_key: $json.batch_key || null, campaign_summary: $json.campaign_summary || {}, message_ids: $json.campaign_summary?.message_ids || [] }) }}",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "id": "respond-outbound-intake-accepted-001",
+      "name": "Respond - Outbound Intake Accepted",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2140,
+        2180
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: 'unauthorized', message: 'Missing or invalid outbound intake token' }) }}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "respond-outbound-intake-unauth-001",
+      "name": "Respond - Unauthorized Outbound Intake",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        912,
+        2640
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-waba-phone-number-id",
+              "name": "waba_phone_number_id",
+              "value": "1114673978398967",
+              "type": "string"
+            },
+            {
+              "id": "cfg-waba-business-account-id",
+              "name": "waba_business_account_id",
+              "value": "1534839348293220",
+              "type": "string"
+            },
+            {
+              "id": "cfg-waba-phone",
+              "name": "waba_phone",
+              "value": "+5939906560803",
+              "type": "string"
+            },
+            {
+              "id": "cfg-meta-access-token",
+              "name": "meta_access_token",
+              "value": "EAAN8geA7G2cBRuGWjXc6HC1iVPTu1OXXjoz4MeRvl0lfOwBnrLtfFrRyM8KaCbHflJEejlZCGndo0wBKhUuVbK9tDivfLnZCTqXfKk6weNP1d5GXZBTlhZBqrkXZAG8hwPRbD4ZAUuzRPAjofZCFKpM6NmasbxgP0YJTQYM5JhDTXfWQ8t0a5HMz6yYMB7ZCI05rSwZDZD",
+              "type": "string"
+            },
+            {
+              "id": "cfg-default-country-code",
+              "name": "default_country_code",
+              "value": "593",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "set-campaign-config-001",
+      "name": "Set Campaign Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        912,
+        2448
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || {};\nconst phone = String(body.phone || body.telefono_1 || $json.phone || $json.telefono_1 || '').trim();\nconst marca = String(body.marca || $json.marca || 'KIA').toUpperCase();\nconst quicklinkId = body.quicklink_id || $json.quicklink_id || null;\nconst defaultCountryCode = String($('Set Campaign Config').first().json.default_country_code || '').replace(/\\D/g, '');\nconst explicitCountryCode = String(\n  body.country_code\n  || body.codigo_pais\n  || $json.country_code\n  || $json.codigo_pais\n  || ''\n).replace(/\\D/g, '');\nconst KNOWN_COUNTRY_CODES = ['593', '52', '55', '57'];\n\nfunction inferCountryCode(digits, explicitCc) {\n  if (explicitCc) return explicitCc;\n  const match = KNOWN_COUNTRY_CODES.find(cc => String(digits || '').startsWith(cc));\n  return match || defaultCountryCode;\n}\n\nfunction normalizeWaPhone(raw, explicitCc) {\n  let p = String(raw || '').trim();\n  if (!p) return '';\n  if (p.startsWith('+')) return p.replace(/\\D/g, '');\n  p = p.replace(/\\D/g, '');\n  if (p.startsWith('00')) p = p.slice(2);\n  const inferred = KNOWN_COUNTRY_CODES.find(cc => p.startsWith(cc));\n  const cc = explicitCc || inferred || defaultCountryCode;\n  if (cc && !p.startsWith(cc) && !inferred) return cc + p.replace(/^0+/, '');\n  return p;\n}\n\nconst toPhone = normalizeWaPhone(phone, explicitCountryCode);\nconst countryCode = inferCountryCode(toPhone, explicitCountryCode);\nreturn [{ json: {\n  phone,\n  marca,\n  quicklink_id: quicklinkId,\n  lead_id: body.lead_id || $json.lead_id || null,\n  country_code: countryCode,\n  to_phone: toPhone,\n  source: String(body.source || $json.source || 'outbound-intake'),\n  batch_key: String(body.batch_key || $json.batch_key || ''),\n  request_id: String(body.request_id || $json.request_id || ''),\n} }];"
+      },
+      "id": "cfb66e0f-09b2-4f38-a40c-9d5007647b02",
+      "name": "Guardar Conversacion Supabase",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1136,
+        2448
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize incoming data into array of campaign recipients\nconst items = $input.all();\n\nconst recipients = items.flatMap(item => {\n  const d = item.json;\n  if (Array.isArray(d.recipients)) {\n    return d.recipients.map(r => ({ json: { ...d, ...r } }));\n  }\n  return [{ json: d }];\n});\n\nreturn recipients.length > 0 ? recipients : [{ json: items[0]?.json || {} }];"
+      },
+      "id": "build-campaign-queue-001",
+      "name": "Build Campaign Queue",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        2448
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "loop-over-recipients-001",
+      "name": "Loop Over Recipients",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1584,
+        2448
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate Meta API acceptance from the completed send/log path.\n// A webhook 202 is valid only when all expected Meta message IDs are present.\nconst inputItems = $input.all();\nlet sourceItems = inputItems;\ntry {\n  const loggedItems = $('Log Campaign to Chatwoot').all();\n  if (Array.isArray(loggedItems) && loggedItems.length) sourceItems = loggedItems;\n} catch (e) {}\n\nconst rows = sourceItems.map(item => item.json || {}).filter(row => Object.keys(row).length);\nconst base = rows[0] || inputItems[0]?.json || {};\nconst expectedPerRecipient = Math.max(1, Number(base.expected_messages || (Array.isArray(base.template_names_used) ? base.template_names_used.length : 2)) || 2);\nconst totalRecipients = Math.max(1, rows.length || inputItems.length || 1);\nconst expectedMessages = expectedPerRecipient * totalRecipients;\nconst allMessages = rows.flatMap(row => Array.isArray(row.messages) ? row.messages : []);\nconst acceptedMessages = allMessages.filter(message => {\n  const id = message?.id || message?.message_id || message?.meta_message_id || null;\n  const status = String(message?.message_status || message?.status || '').toLowerCase();\n  return Boolean(id) && ['accepted', 'sent', 'delivered', 'read'].includes(status);\n});\nconst messageIds = [...new Set(acceptedMessages.map(message => message.id || message.message_id || message.meta_message_id).filter(Boolean))];\nconst metaAcceptedComplete = messageIds.length >= expectedMessages;\n\nreturn [{ json: {\n  ...base,\n  request_id: base.request_id || null,\n  batch_key: base.batch_key || null,\n  source: base.source || 'outbound-intake',\n  campaign_summary: {\n    status: metaAcceptedComplete ? 'meta_accepted' : 'meta_not_accepted',\n    total_recipients: totalRecipients,\n    expected_messages: expectedMessages,\n    accepted_count: messageIds.length,\n    message_ids: messageIds,\n    meta_accepted_complete: metaAcceptedComplete,\n    incomplete_reason: metaAcceptedComplete ? null : 'meta_message_ids_missing',\n    completed_at: new Date().toISOString(),\n  },\n} }];"
+      },
+      "id": "summarize-send-results-001",
+      "name": "Summarize Send Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1808,
+        2256
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH input AS (\n  SELECT\n    NULLIF('{{ $json.quicklink_id || \"\" }}', '') AS quicklink_id_raw,\n    '{{ $json.phone }}'::text AS phone,\n    '{{ $json.to_phone || \"\" }}'::text AS to_phone,\n    '{{ $json.marca }}'::text AS marca\n), norm AS (\n  SELECT\n    CASE WHEN quicklink_id_raw ~ '^[0-9]+$' THEN quicklink_id_raw::integer END AS quicklink_id,\n    phone,\n    to_phone,\n    marca\n  FROM input\n)\nSELECT l.id as lead_id, l.quicklink_id, l.nombre_cliente, l.telefono_1, l.modelo, l.marca::text as marca,\n  COALESCE(c.mensajes_bienvenida, '[]'::jsonb) as mensajes_bienvenida,\n  COALESCE(c.servicio_marca, '') as servicio_marca,\n  -- ==================================================================\n  -- FASE 1 opt-in/opt-out (PLAN_CRIS04_OPT_IN_OPT_OUT.md)\n  -- Estado de consentimiento del numero a contactar.\n  --\n  -- Se busca por DOS caminos independientes, a proposito: si uno falla el\n  -- otro sigue protegiendo. leads_quicklink.telefono_1 guarda el numero\n  -- LOCAL sin codigo de pais (ej. '967393457 -'), mientras que\n  -- lead_consent.phone_digits guarda E.164 (ej. '593967393457'), asi que\n  -- comparar digitos crudos NUNCA cruza. Verificado 2026-08-20:\n  -- 0/6323 por digitos crudos, 953/6323 normalizando.\n  --   1) to_phone: el numero que realmente se va a mensajear.\n  --   2) telefono_1 normalizado con la misma regla que normalizeWaPhone()\n  --      del nodo 'Guardar Conversacion Supabase': si no arranca con un\n  --      codigo de pais conocido, se le antepone 593.\n  -- Gana el estado mas restrictivo. Sin fila => UNKNOWN, que no bloquea.\n  -- ==================================================================\n  COALESCE((\n    SELECT lc.consent_status\n    FROM lead_consent lc\n    WHERE lc.phone_digits IN (\n      regexp_replace(coalesce(n.to_phone, ''), '\\D', '', 'g'),\n      CASE\n        WHEN regexp_replace(coalesce(l.telefono_1, ''), '\\D', '', 'g') ~ '^(593|52|55|57)'\n          THEN regexp_replace(coalesce(l.telefono_1, ''), '\\D', '', 'g')\n        WHEN regexp_replace(coalesce(l.telefono_1, ''), '\\D', '', 'g') = ''\n          THEN NULL\n        ELSE '593' || regexp_replace(regexp_replace(coalesce(l.telefono_1, ''), '\\D', '', 'g'), '^0+', '')\n      END\n    )\n    ORDER BY CASE lc.consent_status\n      WHEN 'OPTED_OUT' THEN 0\n      WHEN 'PENDING'   THEN 1\n      WHEN 'OPTED_IN'  THEN 2\n      ELSE 3\n    END\n    LIMIT 1\n  ), 'UNKNOWN') AS consent_status\nFROM leads_quicklink l\nJOIN norm n ON true\nLEFT JOIN configuracion_marcas c ON c.marca = l.marca::text AND c.activo = true\nWHERE l.marca::text = n.marca\n  AND (\n    (n.quicklink_id IS NOT NULL AND l.quicklink_id = n.quicklink_id)\n    OR (\n      n.quicklink_id IS NULL\n      AND regexp_replace(coalesce(l.telefono_1, ''), '\\D', '', 'g') IN (regexp_replace(n.phone, '\\D', '', 'g'), n.to_phone)\n    )\n  )\nORDER BY l.created_at ASC\nLIMIT 1",
+        "options": {}
+      },
+      "id": "pg-buscar-lead-001",
+      "name": "Postgres - Buscar Lead",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1808,
+        2448
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH input AS (\n  SELECT\n    '{{ $json.lead_id }}'::uuid AS lead_id,\n    '{{ $json.marca }}'::text AS marca,\n    NULLIF('+{{ $('Guardar Conversacion Supabase').first().json.to_phone }}', '+')::text AS telefono,\n    {{ $json.quicklink_id || 'NULL' }}::integer AS quicklink_id,\n    NULLIF('{{ String($json.nombre_cliente || \"\").replace(/'/g, \"''\") }}', '')::text AS nombre,\n    NULLIF('{{ String($json.modelo || \"\").replace(/'/g, \"''\") }}', '')::text AS modelo\n), existing_before AS (\n  SELECT c.id\n  FROM conversaciones c\n  JOIN input i ON c.lead_id = i.lead_id\n), upserted AS (\n  INSERT INTO conversaciones (lead_id, marca, canal, estado, intentos_realizados, telefono, quicklink_id, nombre, modelo)\n  SELECT lead_id, marca, 'WHATSAPP', 'CONTACTED_1', 1, telefono, quicklink_id, nombre, modelo\n  FROM input\n  WHERE lead_id IS NOT NULL\n  ON CONFLICT (lead_id) WHERE lead_id IS NOT NULL\n  DO UPDATE SET\n    telefono = COALESCE(EXCLUDED.telefono, conversaciones.telefono),\n    quicklink_id = COALESCE(EXCLUDED.quicklink_id, conversaciones.quicklink_id),\n    nombre = COALESCE(EXCLUDED.nombre, conversaciones.nombre),\n    modelo = COALESCE(EXCLUDED.modelo, conversaciones.modelo),\n    updated_at = now()\n  RETURNING id AS conv_id, lead_id\n), fallback AS (\n  SELECT c.id AS conv_id, c.lead_id\n  FROM conversaciones c\n  JOIN input i ON c.lead_id = i.lead_id\n  WHERE NOT EXISTS (SELECT 1 FROM upserted)\n  LIMIT 1\n), conv AS (\n  SELECT u.conv_id, u.lead_id, NOT EXISTS (SELECT 1 FROM existing_before) AS is_new\n  FROM upserted u\n  UNION ALL\n  SELECT f.conv_id, f.lead_id, false AS is_new\n  FROM fallback f\n), lead_updated AS (\n  UPDATE leads_quicklink l\n  SET conversacion_id = conv.conv_id,\n      estado_agente = 'EN_GESTION',\n      updated_at = now()\n  FROM conv\n  WHERE l.id = conv.lead_id\n  RETURNING l.id\n)\nSELECT conv.conv_id,\n       conv.lead_id,\n       conv.is_new,\n       EXISTS (SELECT 1 FROM lead_updated) AS lead_linked\nFROM conv\nLIMIT 1",
+        "options": {}
+      },
+      "id": "pg-crear-conv-001",
+      "name": "Postgres - Crear Conversacion",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2032,
+        2448
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "guard-check-1",
+              "leftValue": "={{ $json.is_new === true || $json.is_new === 'true' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "guard-bienvenida-001",
+      "name": "IF — Conv Nueva?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2256,
+        2448
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "async function __salesProdHttpRequest(opts) {\n  if (opts && String(opts.url || '').includes('/rest/v1/')) {\n    opts = {\n      ...opts,\n      headers: {\n        ...(opts.headers || {}),\n        'Accept-Profile': 'sales_prod',\n        'Content-Profile': 'sales_prod',\n      },\n    };\n  }\n  return this.helpers.httpRequest(opts);\n}\n\nconst conv = $input.first()?.json;\nconst lead = $('Postgres - Buscar Lead').first().json;\nconst norm = $('Guardar Conversacion Supabase').first().json;\n\nif (!lead?.lead_id || !conv?.conv_id) {\n  throw new Error('[OUTBOUND GUARD] Missing lead_id=' + (lead?.lead_id || null) + ' or conv_id=' + (conv?.conv_id || null));\n}\n\n// Outbound no crea lead_memory por defecto: lo upsert-eamos aqui para que\n// cualquier respuesta del cliente entre por el AI (no por el flujo de lead frio).\n// La clave sigue siendo phone, pero se vincula al lead/conv seleccionados para evitar duplicados.\ntry {\n  const SB_URL = 'https://quicklink.spb.aigentss.cloud';\n  const SB_KEY = '${REDACTED_JWT}';\n  const toPhone = String(norm?.to_phone || '').replace(/^\\+/, '');\n  if (toPhone) {\n    const phoneE164 = '+' + toPhone;\n    const memHeaders = { apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY, 'Content-Type': 'application/json', Prefer: 'return=minimal' };\n    const resetBody = {\n      lead_id: lead.lead_id,\n      conversation_id: conv.conv_id,\n      conversation_state: 'CONTACTED_1',\n      source: 'outbound',\n      outbound_sequence_status: 'ACTIVE',\n      customer_engaged: false,\n      followup_at: null,\n      last_inbound_message_at: null,\n      asesor_requerido: false,\n      turn_count: 0\n    };\n    // PATCH explicito: resetea estado stale (ej. TRANSFERIDO_HUMANO) al enviar nuevo CONTACTED_1.\n    await __salesProdHttpRequest.call(this, {\n      method: 'PATCH',\n      url: SB_URL + '/rest/v1/lead_memory?phone=eq.' + encodeURIComponent(phoneE164),\n      headers: memHeaders,\n      body: JSON.stringify(resetBody),\n      ignoreHttpStatusErrors: true,\n    }).catch(() => null);\n    // Si no existia registro, crear uno nuevo.\n    await __salesProdHttpRequest.call(this, {\n      method: 'POST',\n      url: SB_URL + '/rest/v1/lead_memory',\n      headers: { ...memHeaders, Prefer: 'resolution=ignore-duplicates,return=minimal' },\n      body: JSON.stringify({ phone: phoneE164, ...resetBody }),\n      ignoreHttpStatusErrors: true,\n    }).catch(() => null);\n  }\n} catch (e) { /* no-fatal: no bloquear el envio outbound */ }\n\nreturn [{ json: {\n  lead_found: true,\n  lead_id: lead.lead_id,\n  conv_id: conv.conv_id,\n  conversation_is_new: conv.is_new === true,\n  lead_linked: conv.lead_linked === true,\n  request_id: norm.request_id || null,\n  batch_key: norm.batch_key || null,\n  source: norm.source || 'outbound-intake',\n  quicklink_id: lead.quicklink_id,\n  nombre_cliente: lead.nombre_cliente,\n  modelo: lead.modelo,\n  marca: lead.marca,\n  to_phone: norm.to_phone,\n  country_code: norm.country_code,\n  meta_phone_number_id: '1114673978398967',\n  meta_access_token: 'EAAN8geA7G2cBRuGWjXc6HC1iVPTu1OXXjoz4MeRvl0lfOwBnrLtfFrRyM8KaCbHflJEejlZCGndo0wBKhUuVbK9tDivfLnZCTqXfKk6weNP1d5GXZBTlhZBqrkXZAG8hwPRbD4ZAUuzRPAjofZCFKpM6NmasbxgP0YJTQYM5JhDTXfWQ8t0a5HMz6yYMB7ZCI05rSwZDZD',\n  mensajes_bienvenida: lead.mensajes_bienvenida || [],\n  servicio_marca: lead.servicio_marca || ''\n} }];"
+      },
+      "id": "code-armar-output-001",
+      "name": "Code - Armar Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2480,
+        2448
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// CRIS v2.4 — Preparar Mensaje Bienvenida — CTA neutral único\nconst marca = String($json.marca || 'KIA').toUpperCase();\nfunction toTitleCase(s) { return String(s || '').toLowerCase().replace(/\bw/g, c => c.toUpperCase()); }\nconst nombre = toTitleCase($json.nombre_cliente || 'estimado/a cliente');\nconst modelo = toTitleCase($json.modelo || 'su vehículo');\nconst marcaNombre = marca === 'HYUNDAI' ? 'Hyundai' : 'KIA';\n\nconst mensaje = [\n  '¡Hola ' + nombre + '! Soy Cris, asesora comercial de ' + marcaNombre + '.',\n  'Quería felicitarle por su nuevo ' + modelo + '.',\n  '¿Le interesa conocer una forma de tener más seguridad y control sobre su ' + modelo + '?',\n  '✅ Sí, quiero saber más',\n  '❌ No por el momento'\n].join('\\n');\n\nreturn [{\n  json: {\n    ...$json,\n    mensaje_bienvenida_final: mensaje,\n    mensaje_bienvenida_escaped: JSON.stringify(mensaje).slice(1, -1),\n    variante: 'gancho_q1_neutral'\n  }\n}];\n"
+      },
+      "id": "node-bienvenida-outbound",
+      "name": "Preparar Mensaje Bienvenida",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2704,
+        2448
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build WhatsApp template payloads.\n//\n// FASE 2 opt-in/opt-out (PLAN_CRIS04_OPT_IN_OPT_OUT.md, decision A + A1):\n//   consent_status = OPTED_IN -> secuencia de bienvenida MARKETING (intro + CTA)\n//   cualquier otro            -> plantilla de opt-in UTILITY, UN SOLO envio\n//\n// El gate de la Fase 1 ('IF - Consent Permite Envio') ya descarto OPTED_OUT y\n// PENDING antes de llegar aca, asi que 'cualquier otro' es en la practica UNKNOWN.\n\nconst d = $('Preparar Mensaje Bienvenida').first().json;\nconst consent = String($('Postgres - Buscar Lead').first().json.consent_status || 'UNKNOWN').toUpperCase();\nconst optinMode = consent !== 'OPTED_IN';\n\nconst recipientPhone = $('Code - Armar Output').first().json.to_phone\n  || d.contacts?.[0]?.input || d.phone || d.telefono || d.wa_id || d.whatsapp;\n\nfunction toTitleCase(s) { return String(s||'').toLowerCase().replace(/\\b\\w/g, c => c.toUpperCase()); }\nconst marca      = (d.marca || '').toUpperCase();\nconst nombreTC   = toTitleCase(d.nombre_cliente || d.nombre || 'Cliente');\nconst modeloTC   = toTitleCase(d.modelo || 'su vehículo');\n\n// Los modelos llegan como codigo comercial completo, p.ej.\n//   'CRETA SU2 AC 1.5 5P 4X2 TM (FL)'  ->  'Creta'\n//   'SOLUTO'                           ->  'Soluto'\n// Verificado 2026-08-21: 156 de los 182 leads pendientes tienen el codigo\n// largo. Mandarlo crudo produce \"tu nuevo Creta Su2 Ac 1.5 5p 4x2 Tm (fl)\".\n// Solo se aplica a la rama de opt-in; la secuencia de bienvenida conserva su\n// comportamiento historico hasta que se decida cambiarlo.\nfunction nombreModelo(raw) {\n  const s = String(raw || '').trim();\n  if (!s) return 'su vehículo';\n  const first = (s.split(/[\\s/(\\-]+/)[0] || s);\n  return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();\n}\nconst modeloCorto = nombreModelo(d.modelo);\n\nif (marca !== 'KIA' && marca !== 'HYUNDAI') {\n  throw new Error(`[GUARD BIENVENIDA] vehicle_brand inválido: \"${marca}\". lead_id=${d.lead_id} conv_id=${d.conv_id}`);\n}\n\nfunction buildPayload(tpl) {\n  const template = {\n    name: tpl.name,\n    language: { code: tpl.lang },\n  };\n  const components = [];\n  if (Array.isArray(tpl.params) && tpl.params.length) {\n    components.push({ type: 'body', parameters: tpl.params });\n  }\n  if (Array.isArray(tpl.buttons) && tpl.buttons.length) {\n    for (const btn of tpl.buttons) {\n      components.push({\n        type: 'button',\n        sub_type: 'quick_reply',\n        index: String(btn.index),\n        parameters: [{ type: 'payload', payload: btn.payload }],\n      });\n    }\n  }\n  if (components.length) template.components = components;\n  return {\n    messaging_product: 'whatsapp',\n    to: recipientPhone,\n    type: 'template',\n    template,\n  };\n}\n\n// ===================== RAMA OPT-IN (Fase 2) =====================\n// Plantilla UTILITY, neutral de marca, un unico envio. Los payloads de los\n// botones tienen que coincidir EXACTO con BUTTON_RULES de CRIS-01 y con las\n// ramas de la RPC claim_whatsapp_button_interaction (migracion V155).\nif (optinMode) {\n  const OPTIN = {\n    name: 'quicklink_optin_ventas_v2',\n    lang: 'es_EC',\n    params: [{ type: 'text', text: nombreTC }, { type: 'text', text: modeloCorto }],\n    buttons: [\n      { index: 0, payload: 'optin_grant_v1' },\n      { index: 1, payload: 'optin_deny_v1' },\n    ],\n  };\n  const optinPayload = buildPayload(OPTIN);\n  return [{\n    json: {\n      ...d,\n      optin_mode: true,\n      consent_status: consent,\n      template_step: 'optin',\n      template_name_used: OPTIN.name,\n      template_name_final: OPTIN.name,\n      template_name_intro: OPTIN.name,\n      template_name_cta: null,\n      template_names_used: [OPTIN.name],\n      template_payload: optinPayload,\n      template_payload_intro: optinPayload,\n      template_payload_cta: null,\n      template_variant: null,\n      template_variant_strategy: 'optin_single',\n    }\n  }];\n}\n\n// ===================== RAMA BIENVENIDA (solo OPTED_IN) =====================\nconst BIENVENIDA = {\n  KIA: [\n    {\n      variant: 'v1',\n      aliases: ['kia_bienvenida_intro_v4_1', 'kia_bienvenida_cta_v4_1'],\n      intro: { name: 'kia_bienvenida_intro_v4_1', lang: 'es', params: [{ type:'text', text:nombreTC }, { type:'text', text:modeloTC }] },\n      cta:   { name: 'kia_bienvenida_cta_v4_1',   lang: 'es', params: [] },\n    },\n    {\n      variant: 'v2',\n      aliases: ['kia_bienvenida_intro_v4_2', 'kia_bienvenida_cta_v4_2'],\n      intro: { name: 'kia_bienvenida_intro_v4_2', lang: 'es', params: [{ type:'text', text:nombreTC }, { type:'text', text:modeloTC }] },\n      cta:   { name: 'kia_bienvenida_cta_v4_2',   lang: 'es', params: [] },\n    },\n    {\n      variant: 'v3',\n      aliases: ['kia_bienvenida_intro_v4_3', 'kia_bienvenida_cta_v4_3'],\n      intro: { name: 'kia_bienvenida_intro_v4_3', lang: 'es', params: [{ type:'text', text:nombreTC }, { type:'text', text:modeloTC }] },\n      cta:   { name: 'kia_bienvenida_cta_v4_3',   lang: 'es', params: [] },\n    },\n  ],\n  HYUNDAI: [\n    {\n      variant: 'v1',\n      aliases: ['hyundai_bienvenida_intro_v4_1', 'hyundai_bienvenida_cta_v4_1'],\n      intro: { name: 'hyundai_bienvenida_intro_v4_1', lang: 'es', params: [{ type:'text', text:nombreTC }, { type:'text', text:modeloTC }] },\n      cta:   { name: 'hyundai_bienvenida_cta_v4_1',   lang: 'es', params: [] },\n    },\n    {\n      variant: 'v2',\n      aliases: ['hyundai_bienvenida_intro_v4_2', 'hyundai_bienvenida_cta_v4_2'],\n      intro: { name: 'hyundai_bienvenida_intro_v4_2', lang: 'es', params: [{ type:'text', text:nombreTC }, { type:'text', text:modeloTC }] },\n      cta:   { name: 'hyundai_bienvenida_cta_v4_2',   lang: 'es', params: [] },\n    },\n    {\n      variant: 'v3',\n      aliases: ['hyundai_bienvenida_intro_v4_3', 'hyundai_bienvenida_cta_v4_3'],\n      intro: { name: 'hyundai_bienvenida_intro_v4_3', lang: 'es', params: [{ type:'text', text:nombreTC }, { type:'text', text:modeloTC }] },\n      cta:   { name: 'hyundai_bienvenida_cta_v4_3',   lang: 'es', params: [] },\n    },\n  ],\n};\n\nconst opciones = (BIENVENIDA[marca] || []).filter(o => !(marca === 'HYUNDAI' && o.variant === 'v1'));\nif (!opciones.length) throw new Error('[GUARD CATÁLOGO] No hay templates de bienvenida para ' + marca);\n\nconst override = d.template_name || d.templateName || '';\nconst leadId = d.lead_id || null;\nconst convId = d.conv_id || null;\nconst variantSeed = String(convId || leadId || d.to_phone || d.phone || d.telefono || '');\nconst variantPersisted = Boolean(variantSeed);\nconst variantPersistenceError = variantSeed ? null : 'missing_stable_seed';\nlet selected = null;\n\nfunction stableVariantIndex(seed, length) {\n  let hash = 2166136261;\n  for (const char of String(seed || '')) {\n    hash ^= char.charCodeAt(0);\n    hash = Math.imul(hash, 16777619);\n  }\n  return (hash >>> 0) % length;\n}\n\nif (override) {\n  selected = opciones.find(o => o.variant === override || o.aliases.includes(override));\n  if (!selected) throw new Error('[GUARD CATÁLOGO] Template \"' + override + '\" no existe en bienvenida split. lead_id=' + d.lead_id);\n}\n\nif (!selected) selected = opciones[stableVariantIndex(variantSeed, opciones.length)];\n\nif (!selected.intro.name.startsWith(marca.toLowerCase()) || !selected.cta.name.startsWith(marca.toLowerCase())) {\n  throw new Error(`[GUARD FINAL] Bienvenida split no corresponde a marca \"${marca}\". lead_id=${d.lead_id}`);\n}\n\nconst introPayload = buildPayload(selected.intro);\nconst ctaPayload = buildPayload({\n  ...selected.cta,\n  buttons: [\n    { index: 0, payload: 'gancho_si_gancho_q1_neutral' },\n    { index: 1, payload: 'gancho_no_gancho_q1_neutral' },\n  ],\n});\nconst templateNames = [selected.intro.name, selected.cta.name];\nconst common = {\n  ...d,\n  optin_mode: false,\n  consent_status: consent,\n  template_variant: selected.variant,\n  template_name_intro: selected.intro.name,\n  template_name_cta: selected.cta.name,\n  template_name_final: selected.cta.name,\n  template_names_used: templateNames,\n  template_payload_intro: introPayload,\n  template_payload_cta: ctaPayload,\n  template_variant_persisted: variantPersisted,\n  template_variant_persistence_error: variantPersistenceError,\n  template_variant_strategy: 'deterministic_seed',\n};\n\nreturn [{\n  json: {\n    ...common,\n    template_step: 'intro',\n    template_name_used: selected.intro.name,\n    template_payload: introPayload,\n  }\n}];"
+      },
+      "id": "prepare-template-payload-001",
+      "name": "Prepare Template Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2928,
+        2448
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://graph.facebook.com/v23.0/' + $('Set Campaign Config').first().json.waba_phone_number_id + '/messages' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('Set Campaign Config').first().json.meta_access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.template_payload) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "send-whatsapp-template-001",
+      "name": "Send WhatsApp Template",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        3152,
+        2448
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare Chatwoot campaign logging data. Chatwoot calls run in HTTP nodes using the Chatwoot API credential.\nconst d = $('Prepare Template Payload').first().json;\n\nconst CW_URL = 'http://chatwoot:3000';\nconst CW_ACCOUNT = 2;\nconst CW_INBOX = 2;\n\nconst rawPhone = String(d.phone || d.telefono || d.to_phone || '').trim();\nconst nombre = d.nombre_cliente || d.nombre || 'Cliente';\nconst modelo = d.modelo || '';\nconst marca = (d.marca || 'KIA').toUpperCase();\nconst templateName = d.template_name_final || d.template_name_used || d.template_name || d.templateName || 'template';\n// FASE 2: la rama opt-in envia una sola plantilla UTILITY, no la bienvenida.\nconst campaignStep = d.optin_mode === true ? 'Contacto 0 / Opt-in' : 'Contacto 1 / Bienvenida';\n\nconst introResp = $('Send WhatsApp Template').first()?.json || {};\n// FASE 2: en la rama opt-in el nodo de CTA NUNCA se ejecuta, y en n8n\n// referenciar un nodo no ejecutado lanza error (el ?. no protege de eso\n// porque el throw ocurre en $(...), antes del acceso a .json).\nconst isOptinRun = d.optin_mode === true;\nlet ctaResp = {};\nif (!isOptinRun) {\n  try { ctaResp = $('Send WhatsApp CTA Template').first()?.json || {}; } catch (e) { ctaResp = {}; }\n  if (!Object.keys(ctaResp).length) ctaResp = $input.first()?.json || {};\n}\nconst waResponses = [introResp, ctaResp].filter(resp => resp && Object.keys(resp).length);\nconst waMessages = waResponses.flatMap(resp => Array.isArray(resp?.messages) ? resp.messages : []);\nconst expectedMessages = Array.isArray(d.template_names_used) ? d.template_names_used.length : 1;\nconst sendOk = waMessages.length >= expectedMessages\n  && waMessages.every(message => String(message?.message_status || '').toLowerCase() === 'accepted');\nconst sendStatus = sendOk ? 'Aceptado por Meta' : 'Sin confirmacion';\n\nfunction digits(value) {\n  return String(value || '').replace(/\\D/g, '');\n}\n\nfunction normalizeE164(value) {\n  let p = digits(value);\n  if (!p) return '';\n  if (p.startsWith('593') || p.startsWith('57') || p.startsWith('55') || p.startsWith('52')) return '+' + p;\n  if (p.startsWith('0') && p.length === 10) return '+593' + p.slice(1);\n  if (p.length === 9 && p.startsWith('9')) return '+593' + p;\n  return '+' + p;\n}\n\nfunction searchQuery(value) {\n  const e164 = normalizeE164(value);\n  const noPlus = e164.replace(/^\\+/, '');\n  if (noPlus.startsWith('593')) return noPlus.slice(3);\n  return noPlus || digits(value);\n}\n\nconst phoneE164 = normalizeE164(rawPhone || d.to_phone);\nconst noteContent = [\n  'Campaign Template aceptado por Meta API',\n  '',\n  'Flujo: ' + campaignStep,\n  'Cliente: ' + nombre,\n  'Telefono: ' + (phoneE164 || rawPhone),\n  'Vehiculo: ' + [marca, modelo].filter(Boolean).join(' '),\n  'Template: ' + templateName,\n  'Estado: ' + sendStatus,\n  'Hora: ' + new Date().toLocaleString('es-EC', { timeZone: 'America/Guayaquil' })\n].join('\\n');\n\nconst activityContent = [\n  'CRIS outbound Meta API: ' + campaignStep,\n  'Proyeccion visible en Chatwoot; el template real fue enviado por WhatsApp Cloud API.',\n  'Template Meta: ' + templateName,\n  'Cliente: ' + nombre,\n  'Telefono: ' + (phoneE164 || rawPhone),\n  'Vehiculo: ' + [marca, modelo].filter(Boolean).join(' '),\n  'Estado Meta: ' + sendStatus\n].join('\\n');\n\nreturn [{ json: {\n  ...d,\n  messages: waMessages,\n  cw_url: CW_URL,\n  cw_account: CW_ACCOUNT,\n  cw_inbox: CW_INBOX,\n  cw_search_query: searchQuery(rawPhone || d.to_phone),\n  raw_phone: rawPhone,\n  phone_e164: phoneE164,\n  nombre,\n  modelo,\n  marca,\n  template_name_chatwoot: templateName,\n  campaign_step: campaignStep,\n  send_status_chatwoot: sendStatus,\n  note_content: noteContent,\n  activity_content: activityContent,\n} }];"
+      },
+      "id": "campaign-cw-note-001",
+      "name": "CW - Prepare Campaign Log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4200,
+        2360
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 2,
+        "unit": "seconds"
+      },
+      "id": "wait-2-seconds-001",
+      "name": "Wait 2 Seconds",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [
+        4272,
+        2520
+      ],
+      "webhookId": "ad73a2ce-6438-41c9-ba92-d72c32327c82"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH intro_seed AS (\n  SELECT ('intro_cta_' || replace(gen_random_uuid()::text, '-', ''))::text AS interaction_id\n), marked AS (\n  INSERT INTO lead_memory (\n    phone,\n    lead_id,\n    conversation_id,\n    conversation_state,\n    source,\n    outbound_sequence_status,\n    customer_engaged,\n    followup_at,\n    last_inbound_message_at,\n    last_outbound_message_at,\n    last_message_at,\n    last_template_sent,\n    last_template_sent_at,\n    chatwoot_conv_id,\n    chatwoot_contact_id\n  ) VALUES (\n    ('+' || regexp_replace('{{ $('Code - Armar Output').first().json.to_phone }}', '^\\+', ''))::text,\n    '{{ $('Code - Armar Output').first().json.lead_id }}'::uuid,\n    '{{ $('Code - Armar Output').first().json.conv_id }}'::uuid,\n    'CONTACTED_1',\n    'outbound',\n    'ACTIVE',\n    false,\n    NULL,\n    NULL,\n    now(),\n    now(),\n    '{{ $('Prepare Template Payload').first().json.template_name_final || $('Prepare Template Payload').first().json.template_name_used }}'::text,\n    now(),\n    {{ $('Log Campaign to Chatwoot').first().json.cw_conv_id || 'NULL' }}::integer,\n    {{ $('Log Campaign to Chatwoot').first().json.cw_contact_id || 'NULL' }}::integer\n  )\n  ON CONFLICT (phone) DO UPDATE SET\n    lead_id = EXCLUDED.lead_id,\n    conversation_id = EXCLUDED.conversation_id,\n    conversation_state = 'CONTACTED_1',\n    source = 'outbound',\n    outbound_sequence_status = 'ACTIVE',\n    customer_engaged = false,\n    followup_at = NULL,\n    last_inbound_message_at = NULL,\n    last_outbound_message_at = now(),\n    last_message_at = now(),\n    last_template_sent = EXCLUDED.last_template_sent,\n    last_template_sent_at = now(),\n    chatwoot_conv_id = COALESCE(EXCLUDED.chatwoot_conv_id, lead_memory.chatwoot_conv_id),\n    chatwoot_contact_id = COALESCE(EXCLUDED.chatwoot_contact_id, lead_memory.chatwoot_contact_id),\n    updated_at = now()\n  RETURNING *\n), eligible AS (\n  SELECT 1\n  FROM marked\n  WHERE customer_engaged = FALSE\n    AND COALESCE(outbound_sequence_status, 'ACTIVE') <> 'PAUSED'\n), state_result AS (\n  SELECT *\n  FROM set_conversation_state('{{ $('Code - Armar Output').first().json.conv_id }}'::uuid, 'CONTACTED_1', 'cris_outbound_intake', jsonb_build_object('workflow', 'CRIS-04', 'template', '{{ $('Prepare Template Payload').first().json.template_name_final || $('Prepare Template Payload').first().json.template_name_used }}'))\n  WHERE EXISTS (SELECT 1 FROM eligible)\n), updated AS (\n  UPDATE conversaciones\n  SET\n      chatwoot_conv_id = COALESCE((SELECT chatwoot_conv_id FROM marked LIMIT 1), conversaciones.chatwoot_conv_id),\n      chatwoot_contact_id = COALESCE((SELECT chatwoot_contact_id FROM marked LIMIT 1), conversaciones.chatwoot_contact_id),\n      variante_mensaje = CASE '{{ $('Prepare Template Payload').first().json.template_variant || '' }}'\n        WHEN 'v1' THEN 'A'\n        WHEN 'v2' THEN 'B'\n        WHEN 'v3' THEN 'C'\n        ELSE conversaciones.variante_mensaje\n      END,\n      active_interaction_id = (SELECT interaction_id FROM intro_seed),\n      active_interaction_type = 'INTRO_CTA',\n      expected_action = 'INTRO_ACCEPT,INTRO_REJECT',\n      interaction_consumed = false,\n      conversation_version = COALESCE(conversaciones.conversation_version, 0) + 1,\n      updated_at = now()\n  WHERE id = '{{ $('Code - Armar Output').first().json.conv_id }}'::uuid\n    AND lead_id = '{{ $('Code - Armar Output').first().json.lead_id }}'::uuid\n    AND EXISTS (SELECT 1 FROM state_result WHERE changed OR reason = 'no_change')\n  RETURNING id\n), lead_updated AS (\n  UPDATE leads_quicklink\n  SET estado_agente = 'EN_GESTION',\n      conversacion_id = '{{ $('Code - Armar Output').first().json.conv_id }}'::uuid,\n      updated_at = now()\n  WHERE id = '{{ $('Code - Armar Output').first().json.lead_id }}'::uuid\n    AND EXISTS (SELECT 1 FROM eligible)\n  RETURNING id\n), attempt_logged AS (\n  INSERT INTO intentos_contacto (conversacion_id, numero_intento, mensaje_enviado, enviado_at, resultado, whatsapp_msg_id)\n  SELECT\n    '{{ $('Code - Armar Output').first().json.conv_id }}'::uuid,\n    1,\n    COALESCE(NULLIF('{{ $('Prepare Template Payload').first().json.template_name_final || $('Prepare Template Payload').first().json.template_name_used }}', ''), 'CONTACTED_1'),\n    now(),\n    'ENVIADO'::resultado_intento,\n    NULLIF('{{ $('Send WhatsApp Template').first().json.messages?.[0]?.id || '' }}', '')\n  WHERE EXISTS (SELECT 1 FROM eligible)\n  ON CONFLICT (conversacion_id, numero_intento) DO UPDATE SET\n    mensaje_enviado = EXCLUDED.mensaje_enviado,\n    enviado_at = COALESCE(intentos_contacto.enviado_at, EXCLUDED.enviado_at),\n    resultado = CASE\n      WHEN intentos_contacto.resultado = 'RESPONDIDO'::resultado_intento THEN intentos_contacto.resultado\n      ELSE 'ENVIADO'::resultado_intento\n    END,\n    whatsapp_msg_id = COALESCE(intentos_contacto.whatsapp_msg_id, EXCLUDED.whatsapp_msg_id)\n  RETURNING id\n), scheduled AS (\n  INSERT INTO scheduled_followups (conversation_id, phone, tipo_followup, scheduled_at, status, metadata)\n  SELECT\n    '{{ $('Code - Armar Output').first().json.conv_id }}'::uuid,\n    ('+' || regexp_replace('{{ $('Code - Armar Output').first().json.to_phone }}', '^\\+', ''))::text,\n    'CONTACTED_2',\n    outbound_followup_scheduled_at('{{ $('Code - Armar Output').first().json.conv_id }}'::uuid, 'CONTACTED_2', now()),\n    'PENDING',\n    jsonb_build_object('country_code', NULLIF(NULLIF('{{ $('Code - Armar Output').first().json.country_code }}', 'undefined'), ''))\n  WHERE EXISTS (SELECT 1 FROM eligible)\n  ON CONFLICT (conversation_id, tipo_followup) WHERE conversation_id IS NOT NULL DO NOTHING\n  RETURNING id\n), intro_interaction AS (\n  INSERT INTO conversation_interactions (\n    interaction_id, conversation_id, interaction_type, state, allowed_actions,\n    conversation_version, payload\n  )\n  SELECT\n    (SELECT interaction_id FROM intro_seed),\n    '{{ $('Code - Armar Output').first().json.conv_id }}'::uuid,\n    'INTRO_CTA',\n    'AWAITING_INTRO_RESPONSE',\n    ARRAY['INTRO_ACCEPT','INTRO_REJECT']::text[],\n    COALESCE((SELECT conversation_version FROM conversaciones WHERE id = '{{ $('Code - Armar Output').first().json.conv_id }}'::uuid), 0),\n    jsonb_build_object(\n      'template_name', '{{ $('Prepare Template Payload').first().json.template_name_final || $('Prepare Template Payload').first().json.template_name_used }}',\n      'intro_template_name', '{{ $('Prepare Template Payload').first().json.template_name_intro || '' }}',\n      'cta_template_name', '{{ $('Prepare Template Payload').first().json.template_name_cta || '' }}',\n      'cta_variant', '{{ $('Prepare Template Payload').first().json.template_variant || '' }}',\n      'brand', '{{ $('Prepare Template Payload').first().json.marca || '' }}'\n    )\n  WHERE EXISTS (SELECT 1 FROM updated)\n  ON CONFLICT (interaction_id) DO NOTHING\n  RETURNING interaction_id\n)\nSELECT 'followup_programado' as action,\n       '{{ $('Code - Armar Output').first().json.conv_id }}' as conversation_id,\n       EXISTS (SELECT 1 FROM marked) as memory_linked,\n       EXISTS (SELECT 1 FROM lead_updated) as lead_marked,\n       EXISTS (SELECT 1 FROM attempt_logged) as attempt_logged,\n       EXISTS (SELECT 1 FROM scheduled) as followup_scheduled,\n       (SELECT interaction_id FROM intro_interaction LIMIT 1) as active_interaction_id;",
+        "options": {}
+      },
+      "id": "b1-followup-001",
+      "name": "B1 — Programar Followup CONTACTO_2",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2032,
+        2256
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/cris-tags-sync",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ conv_id: $json.conv_id || $json.conversation_id || $('Code - Armar Output').first().json.conv_id, source: 'CRIS-04-Outbound-Intake.contacto_1' }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "wf09-sync-outbound-c1",
+      "name": "WF09 - Sync Tags CONTACTO_1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2256,
+        2256
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Requests immediate WF-09 tag sync. WF-09 remains the only Chatwoot labels writer."
+    },
+    {
+      "parameters": {
+        "amount": 4,
+        "unit": "seconds"
+      },
+      "id": "wait-before-bienvenida-cta-001",
+      "name": "Wait Before CTA",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [
+        3376,
+        2448
+      ],
+      "webhookId": "0c9a0327-4d10-4ad4-9ed3-0f6a85d2b210"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare the CTA template only after the intro HTTP send has completed.\nconst d = $('Prepare Template Payload').first().json;\nconst introResponse = $input.first()?.json || {};\n\nif (!d.template_payload_cta || !d.template_name_cta) {\n  throw new Error('[GUARD BIENVENIDA CTA] Missing CTA payload from Prepare Template Payload');\n}\n\nreturn [{\n  json: {\n    ...d,\n    intro_meta_response: introResponse,\n    template_step: 'cta',\n    template_name_used: d.template_name_cta,\n    template_payload: d.template_payload_cta,\n  }\n}];"
+      },
+      "id": "prepare-bienvenida-cta-payload-001",
+      "name": "Prepare CTA Template Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        2448
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://graph.facebook.com/v23.0/' + $('Set Campaign Config').first().json.waba_phone_number_id + '/messages' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('Set Campaign Config').first().json.meta_access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.template_payload) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "send-whatsapp-cta-template-001",
+      "name": "Send WhatsApp CTA Template",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        3824,
+        2448
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "track-meta-intro-001",
+      "name": "PG - Registrar Meta Intro",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3320,
+        2360
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nSELECT attach_outbound_meta_message($1::text, 'intro', $2::text, $3::text) AS action;",
+        "options": {
+          "queryReplacement": "={{ [ $('Guardar Conversacion Supabase').first().json.request_id || '', $json.messages?.[0]?.id || '', $json.messages?.[0]?.message_status || 'accepted' ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000
+    },
+    {
+      "id": "restore-meta-intro-001",
+      "name": "Restaurar Respuesta Meta Intro",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3480,
+        2360
+      ],
+      "parameters": {
+        "jsCode": "return [{ json: $('Send WhatsApp Template').first().json }];"
+      }
+    },
+    {
+      "id": "track-meta-cta-001",
+      "name": "PG - Registrar Meta CTA",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3980,
+        2360
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nSELECT attach_outbound_meta_message($1::text, 'cta', $2::text, $3::text) AS action;",
+        "options": {
+          "queryReplacement": "={{ [ $('Guardar Conversacion Supabase').first().json.request_id || '', $json.messages?.[0]?.id || '', $json.messages?.[0]?.message_status || 'accepted' ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000
+    },
+    {
+      "id": "track-meta-intro-failed-001",
+      "name": "PG - Marcar Meta Intro Fallido",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3320,
+        2600
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nSELECT mark_outbound_dispatch_failed($1::text, $2::text, $3::text) AS action;",
+        "options": {
+          "queryReplacement": "={{ [ $('Guardar Conversacion Supabase').first().json.request_id || '', 'META_INTRO_ERROR', $json.error?.message || $json.message || 'Meta intro failed' ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000
+    },
+    {
+      "id": "track-meta-cta-failed-001",
+      "name": "PG - Marcar Meta CTA Fallido",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3980,
+        2600
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nSELECT mark_outbound_dispatch_failed($1::text, $2::text, $3::text) AS action;",
+        "options": {
+          "queryReplacement": "={{ [ $('Guardar Conversacion Supabase').first().json.request_id || '', 'META_CTA_ERROR', $json.error?.message || $json.message || 'Meta CTA failed' ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "meta-accepted-complete",
+              "leftValue": "={{ $json.campaign_summary?.meta_accepted_complete === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-meta-accepted-001",
+      "name": "IF - Meta Accepted?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1920,
+        2256
+      ]
+    },
+    {
+      "id": "cw-search-contact-credential-001",
+      "name": "HTTP - CW Search Contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4420,
+        2360
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.cw_url + '/api/v1/accounts/' + $json.cw_account + '/contacts/search?q=' + encodeURIComponent($json.cw_search_query || '') + '&include_contacts=true' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "cw-resolve-contact-credential-001",
+      "name": "CW - Resolve Contact",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4640,
+        2360
+      ],
+      "parameters": {
+        "jsCode": "const base = $('CW - Prepare Campaign Log').first().json;\nconst searchResp = $input.first().json || {};\n\nfunction digits(value) {\n  return String(value || '').replace(/\\D/g, '');\n}\nfunction contactsFrom(resp) {\n  if (Array.isArray(resp)) return resp;\n  if (Array.isArray(resp?.payload)) return resp.payload;\n  if (Array.isArray(resp?.payload?.contacts)) return resp.payload.contacts;\n  if (Array.isArray(resp?.data?.payload)) return resp.data.payload;\n  if (Array.isArray(resp?.contacts)) return resp.contacts;\n  if (resp?.id) return [resp];\n  if (resp?.payload?.id) return [resp.payload];\n  if (resp?.payload?.contact?.id) return [resp.payload.contact];\n  if (resp?.contact?.id) return [resp.contact];\n  return [];\n}\n\nconst contacts = contactsFrom(searchResp);\nconst wanted = digits(base.phone_e164).slice(-9);\nconst exact = contacts.find(c => digits(c.phone_number).endsWith(wanted)) || contacts[0] || null;\nconst contactId = exact?.id || null;\nconst searchError = searchResp.error?.message || searchResp.error || null;\n\nreturn [{ json: {\n  ...base,\n  cw_contact_id: contactId,\n  cw_needs_create_contact: !contactId,\n  cw_search_error: searchError ? String(searchError).slice(0, 200) : null,\n} }];"
+      }
+    },
+    {
+      "id": "cw-if-create-contact-credential-001",
+      "name": "IF - CW Needs Create Contact",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4860,
+        2360
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cw-if-create-contact-credential-001-cond",
+              "leftValue": "={{ $json.cw_needs_create_contact === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "cw-create-contact-credential-001",
+      "name": "HTTP - CW Create Contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5080,
+        2240
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.cw_url + '/api/v1/accounts/' + $json.cw_account + '/contacts' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { name: $json.nombre, phone_number: $json.phone_e164 } }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "cw-contact-ready-credential-001",
+      "name": "CW - Contact Ready",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5300,
+        2360
+      ],
+      "parameters": {
+        "jsCode": "const resolved = $('CW - Resolve Contact').first().json;\nconst input = $input.first().json || {};\n\nfunction idFromContact(resp) {\n  return resp?.id || resp?.payload?.id || resp?.payload?.contact?.id || resp?.contact?.id || resp?.data?.id || null;\n}\nfunction shortResp(resp) {\n  return JSON.stringify(resp || {}).slice(0, 200);\n}\n\nlet contactId = resolved.cw_contact_id || null;\nlet createError = null;\nif (resolved.cw_needs_create_contact) {\n  contactId = idFromContact(input);\n  if (!contactId) createError = input.error?.message || input.error || shortResp(input);\n}\n\nreturn [{ json: {\n  ...resolved,\n  cw_contact_id: contactId || null,\n  cw_create_error: createError ? String(createError).slice(0, 200) : null,\n  cw_has_contact: Boolean(contactId),\n} }];"
+      }
+    },
+    {
+      "id": "cw-if-has-contact-credential-001",
+      "name": "IF - CW Has Contact",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5520,
+        2360
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cw-if-has-contact-credential-001-cond",
+              "leftValue": "={{ $json.cw_has_contact === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "cw-create-conv-credential-001",
+      "name": "HTTP - CW Create Conversation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5740,
+        2240
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.cw_url + '/api/v1/accounts/' + $json.cw_account + '/conversations' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { inbox_id: Number($json.cw_inbox || 2), contact_id: Number($json.cw_contact_id), status: 'open' } }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "cw-resolve-conv-credential-001",
+      "name": "CW - Resolve Conversation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5960,
+        2240
+      ],
+      "parameters": {
+        "jsCode": "const base = $('CW - Contact Ready').first().json;\nconst input = $input.first().json || {};\n\nfunction idFromConversation(resp) {\n  return resp?.id || resp?.payload?.id || resp?.payload?.conversation?.id || resp?.conversation?.id || resp?.data?.id || null;\n}\nfunction shortResp(resp) {\n  return JSON.stringify(resp || {}).slice(0, 200);\n}\n\nconst convId = idFromConversation(input);\nconst convError = convId ? null : (input.error?.message || input.error || shortResp(input));\n\nreturn [{ json: {\n  ...base,\n  cw_conv_id: convId || null,\n  cw_conv_error: convError ? String(convError).slice(0, 200) : null,\n  cw_has_conversation: Boolean(convId),\n} }];"
+      }
+    },
+    {
+      "id": "pg-persist-chatwoot-ids-001",
+      "name": "PG - Persist Chatwoot IDs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        6400,
+        2320
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH src AS (\n  SELECT\n    NULLIF($1, '')::uuid AS conv_id,\n    NULLIF($2, '')::integer AS chatwoot_contact_id,\n    NULLIF($3, '')::integer AS chatwoot_conv_id,\n    NULLIF($4, '')::text AS phone_e164\n), conv_update AS (\n  UPDATE conversaciones c\n  SET chatwoot_contact_id = COALESCE(src.chatwoot_contact_id, c.chatwoot_contact_id),\n      chatwoot_conv_id = CASE WHEN src.chatwoot_conv_id > 0 THEN src.chatwoot_conv_id ELSE c.chatwoot_conv_id END,\n      updated_at = now()\n  FROM src\n  WHERE c.id = src.conv_id\n    AND src.chatwoot_conv_id > 0\n  RETURNING c.id\n), memory_update AS (\n  UPDATE lead_memory lm\n  SET chatwoot_contact_id = COALESCE(src.chatwoot_contact_id, lm.chatwoot_contact_id),\n      chatwoot_conv_id = CASE WHEN src.chatwoot_conv_id > 0 THEN src.chatwoot_conv_id ELSE lm.chatwoot_conv_id END,\n      updated_at = now()\n  FROM src\n  WHERE src.chatwoot_conv_id > 0\n    AND (lm.conversation_id = src.conv_id OR (src.phone_e164 IS NOT NULL AND lm.phone = src.phone_e164))\n  RETURNING lm.id\n)\nSELECT\n  src.conv_id,\n  src.chatwoot_conv_id,\n  src.chatwoot_contact_id,\n  (SELECT count(*) FROM conv_update)::integer AS conversaciones_updated,\n  (SELECT count(*) FROM memory_update)::integer AS lead_memory_updated\nFROM src;",
+        "options": {
+          "queryReplacement": "={{ [ $('Code - Armar Output').first().json.conv_id || $json.conv_id || '', String($json.cw_contact_id || ''), String($json.cw_conv_id || ''), $json.phone_e164 || '' ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000
+    },
+    {
+      "id": "cw-if-has-conv-credential-001",
+      "name": "IF - CW Has Conversation",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        6180,
+        2240
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cw-if-has-conv-credential-001-cond",
+              "leftValue": "={{ $json.cw_has_conversation === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "cw-reset-attrs-credential-001",
+      "name": "HTTP - CW Reset Attributes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        6400,
+        2140
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('CW - Resolve Conversation').first().json.cw_url + '/api/v1/accounts/' + $('CW - Resolve Conversation').first().json.cw_account + '/conversations/' + $('CW - Resolve Conversation').first().json.cw_conv_id + '/custom_attributes' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { custom_attributes: { agent_status: 'ON', handoff_initiated_at: null, pending_intent: null, pending_intent_summary: null, pending_intent_resolved: true } } }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "cw-private-note-credential-001",
+      "name": "HTTP - CW Private Note",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        6620,
+        2140
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('CW - Resolve Conversation').first().json.cw_url + '/api/v1/accounts/' + $('CW - Resolve Conversation').first().json.cw_account + '/conversations/' + $('CW - Resolve Conversation').first().json.cw_conv_id + '/messages' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { content: $('CW - Resolve Conversation').first().json.note_content, message_type: 'outgoing', private: true } }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "cw-activity-message-credential-001",
+      "name": "HTTP - CW Activity Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        6840,
+        2140
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('CW - Resolve Conversation').first().json.cw_url + '/api/v1/accounts/' + $('CW - Resolve Conversation').first().json.cw_account + '/conversations/' + $('CW - Resolve Conversation').first().json.cw_conv_id + '/messages' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { content: $('CW - Resolve Conversation').first().json.activity_content, message_type: 'activity', private: false } }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "cw-log-final-credential-001",
+      "name": "Log Campaign to Chatwoot",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7060,
+        2360
+      ],
+      "parameters": {
+        "jsCode": "const SB_URL = 'https://quicklink.spb.aigentss.cloud';\nconst SB_KEY = '${REDACTED_JWT}';\nconst H_SB = {\n  apikey: SB_KEY,\n  Authorization: 'Bearer ' + SB_KEY,\n  'Content-Type': 'application/json',\n  'Accept-Profile': 'sales_prod',\n  'Content-Profile': 'sales_prod',\n};\n\nfunction safeNode(name) {\n  try { return $(name).first().json || {}; } catch (e) { return {}; }\n}\nfunction idFromMessage(resp) {\n  return resp?.id || resp?.payload?.id || resp?.payload?.message?.id || resp?.message?.id || resp?.data?.id || null;\n}\nfunction shortResp(resp) {\n  return JSON.stringify(resp || {}).slice(0, 200);\n}\nfunction errFrom(resp) {\n  const err = resp?.error?.message || resp?.error || resp?.message;\n  return err ? String(err).slice(0, 200) : null;\n}\n\nconst prepared = safeNode('CW - Prepare Campaign Log');\nconst contactReady = safeNode('CW - Contact Ready');\nconst convReady = safeNode('CW - Resolve Conversation');\nconst base = Object.keys(convReady).length ? convReady : (Object.keys(contactReady).length ? contactReady : prepared);\n\nconst contactId = base.cw_contact_id || null;\nconst cwConvId = base.cw_conv_id || null;\nconst waMessages = prepared.messages || base.messages || [];\nconst phoneE164 = base.phone_e164 || prepared.phone_e164 || '';\n\nlet cwResetError = null;\nconst resetResp = safeNode('HTTP - CW Reset Attributes');\nif (cwConvId && Object.keys(resetResp).length) cwResetError = errFrom(resetResp);\n\nlet noteError = null;\nlet noteId = null;\nlet activityError = null;\nlet activityId = null;\n\nif (!contactId) {\n  return [{ json: { ...prepared, messages: waMessages, cw_note_status: 'contact_error', cw_search_error: base.cw_search_error || null, cw_create_error: base.cw_create_error || null, phone_e164: phoneE164 } }];\n}\n\nif (!cwConvId) {\n  return [{ json: { ...prepared, messages: waMessages, cw_note_status: 'conv_error', cw_contact_id: contactId, cw_conv_error: base.cw_conv_error || null, phone_e164: phoneE164 } }];\n}\n\nconst noteResp = safeNode('HTTP - CW Private Note');\nnoteId = idFromMessage(noteResp);\nif (!noteId) noteError = errFrom(noteResp) || shortResp(noteResp);\n\nconst activityResp = safeNode('HTTP - CW Activity Message');\nactivityId = idFromMessage(activityResp);\nif (!activityId) activityError = errFrom(activityResp) || shortResp(activityResp);\n\nif (base.conv_id && contactId && cwConvId) {\n  try {\n    await this.helpers.httpRequest({\n      method: 'POST',\n      url: SB_URL + '/rest/v1/rpc/upsert_chatwoot_ids',\n      headers: H_SB,\n      body: JSON.stringify({ p_conv_id: base.conv_id, p_contact_id: Number(contactId), p_cw_conv_id: Number(cwConvId) }),\n      ignoreHttpStatusErrors: true\n    });\n  } catch (e) {}\n}\n\nif (phoneE164 && contactId && cwConvId) {\n  try {\n    await this.helpers.httpRequest({\n      method: 'POST',\n      url: SB_URL + '/rest/v1/rpc/upsert_lead_memory_chatwoot_ids',\n      headers: H_SB,\n      body: JSON.stringify({ p_phone: phoneE164, p_chatwoot_contact_id: Number(contactId), p_chatwoot_conv_id: Number(cwConvId) }),\n      ignoreHttpStatusErrors: true\n    });\n  } catch (e) {}\n}\n\nif (base.lead_id && base.conv_id) {\n  try {\n    await this.helpers.httpRequest({\n      method: 'PATCH',\n      url: SB_URL + '/rest/v1/campaign_messages?lead_id=eq.' + base.lead_id + '&campaign_id=eq.' + base.conv_id,\n      headers: { ...H_SB, Prefer: 'return=minimal' },\n      body: JSON.stringify({ estado: 'ENVIADO', sent_at: new Date().toISOString() }),\n      ignoreHttpStatusErrors: true\n    });\n  } catch (e) {}\n}\n\nreturn [{\n  json: {\n    ...prepared,\n    ...base,\n    messages: waMessages,\n    cw_note_status: noteError ? 'note_error' : 'ok',\n    cw_note_error: noteError,\n    cw_note_id: noteId,\n    cw_activity_status: activityError ? 'activity_error' : 'ok',\n    cw_activity_error: activityError,\n    cw_activity_id: activityId,\n    cw_reset_error: cwResetError,\n    cw_conv_id: cwConvId,\n    cw_contact_id: contactId,\n    phone_e164: phoneE164,\n    chatwoot_credential_used: 'Chatwoot API',\n  }\n}];"
+      }
+    },
+    {
+      "id": "respond-outbound-intake-failed-001",
+      "name": "Respond - Outbound Intake Failed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2140,
+        2330
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, accepted: false, status: 'meta_not_accepted', error: 'meta_message_ids_missing', request_id: $json.request_id || null, batch_key: $json.batch_key || null, campaign_summary: $json.campaign_summary || {} }) }}",
+        "options": {
+          "responseCode": 502
+        }
+      }
+    },
+    {
+      "id": "60c85e4c-4c22-4031-87f1-c720f9266edf",
+      "name": "IF — Consent Permite Envío",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1920,
+        2448
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "consent-not-opted-out",
+              "leftValue": "={{ $json.consent_status }}",
+              "rightValue": "OPTED_OUT",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            },
+            {
+              "id": "consent-not-pending",
+              "leftValue": "={{ $json.consent_status }}",
+              "rightValue": "PENDING",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "7ff20d9a-1ec8-4dc8-971a-8b2d0f2a9c82",
+      "name": "Code - Registrar Skip Opt-out",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        2640
+      ],
+      "parameters": {
+        "jsCode": "// FASE 1 opt-in/opt-out (PLAN_CRIS04_OPT_IN_OPT_OUT.md).\n// El contacto esta en OPTED_OUT: no se envia nada y el item vuelve al loop\n// para que la campania siga con el resto de destinatarios.\n//\n// La auditoria va a la base y no al log de n8n porque este workflow tiene\n// saveDataSuccessExecution: 'none' — un registro solo en la ejecucion se\n// perderia. La escritura es NO FATAL (mismo patron que 'Code - Armar Output'):\n// si la tabla no existe todavia (migracion V158 sin aplicar) o PostgREST\n// falla, el skip igual ocurre. Bloquear el envio es lo critico; auditarlo no.\nconst lead = $('Postgres - Buscar Lead').first().json;\nconst norm = $('Guardar Conversacion Supabase').first().json;\n\nconst skip = {\n  to_phone: norm.to_phone || null,\n  lead_id: lead.lead_id || null,\n  quicklink_id: lead.quicklink_id || null,\n  marca: lead.marca || null,\n  consent_status: lead.consent_status || null,\n  skip_reason: String(lead.consent_status || '').toUpperCase() === 'PENDING'\n    ? 'consent_pending_optin'\n    : 'consent_opted_out',\n  request_id: norm.request_id || null,\n  batch_key: norm.batch_key || null,\n  workflow: 'CRIS-04',\n};\n\ntry {\n  const SB_URL = 'https://quicklink.spb.aigentss.cloud';\n  const SB_KEY = '${REDACTED_JWT}';\n  await this.helpers.httpRequest({\n    method: 'POST',\n    url: SB_URL + '/rest/v1/lead_consent_skips',\n    headers: {\n      apikey: SB_KEY,\n      Authorization: 'Bearer ' + SB_KEY,\n      'Content-Type': 'application/json',\n      'Content-Profile': 'sales_prod',\n      Prefer: 'return=minimal',\n    },\n    body: JSON.stringify(skip),\n    ignoreHttpStatusErrors: true,\n  }).catch(() => null);\n} catch (e) { /* no fatal: nunca bloquear el loop por la auditoria */ }\n\nreturn [{ json: {\n  skipped: true,\n  ...skip,\n  skipped_at: new Date().toISOString(),\n} }];"
+      }
+    },
+    {
+      "id": "17f481aa-7dcb-4bc5-ae5a-eec3790b0e84",
+      "name": "IF — Es Opt-in?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3560,
+        2540
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "is-optin-mode",
+              "leftValue": "={{ $('Prepare Template Payload').first().json.optin_mode === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "71b6993b-ef5d-4b0f-ac0f-3008cee24dc9",
+      "name": "IF — Bookkeeping Opt-in?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1976,
+        2130
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "bookkeeping-is-optin",
+              "leftValue": "={{ $('Prepare Template Payload').first().json.optin_mode === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "cd1abe46-4274-4753-8343-4661a1034358",
+      "name": "PG - Registrar Opt-in Enviado",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2200,
+        2060
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {},
+        "query": "SET search_path TO sales_prod, public, extensions;\n-- ============================================================================\n-- FASE 3 opt-in/opt-out (PLAN_CRIS04_OPT_IN_OPT_OUT.md)\n-- Contraparte de B1 para la rama de opt-in.\n--\n-- Diferencias con B1 - Programar Followup CONTACTO_2:\n--   * NO programa el followup CONTACTED_2. Todavia no hay consentimiento.\n--   * NO crea la interaccion INTRO_CTA; crea una OPTIN con sus propias\n--     acciones permitidas, que es contra lo que la RPC valida el boton.\n--   * Escribe lead_consent en PENDING para que el gate de la Fase 1 no\n--     reenvie el opt-in en la proxima corrida.\n-- ============================================================================\nWITH optin_seed AS (\n  SELECT ('optin_' || replace(gen_random_uuid()::text, '-', ''))::text AS interaction_id\n), consent AS (\n  INSERT INTO lead_consent (\n    phone, consent_status, consent_source, last_optin_sent_at, lead_id, conversation_id\n  ) VALUES (\n    ('+' || regexp_replace('{{ $('Code - Armar Output').first().json.to_phone }}', '^\\+', ''))::text,\n    'PENDING',\n    'optin_template',\n    now(),\n    '{{ $('Code - Armar Output').first().json.lead_id }}'::uuid,\n    '{{ $('Code - Armar Output').first().json.conv_id }}'::uuid\n  )\n  ON CONFLICT (phone) DO UPDATE SET\n    -- Nunca degradar un OPTED_OUT a PENDING: una baja pedida manda siempre.\n    consent_status = CASE\n      WHEN lead_consent.consent_status = 'OPTED_OUT' THEN 'OPTED_OUT'\n      ELSE 'PENDING'\n    END,\n    consent_source = 'optin_template',\n    last_optin_sent_at = now(),\n    lead_id = COALESCE(EXCLUDED.lead_id, lead_consent.lead_id),\n    conversation_id = COALESCE(EXCLUDED.conversation_id, lead_consent.conversation_id),\n    updated_at = now()\n  RETURNING phone, consent_status\n), marked AS (\n  -- lead_memory tiene que existir para que la respuesta del cliente entre por\n  -- el AI y no por el flujo de lead frio. Mismo criterio que B1.\n  INSERT INTO lead_memory (\n    phone, lead_id, conversation_id, conversation_state, source,\n    outbound_sequence_status, customer_engaged, followup_at,\n    last_inbound_message_at, last_outbound_message_at, last_message_at,\n    last_template_sent, last_template_sent_at\n  ) VALUES (\n    ('+' || regexp_replace('{{ $('Code - Armar Output').first().json.to_phone }}', '^\\+', ''))::text,\n    '{{ $('Code - Armar Output').first().json.lead_id }}'::uuid,\n    '{{ $('Code - Armar Output').first().json.conv_id }}'::uuid,\n    'CONTACTED_1',\n    'outbound',\n    'ACTIVE',\n    false,\n    NULL,\n    NULL,\n    now(),\n    now(),\n    '{{ $('Prepare Template Payload').first().json.template_name_used }}'::text,\n    now()\n  )\n  ON CONFLICT (phone) DO UPDATE SET\n    lead_id = EXCLUDED.lead_id,\n    conversation_id = EXCLUDED.conversation_id,\n    conversation_state = 'CONTACTED_1',\n    source = 'outbound',\n    outbound_sequence_status = 'ACTIVE',\n    customer_engaged = false,\n    followup_at = NULL,\n    last_inbound_message_at = NULL,\n    last_outbound_message_at = now(),\n    last_message_at = now(),\n    last_template_sent = EXCLUDED.last_template_sent,\n    last_template_sent_at = now(),\n    updated_at = now()\n  RETURNING phone\n), state_result AS (\n  SELECT *\n  FROM set_conversation_state(\n    '{{ $('Code - Armar Output').first().json.conv_id }}'::uuid,\n    'CONTACTED_1',\n    'cris_outbound_optin',\n    jsonb_build_object('workflow', 'CRIS-04', 'step', 'optin', 'template', '{{ $('Prepare Template Payload').first().json.template_name_used }}')\n  )\n), updated AS (\n  -- Verificado en produccion 2026-08-22: la RPC de claim SOLO limpia\n  -- active_interaction_type cuando es TOPIC_SELECTION. Si aca dejamos 'OPTIN',\n  -- queda pegado despues de consumir el boton, y el gancho siguiente\n  -- (INTRO_CTA) choca contra el y se descarta como 'stale_interaction_type'.\n  -- Observado: OPTIN_GRANT PROCESSED 00:40:38 -> gancho STALE 00:40:55.\n  -- Por eso el slot se deja LIMPIO. La interaccion OPTIN igual se consume,\n  -- porque la RPC tambien matchea por (conversation_id, interaction_type,\n  -- status='ACTIVE'), que es como se inserta abajo.\n  UPDATE conversaciones\n  SET active_interaction_id = NULL,\n      active_interaction_type = NULL,\n      expected_action = NULL,\n      interaction_consumed = false,\n      conversation_version = COALESCE(conversaciones.conversation_version, 0) + 1,\n      updated_at = now()\n  WHERE id = '{{ $('Code - Armar Output').first().json.conv_id }}'::uuid\n    AND lead_id = '{{ $('Code - Armar Output').first().json.lead_id }}'::uuid\n    -- Verificado en produccion 2026-08-21: set_conversation_state devuelve\n    -- reason = 'unchanged' (no 'no_change') cuando el estado ya es el pedido.\n    -- Como 'Postgres - Crear Conversacion' ya deja la conversacion en\n    -- CONTACTED_1, esta guarda nunca se cumplia y la interaccion OPTIN no se\n    -- creaba. Se aceptan ambas grafias.\n    AND EXISTS (SELECT 1 FROM state_result WHERE changed OR reason IN ('no_change', 'unchanged'))\n  RETURNING id\n), attempt_logged AS (\n  INSERT INTO intentos_contacto (\n    conversacion_id, numero_intento, mensaje_enviado, enviado_at, resultado, whatsapp_msg_id\n  )\n  SELECT\n    '{{ $('Code - Armar Output').first().json.conv_id }}'::uuid,\n    1,\n    COALESCE(NULLIF('{{ $('Prepare Template Payload').first().json.template_name_used }}', ''), 'OPTIN'),\n    now(),\n    'ENVIADO'::resultado_intento,\n    NULLIF('{{ $('Send WhatsApp Template').first().json.messages?.[0]?.id || '' }}', '')\n  ON CONFLICT (conversacion_id, numero_intento) DO UPDATE SET\n    mensaje_enviado = EXCLUDED.mensaje_enviado,\n    enviado_at = COALESCE(intentos_contacto.enviado_at, EXCLUDED.enviado_at),\n    whatsapp_msg_id = COALESCE(intentos_contacto.whatsapp_msg_id, EXCLUDED.whatsapp_msg_id)\n  RETURNING id\n), optin_interaction AS (\n  INSERT INTO conversation_interactions (\n    interaction_id, conversation_id, interaction_type, state, status,\n    allowed_actions, conversation_version, payload\n  )\n  SELECT\n    (SELECT interaction_id FROM optin_seed),\n    '{{ $('Code - Armar Output').first().json.conv_id }}'::uuid,\n    'OPTIN',\n    'AWAITING_OPTIN_RESPONSE',\n    'ACTIVE',\n    ARRAY['OPTIN_GRANT','OPTIN_DENY']::text[],\n    COALESCE((SELECT conversation_version FROM conversaciones WHERE id = '{{ $('Code - Armar Output').first().json.conv_id }}'::uuid), 0),\n    jsonb_build_object(\n      'template_name', '{{ $('Prepare Template Payload').first().json.template_name_used }}',\n      'brand', '{{ $('Prepare Template Payload').first().json.marca || '' }}',\n      'step', 'optin'\n    )\n  WHERE EXISTS (SELECT 1 FROM updated)\n  ON CONFLICT (interaction_id) DO NOTHING\n  RETURNING interaction_id\n)\nSELECT 'optin_registrado' AS action,\n       '{{ $('Code - Armar Output').first().json.conv_id }}' AS conversation_id,\n       (SELECT consent_status FROM consent LIMIT 1) AS consent_status,\n       EXISTS (SELECT 1 FROM marked) AS memory_linked,\n       EXISTS (SELECT 1 FROM updated) AS conversation_marked,\n       EXISTS (SELECT 1 FROM attempt_logged) AS attempt_logged,\n       (SELECT interaction_id FROM optin_interaction LIMIT 1) AS active_interaction_id;"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000
+    }
+  ],
+  "connections": {
+    "Webhook — Recibir Lead": {
+      "main": [
+        [
+          {
+            "node": "AUTH - Outbound Intake Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Campaign Config": {
+      "main": [
+        [
+          {
+            "node": "Guardar Conversacion Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar Conversacion Supabase": {
+      "main": [
+        [
+          {
+            "node": "Build Campaign Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Campaign Queue": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Recipients",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Recipients": {
+      "main": [
+        [
+          {
+            "node": "Summarize Send Results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Postgres - Buscar Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize Send Results": {
+      "main": [
+        [
+          {
+            "node": "IF - Meta Accepted?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Crear Conversacion": {
+      "main": [
+        [
+          {
+            "node": "IF — Conv Nueva?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF — Conv Nueva?": {
+      "main": [
+        [
+          {
+            "node": "Code - Armar Output",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Code - Armar Output": {
+      "main": [
+        [
+          {
+            "node": "Preparar Mensaje Bienvenida",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Mensaje Bienvenida": {
+      "main": [
+        [
+          {
+            "node": "Prepare Template Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Template Payload": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Template",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp Template": {
+      "main": [
+        [
+          {
+            "node": "PG - Registrar Meta Intro",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PG - Marcar Meta Intro Fallido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 2 Seconds": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Recipients",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WF09 - Sync Tags CONTACTO_1": {
+      "main": [
+        []
+      ]
+    },
+    "B1 — Programar Followup CONTACTO_2": {
+      "main": [
+        []
+      ]
+    },
+    "AUTH - Outbound Intake Guard": {
+      "main": [
+        [
+          {
+            "node": "IF - Outbound Intake Authorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Outbound Intake Authorized": {
+      "main": [
+        [
+          {
+            "node": "Set Campaign Config",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond - Unauthorized Outbound Intake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Before CTA": {
+      "main": [
+        [
+          {
+            "node": "Prepare CTA Template Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare CTA Template Payload": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp CTA Template",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp CTA Template": {
+      "main": [
+        [
+          {
+            "node": "PG - Registrar Meta CTA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PG - Marcar Meta CTA Fallido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Registrar Meta Intro": {
+      "main": [
+        [
+          {
+            "node": "Restaurar Respuesta Meta Intro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Registrar Meta CTA": {
+      "main": [
+        [
+          {
+            "node": "CW - Prepare Campaign Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Marcar Meta Intro Fallido": {
+      "main": [
+        [
+          {
+            "node": "Wait 2 Seconds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Marcar Meta CTA Fallido": {
+      "main": [
+        [
+          {
+            "node": "Wait 2 Seconds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Meta Accepted?": {
+      "main": [
+        [
+          {
+            "node": "Respond - Outbound Intake Accepted",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF — Bookkeeping Opt-in?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond - Outbound Intake Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CW - Prepare Campaign Log": {
+      "main": [
+        [
+          {
+            "node": "HTTP - CW Search Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - CW Search Contact": {
+      "main": [
+        [
+          {
+            "node": "CW - Resolve Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CW - Resolve Contact": {
+      "main": [
+        [
+          {
+            "node": "IF - CW Needs Create Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - CW Needs Create Contact": {
+      "main": [
+        [
+          {
+            "node": "HTTP - CW Create Contact",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "CW - Contact Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - CW Create Contact": {
+      "main": [
+        [
+          {
+            "node": "CW - Contact Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CW - Contact Ready": {
+      "main": [
+        [
+          {
+            "node": "IF - CW Has Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - CW Has Contact": {
+      "main": [
+        [
+          {
+            "node": "HTTP - CW Create Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Campaign to Chatwoot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - CW Create Conversation": {
+      "main": [
+        [
+          {
+            "node": "CW - Resolve Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CW - Resolve Conversation": {
+      "main": [
+        [
+          {
+            "node": "IF - CW Has Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - CW Has Conversation": {
+      "main": [
+        [
+          {
+            "node": "PG - Persist Chatwoot IDs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Campaign to Chatwoot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - CW Reset Attributes": {
+      "main": [
+        [
+          {
+            "node": "HTTP - CW Private Note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - CW Private Note": {
+      "main": [
+        [
+          {
+            "node": "HTTP - CW Activity Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - CW Activity Message": {
+      "main": [
+        [
+          {
+            "node": "Log Campaign to Chatwoot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Campaign to Chatwoot": {
+      "main": [
+        [
+          {
+            "node": "Wait 2 Seconds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Persist Chatwoot IDs": {
+      "main": [
+        [
+          {
+            "node": "HTTP - CW Reset Attributes",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "WF09 - Sync Tags CONTACTO_1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Buscar Lead": {
+      "main": [
+        [
+          {
+            "node": "IF — Consent Permite Envío",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF — Consent Permite Envío": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Crear Conversacion",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Registrar Skip Opt-out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Registrar Skip Opt-out": {
+      "main": [
+        [
+          {
+            "node": "Wait 2 Seconds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restaurar Respuesta Meta Intro": {
+      "main": [
+        [
+          {
+            "node": "IF — Es Opt-in?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF — Es Opt-in?": {
+      "main": [
+        [
+          {
+            "node": "CW - Prepare Campaign Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait Before CTA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF — Bookkeeping Opt-in?": {
+      "main": [
+        [
+          {
+            "node": "PG - Registrar Opt-in Enviado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "B1 — Programar Followup CONTACTO_2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "timezone": "America/Guayaquil",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "none"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "a7f93f0b-2d84-54b8-958b-03c93795df24",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

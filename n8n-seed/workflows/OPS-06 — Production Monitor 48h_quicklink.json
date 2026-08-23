@@ -1,0 +1,294 @@
+{
+  "id": "3XYzZyGeThKLeINs_quicklink",
+  "name": "OPS-06 — Production Monitor 48h_quicklink",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cris-v98-production-monitor-48h",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-v98-prod-monitor-48h",
+      "name": "Webhook - Run Monitor Now",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        368
+      ],
+      "webhookId": "cris-v98-production-monitor-48h",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "0hYeKlozui5dMRDE_quicklink",
+          "name": "QL Sync Manual Webhook Token_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || {};\nconst query = $json.query || {};\nconst staticData = $getWorkflowStaticData('global');\nconst now = new Date();\n\nconst reset = body.reset_monitor === true || body.reset_monitor === 'true' || query.reset_monitor === 'true';\nif (reset) {\n  delete staticData.startedAt;\n  delete staticData.endsAt;\n  staticData.alerted = {};\n}\n\nif (!staticData.startedAt) {\n  staticData.startedAt = now.toISOString();\n  staticData.endsAt = new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString();\n  staticData.alerted = staticData.alerted || {};\n}\n\nconst startedAt = staticData.startedAt;\nconst endsAt = staticData.endsAt;\nconst expired = now.getTime() > new Date(endsAt).getTime();\nconst isWebhook = Boolean($json.body || $json.query || $json.headers);\nconst forceTest = body.send_test === true || body.send_test === 'true' || query.send_test === 'true';\n\nreturn [{ json: {\n  source: isWebhook ? 'manual' : 'schedule',\n  started_at: startedAt,\n  ends_at: endsAt,\n  expired,\n  force_test: forceTest,\n  alert_phone_input: '21999910781',\n  alert_phone_wa: '5521999910781',\n  checked_at: now.toISOString(),\n} }];"
+      },
+      "id": "code-v98-monitor-setup",
+      "name": "Code - Monitor Setup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        528,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ \"SET search_path TO sales_prod, public, extensions;\\n\" + ((() => {\n  const start = String($json.started_at || new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()).replace(/'/g, \"''\");\n  if ($json.expired === true || String($json.expired) === 'true') {\n    return \"SELECT now()::text AS checked_at, '[]'::jsonb AS rows\";\n  }\n  return `WITH candidate_rows AS (\n  SELECT\n    id::text,\n    status::text,\n    cris_state::text,\n    quicklink_estado::text,\n    quicklink_observacion::text,\n    COALESCE(last_error, '')::text AS last_error,\n    created_at::text,\n    sent_at::text,\n    CASE\n      WHEN status IN ('FAILED','RETRYING') THEN 'queue_problem'\n      WHEN cris_state IN ('LOST','CONTACTAR') THEN 'v98_final_state'\n      ELSE 'other'\n    END AS alert_kind\n  FROM quicklink_report_queue\n  WHERE created_at >= '${start}'::timestamptz\n    AND status <> 'SKIPPED'\n    AND COALESCE(last_error, '') NOT LIKE 'skipped%'\n    AND (\n      cris_state IN ('LOST','CONTACTAR')\n      OR status IN ('FAILED','RETRYING')\n    )\n  ORDER BY created_at DESC, id DESC\n  LIMIT 50\n)\nSELECT\n  now()::text AS checked_at,\n  COALESCE(jsonb_agg(to_jsonb(candidate_rows) ORDER BY created_at DESC), '[]'::jsonb) AS rows\nFROM candidate_rows;`;\n})()) }}",
+        "options": {}
+      },
+      "id": "pg-v98-monitor-fetch-rows",
+      "name": "PG - Fetch Monitor Rows",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        768,
+        272
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const setup = $('Code - Monitor Setup').first().json || {};\nconst row = $input.first()?.json || {};\nconst rows = Array.isArray(row.rows) ? row.rows : [];\nconst staticData = $getWorkflowStaticData('global');\nstaticData.alerted = staticData.alerted || {};\n\nconst now = new Date().toISOString();\nconst to = setup.alert_phone_wa || '5521999910781';\n\nfunction textPayload(body) {\n  return {\n    messaging_product: 'whatsapp',\n    recipient_type: 'individual',\n    to,\n    type: 'text',\n    text: { preview_url: false, body },\n  };\n}\n\nfunction clip(value, max = 180) {\n  const s = String(value || '').trim();\n  return s.length > max ? s.slice(0, max - 3) + '...' : (s || '-');\n}\n\nconst alerts = [];\n\nif (setup.force_test) {\n  alerts.push({\n    kind: 'monitor_test',\n    dedupe_key: '',\n    message: [\n      'CRIS V98 monitor activo por 48h.',\n      'Destino: 21999910781 / WA 5521999910781.',\n      'Avisare cuando aparezca un caso real LOST/CONTACTAR o una falla de cola QuickLink.',\n      'Inicio: ' + setup.started_at,\n      'Expira: ' + setup.ends_at,\n    ].join('\\n'),\n  });\n}\n\nif (setup.expired === true || String(setup.expired) === 'true') {\n  const key = 'monitor:expired';\n  if (!staticData.alerted[key]) {\n    alerts.push({\n      kind: 'monitor_expired',\n      dedupe_key: key,\n      message: [\n        'CRIS V98 monitor 48h expiro.',\n        'No se enviaran mas alertas automaticas desde esta ventana.',\n        'Inicio: ' + setup.started_at,\n        'Expira: ' + setup.ends_at,\n      ].join('\\n'),\n    });\n  }\n} else {\n  for (const r of rows) {\n    const key = `queue:${r.id}:${r.status}`;\n    if (staticData.alerted[key]) continue;\n\n    const validated = r.status === 'SENT' && (r.cris_state === 'LOST' || r.cris_state === 'CONTACTAR');\n    const header = validated\n      ? 'CRIS V98 PRODUCCION VALIDADA'\n      : (r.alert_kind === 'queue_problem' ? 'CRIS QuickLink cola requiere revision' : 'CRIS V98 caso real detectado');\n\n    const lines = [\n      header,\n      'Status cola: ' + clip(r.status, 40),\n      'Estado CRIS: ' + clip(r.cris_state, 40),\n      'QuickLink: ' + clip(r.quicklink_estado, 80),\n      'Observacion: ' + clip(r.quicklink_observacion, 140),\n      'Queue ID: ' + clip(r.id, 80),\n      'Creado: ' + clip(r.created_at, 80),\n      'Enviado: ' + clip(r.sent_at, 80),\n    ];\n    if (r.last_error) lines.push('Error: ' + clip(r.last_error, 180));\n    if (validated) lines.push('Resultado: primer caso real llego a SENT.');\n\n    alerts.push({\n      kind: r.alert_kind,\n      queue_id: r.id,\n      queue_status: r.status,\n      dedupe_key: key,\n      message: lines.join('\\n'),\n    });\n  }\n}\n\nif (!alerts.length) {\n  return [{ json: {\n    send_alert: false,\n    status: setup.expired ? 'monitor_expired_no_new_alerts' : 'no_new_alerts',\n    rows_seen: rows.length,\n    started_at: setup.started_at,\n    ends_at: setup.ends_at,\n    checked_at: now,\n  } }];\n}\n\nreturn alerts.map(alert => ({ json: {\n  send_alert: true,\n  alert_phone_wa: to,\n  checked_at: now,\n  started_at: setup.started_at,\n  ends_at: setup.ends_at,\n  ...alert,\n  meta_payload: textPayload(alert.message),\n} }));"
+      },
+      "id": "code-v98-monitor-build-alerts",
+      "name": "Code - Build Alerts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "should-send-alert",
+              "leftValue": "={{ $json.send_alert }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-v98-monitor-send-alert",
+      "name": "IF - Should Send Alert",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v23.0/1114673978398967/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer ${REDACTED_TOKEN}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.meta_payload) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "http-v98-monitor-whatsapp-alert",
+      "name": "HTTP - Send WhatsApp Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1488,
+        160
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nstaticData.alerted = staticData.alerted || {};\nconst sourceAlerts = $('Code - Build Alerts').all().map(i => i.json || {}).filter(i => i.send_alert);\nconst httpItems = $input.all();\nconst results = httpItems.map((item, index) => {\n  const alert = sourceAlerts[index] || {};\n  const http = item.json || {};\n  const statusCode = Number(http.statusCode || http.status || 0);\n  const ok = statusCode >= 200 && statusCode < 300;\n  if (ok && alert.dedupe_key) {\n    staticData.alerted[alert.dedupe_key] = new Date().toISOString();\n  }\n  return {\n    kind: alert.kind || 'unknown',\n    queue_id: alert.queue_id || null,\n    queue_status: alert.queue_status || null,\n    dedupe_key: alert.dedupe_key || null,\n    whatsapp_status_code: statusCode || null,\n    sent_ok: ok,\n    meta_message_id: http.body?.messages?.[0]?.id || http.messages?.[0]?.id || null,\n    meta_error: http.body?.error || http.error || null,\n  };\n});\nreturn [{ json: {\n  status: results.every(r => r.sent_ok) ? 'alerts_sent' : 'alerts_partial_or_failed',\n  sent_count: results.filter(r => r.sent_ok).length,\n  failed_count: results.filter(r => !r.sent_ok).length,\n  results,\n} }];"
+      },
+      "id": "code-v98-monitor-alert-response",
+      "name": "Code - Alert Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1728,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: $input.first().json }];"
+      },
+      "id": "code-v98-monitor-no-alert-response",
+      "name": "Code - No Alert Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1488,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours"
+            }
+          ]
+        }
+      },
+      "id": "schedule-v98-prod-monitor-48h",
+      "name": "Schedule - Every hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        160
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook - Run Monitor Now": {
+      "main": [
+        [
+          {
+            "node": "Code - Monitor Setup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Monitor Setup": {
+      "main": [
+        [
+          {
+            "node": "PG - Fetch Monitor Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Fetch Monitor Rows": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Alerts": {
+      "main": [
+        [
+          {
+            "node": "IF - Should Send Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Should Send Alert": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Send WhatsApp Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - No Alert Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Send WhatsApp Alert": {
+      "main": [
+        [
+          {
+            "node": "Code - Alert Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule - Every hour": {
+      "main": [
+        [
+          {
+            "node": "Code - Monitor Setup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "6c41ed27-fa6f-5ab3-8301-64c537aff8d4",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

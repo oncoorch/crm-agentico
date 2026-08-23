@@ -1,0 +1,350 @@
+{
+  "id": "ltaPrUbyEjPkQA1u_1001talleres",
+  "name": "CAMPAÑAS_1001talleres",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "fabd7175-a297-4452-b4fc-a94c8ca6584f",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1392,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e180cc82-1fb3-47df-b6ac-44631668164d",
+              "name": "campaignName",
+              "value": "CAMPANA RECORDATORIO MANTENIMIENTO JULIO 2026",
+              "type": "string"
+            },
+            {
+              "id": "0902c7ba-33f4-4494-b5b1-837348356c6e",
+              "name": "templateName",
+              "value": "campana_recordatorio_mantenimiento",
+              "type": "string"
+            },
+            {
+              "id": "15ea9d84-2f7a-4868-8eb2-29fde84b6307",
+              "name": "languageCode",
+              "value": "es_EC",
+              "type": "string"
+            },
+            {
+              "id": "da6adfdc-49c0-4693-ac7b-026eef151bd0",
+              "name": "drawDate",
+              "value": "05 de agosto de 2026",
+              "type": "string"
+            },
+            {
+              "id": "75606de1-bd19-4dc5-9d21-b885494e50cd",
+              "name": "drawTime",
+              "value": "17:30",
+              "type": "string"
+            },
+            {
+              "id": "5599be35-b5b3-45b6-994f-0e82c030e8ac",
+              "name": "sourceSheet",
+              "value": "CAMP_MANT_2026_AGOSTO",
+              "type": "string"
+            },
+            {
+              "id": "52d45c3f-fc7c-4ce2-a990-552fa4a25323",
+              "name": "testMode",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "1ef3eb7d-53ed-4fe2-a4eb-5bcbd902e3bf",
+              "name": "testNumber",
+              "value": "593984040157",
+              "type": "string"
+            },
+            {
+              "id": "d451bc5c-3231-4c07-832c-fa4c8bea0370",
+              "name": "accountId",
+              "value": 2,
+              "type": "number"
+            },
+            {
+              "id": "1a889351-d089-4947-a844-b46727a59c81",
+              "name": "inboxId",
+              "value": 9,
+              "type": "number"
+            },
+            {
+              "id": "header-image-url",
+              "name": "headerImageUrl",
+              "value": "https://codercase.com/img/1001T/recordatorio_mantenimiento_2026_mar.jpeg",
+              "type": "string"
+            },
+            {
+              "id": "source-sheet-url",
+              "name": "sourceSheetUrl",
+              "value": "https://docs.google.com/spreadsheets/d/1CbDQIi7_a2K88b7R_X9BnO2aujrckXx0CHm3SjQRDAw/edit?gid=0#gid=0",
+              "type": "string"
+            },
+            {
+              "id": "source-csv-url",
+              "name": "sourceCsvUrl",
+              "value": "https://docs.google.com/spreadsheets/d/1CbDQIi7_a2K88b7R_X9BnO2aujrckXx0CHm3SjQRDAw/gviz/tq?tqx=out:csv&sheet=CAMP_MANT_2026_AGOSTO",
+              "type": "string"
+            },
+            {
+              "id": "meta-phone-number-id",
+              "name": "meta_phone_number_id",
+              "value": "831997813335334",
+              "type": "string"
+            },
+            {
+              "id": "meta-access-token",
+              "name": "meta_access_token",
+              "value": "EAApJmHouXZBoBP8ZBSbSeS4vUhebIiv1EZBA9E7xYglDRKPOlQ6WLkzSjScWti2fYKjDnEoTSt5rkyFk3ja6rV5G8IxmoulUE9ZBgtm7n88lAJ46JzwZBVjx6C6xEfeOjhhh8Mojvn61oBwhivNQhZBdCUEQpViWWh2gZCAIDMhWfCohgeNWBfrzTWlVrZCT9QZDZD",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "78f6267c-01bb-4831-bb7c-ce0e7a51c4c3",
+      "name": "Set Campaign Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1152,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const config = $('Set Campaign Config').first().json;\nconst input = $input.first();\nconst payload = input.json || {};\n\nfunction parseCsv(text) {\n  const rows = [];\n  let row = [];\n  let cell = '';\n  let inQuotes = false;\n\n  for (let i = 0; i < text.length; i += 1) {\n    const char = text[i];\n    const next = text[i + 1];\n\n    if (inQuotes) {\n      if (char === '\"' && next === '\"') {\n        cell += '\"';\n        i += 1;\n      } else if (char === '\"') {\n        inQuotes = false;\n      } else {\n        cell += char;\n      }\n      continue;\n    }\n\n    if (char === '\"') {\n      inQuotes = true;\n    } else if (char === ',') {\n      row.push(cell);\n      cell = '';\n    } else if (char === '\\n') {\n      row.push(cell);\n      rows.push(row);\n      row = [];\n      cell = '';\n    } else if (char !== '\\r') {\n      cell += char;\n    }\n  }\n\n  if (cell !== '' || row.length > 0) {\n    row.push(cell);\n    rows.push(row);\n  }\n\n  return rows;\n}\n\nfunction normalizePhone(value) {\n  const digits = String(value || '').replace(/\\D+/g, '');\n  if (!digits) return null;\n  if (digits.startsWith('593') && digits.length >= 12) return digits;\n  if (digits.startsWith('09') && digits.length === 10) return '593' + digits.slice(1);\n  if (digits.length === 9 && digits.startsWith('9')) return '593' + digits;\n  if (digits.length === 10 && digits.startsWith('9')) return '593' + digits.slice(1);\n  if (digits.length === 12 && digits.startsWith('593')) return digits;\n  return digits;\n}\n\nfunction pickDisplayName(fullName) {\n  const clean = String(fullName || '').trim().replace(/\\s+/g, ' ');\n  if (!clean) return 'Cliente Hyundai';\n  return clean.split(' ')[0];\n}\n\nconst csvText = typeof payload.data === 'string'\n  ? payload.data\n  : typeof payload.body === 'string'\n    ? payload.body\n    : typeof payload.response === 'string'\n      ? payload.response\n      : typeof payload.raw === 'string'\n        ? payload.raw\n        : '';\n\nif (!csvText) {\n  throw new Error('No se encontro texto CSV en la respuesta del nodo Fetch Source CSV');\n}\n\nconst rows = parseCsv(csvText);\nif (!rows.length) {\n  throw new Error('La base CSV esta vacia');\n}\n\nconst headers = rows[0].map((value) => String(value || '').trim());\nconst dataRows = rows.slice(1);\n\nconst contacts = dataRows.map((values) => {\n  const record = {};\n  headers.forEach((header, index) => {\n    if (!header) return;\n    record[header] = values[index] ?? '';\n  });\n\n  const brand = String(record.brand || '').trim();\n  const model = String(record.model || brand).trim();\n\n  return {\n    name: String(record.name || '').trim(),\n    phone: String(record.phone_number || record['phone number'] || '').trim(),\n    brand,\n    model,\n    email: '',\n    city: '',\n    advisor: '',\n    salesPoint: '',\n    idNumber: '',\n    chassis: '',\n  };\n});\n\nconst deduped = [];\nconst seen = new Set();\n\nfor (const contact of contacts) {\n  const phone = normalizePhone(contact.phone);\n  if (!phone || seen.has(phone)) continue;\n  seen.add(phone);\n  deduped.push({\n    ...contact,\n    whatsapp_to: phone,\n    displayName: pickDisplayName(contact.name),\n  });\n}\n\nconst fallbackContact = {\n  name: 'Cliente Hyundai',\n  displayName: 'Cliente Hyundai',\n  whatsapp_to: normalizePhone(config.testNumber),\n  brand: '',\n  model: '',\n  email: '',\n  city: '',\n  advisor: '',\n  salesPoint: '',\n  idNumber: '',\n  chassis: '',\n  source: 'fallback-test-number',\n};\n\nconst recipients = config.testMode\n  ? [{\n      ...(deduped[0] || fallbackContact),\n      whatsapp_to: normalizePhone(config.testNumber),\n      source: 'test-number',\n    }]\n  : deduped;\n\nreturn recipients.map((contact, index) => ({\n  json: {\n    campaignName: config.campaignName,\n    templateName: config.templateName,\n    languageCode: config.languageCode,\n    drawDate: config.drawDate,\n    drawTime: config.drawTime,\n    sourceSheet: config.sourceSheet,\n    sourceSheetUrl: config.sourceSheetUrl,\n    sourceCsvUrl: config.sourceCsvUrl,\n    testMode: config.testMode,\n    accountId: config.accountId,\n    inboxId: config.inboxId,\n    headerImageUrl: config.headerImageUrl,\n    contact,\n    recipientIndex: index + 1,\n    totalRecipients: recipients.length,\n  },\n}));"
+      },
+      "id": "1b0cb063-baee-4ad6-81d7-d275e9846e69",
+      "name": "Build Campaign Queue",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item) => {\n  const row = item.json;\n  return {\n    json: {\n      ...row,\n      payload: {\n        messaging_product: 'whatsapp',\n        recipient_type: 'individual',\n        to: row.contact.whatsapp_to,\n        type: 'template',\n        template: {\n          name: row.templateName,\n          language: {\n            code: row.languageCode,\n          },\n          components: [\n            {\n              type: 'header',\n              parameters: [\n                {\n                  type: 'image',\n                  image: {\n                    link: row.headerImageUrl,\n                  },\n                },\n              ],\n            },\n            {\n              type: 'body',\n              parameters: [\n                { type: 'text', text: row.contact.displayName || 'Cliente Hyundai' },\n                { type: 'text', text: row.contact.model || row.contact.brand || 'vehiculo' },\n              ],\n            },\n          ],\n        },\n      },\n    },\n  };\n});"
+      },
+      "id": "505bc7e6-42c8-433c-918f-2939c255edf1",
+      "name": "Prepare Template Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -96,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v23.0/{{ $('Set Campaign Config').first().json.meta_phone_number_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Set Campaign Config').first().json.meta_access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.payload }}",
+        "options": {}
+      },
+      "id": "ac6bbb89-7696-4a87-aadc-31ecad44d4bb",
+      "name": "Send WhatsApp Template",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        128,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map((item) => item.json);\nreturn [{\n  json: {\n    campaignName: rows[0]?.campaignName || 'CAMPANA RECORDATORIO MANTENIMIENTO JUNIO 2026',\n    sentItems: rows.length,\n    testMode: rows[0]?.testMode ?? true,\n    recipients: rows.map((row) => ({\n      to: row.contact?.whatsapp_to || null,\n      name: row.contact?.displayName || row.contact?.name || null,\n      messageId: row.messages?.[0]?.id || null,\n    })),\n  },\n}];"
+      },
+      "id": "9a004beb-78e7-41e6-b90b-d1bbca39c1e7",
+      "name": "Summarize Send Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -96,
+        -112
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.sourceCsvUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "bce244d7-5e4c-4816-b15d-c9500a45954b",
+      "name": "Fetch Source CSV",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -912,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "43e8a757-af1d-41e2-9437-6af186521348",
+      "name": "Loop Over Recipients",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -384,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "id": "cea3dec2-a018-4ea2-bd44-4cfd6deeb124",
+      "name": "Wait 2 Seconds",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        384,
+        64
+      ],
+      "webhookId": "bdfdc080-5bdc-4849-b8f2-b0cafdf2d83e"
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set Campaign Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Campaign Config": {
+      "main": [
+        [
+          {
+            "node": "Fetch Source CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Campaign Queue": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Recipients",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Template Payload": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Template",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp Template": {
+      "main": [
+        [
+          {
+            "node": "Wait 2 Seconds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Source CSV": {
+      "main": [
+        [
+          {
+            "node": "Build Campaign Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Recipients": {
+      "main": [
+        [
+          {
+            "node": "Summarize Send Results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Template Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 2 Seconds": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Recipients",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "381f4106-8d47-5e65-b4a8-49703fc28856",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

@@ -1,0 +1,71 @@
+{
+  "id": "w8MpCA8744ZCtuLL_quicklink",
+  "name": "CRIS QA - Chatwoot Probe_quicklink",
+  "nodes": [
+    {
+      "id": "chatwoot-probe-webhook-001",
+      "name": "Webhook Chatwoot Probe",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        160,
+        260
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cris-chatwoot-probe",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "0hYeKlozui5dMRDE_quicklink",
+          "name": "QL Sync Manual Webhook Token_QUICKLINK"
+        }
+      },
+      "webhookId": "cris-chatwoot-probe-permanent"
+    },
+    {
+      "id": "chatwoot-probe-code-001",
+      "name": "Code - Probe Chatwoot",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        260
+      ],
+      "parameters": {
+        "jsCode": "const body = $json.body || $json || {};\nconst convIds = Array.isArray(body.conv_ids) ? body.conv_ids : (body.conv_id ? [body.conv_id] : [59, 49]);\nconst contactIds = Array.isArray(body.contact_ids) ? body.contact_ids : (body.contact_id ? [body.contact_id] : []);\nconst phoneQueries = Array.isArray(body.phones) ? body.phones : [];\nconst CW_URL = 'http://chatwoot:3000';\nconst CW_TOKEN = 'MxVixgmtgZaoKVSarHdWyv1W';\nconst CW_ACCOUNT = 2;\nconst H = { api_access_token: CW_TOKEN, 'Content-Type': 'application/json' };\n\nasync function req(method, path, bodyObj) {\n  try {\n    const resp = await this.helpers.httpRequest({\n      method,\n      url: CW_URL + path,\n      headers: H,\n      body: bodyObj ? JSON.stringify(bodyObj) : undefined,\n      ignoreHttpStatusErrors: true,\n      returnFullResponse: true,\n      timeout: 30000,\n    });\n    return { ok: resp.statusCode >= 200 && resp.statusCode < 300, statusCode: resp.statusCode, body: resp.body };\n  } catch (e) {\n    return { ok: false, error: String(e.message || e).slice(0, 500) };\n  }\n}\n\nfunction arrFromMessages(resp) {\n  const b = resp?.body;\n  if (Array.isArray(b)) return b;\n  if (Array.isArray(b?.payload)) return b.payload;\n  if (Array.isArray(b?.data?.payload)) return b.data.payload;\n  return [];\n}\n\nfunction summarizeMessage(m) {\n  return {\n    id: m.id,\n    message_type: m.message_type,\n    private: m.private,\n    content_type: m.content_type,\n    sender_type: m.sender_type,\n    status: m.status,\n    source_id: m.source_id,\n    created_at: m.created_at,\n    content: String(m.content || '').slice(0, 180),\n  };\n}\n\nconst conversations = [];\nfor (const rawId of convIds) {\n  const id = Number(rawId);\n  const conv = await req.call(this, 'GET', `/api/v1/accounts/${CW_ACCOUNT}/conversations/${id}`);\n  const messages = await req.call(this, 'GET', `/api/v1/accounts/${CW_ACCOUNT}/conversations/${id}/messages`);\n  const msgArr = arrFromMessages(messages);\n  conversations.push({\n    id,\n    conversation_status: conv.statusCode,\n    conversation_error: conv.error || null,\n    conversation: conv.body ? {\n      id: conv.body.id,\n      display_id: conv.body.display_id,\n      status: conv.body.status,\n      inbox_id: conv.body.inbox_id,\n      inbox: conv.body.inbox ? { id: conv.body.inbox.id, name: conv.body.inbox.name, channel_type: conv.body.inbox.channel_type } : null,\n      contact_id: conv.body.contact_id || conv.body.meta?.sender?.id,\n      can_reply: conv.body.can_reply,\n      assignee_id: conv.body.assignee_id,\n      team_id: conv.body.team_id,\n      labels: conv.body.labels,\n      custom_attributes: conv.body.custom_attributes,\n      last_activity_at: conv.body.last_activity_at,\n      created_at: conv.body.created_at,\n      updated_at: conv.body.updated_at,\n      meta: conv.body.meta,\n    } : null,\n    messages_status: messages.statusCode,\n    messages_error: messages.error || null,\n    messages_count: msgArr.length,\n    private_count: msgArr.filter(m => m.private === true).length,\n    public_count: msgArr.filter(m => m.private !== true).length,\n    latest_messages: msgArr.slice(-8).map(summarizeMessage),\n    private_notes: msgArr.filter(m => m.private === true).slice(-30).map(summarizeMessage),\n  });\n}\n\nconst contacts = [];\nfor (const rawId of contactIds) {\n  const id = Number(rawId);\n  const contact = await req.call(this, 'GET', `/api/v1/accounts/${CW_ACCOUNT}/contacts/${id}`);\n  const convs = await req.call(this, 'GET', `/api/v1/accounts/${CW_ACCOUNT}/contacts/${id}/conversations`);\n  const convArr = Array.isArray(convs.body?.payload) ? convs.body.payload : (Array.isArray(convs.body) ? convs.body : []);\n  contacts.push({\n    id,\n    contact_status: contact.statusCode,\n    contact_error: contact.error || null,\n    contact: contact.body ? { id: contact.body.id, name: contact.body.name, phone_number: contact.body.phone_number, contact_inboxes: contact.body.contact_inboxes } : null,\n    conversations_status: convs.statusCode,\n    conversations_count: convArr.length,\n    conversations: convArr.map(c => ({ id: c.id, display_id: c.display_id, status: c.status, inbox_id: c.inbox_id, last_activity_at: c.last_activity_at, messages_count: c.messages?.length || 0 })).slice(-10),\n  });\n}\n\nconst searches = [];\nfor (const phone of phoneQueries) {\n  const search = await req.call(this, 'GET', `/api/v1/accounts/${CW_ACCOUNT}/contacts/search?q=${encodeURIComponent(String(phone))}&include_contacts=true`);\n  const payload = Array.isArray(search.body?.payload) ? search.body.payload : [];\n  searches.push({ phone, status: search.statusCode, count: payload.length, results: payload.map(c => ({ id: c.id, name: c.name, phone_number: c.phone_number, contact_inboxes: c.contact_inboxes })).slice(0, 5) });\n}\n\nreturn [{ json: { ok: true, checked_at: new Date().toISOString(), conversations, contacts, searches } }];"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Chatwoot Probe": {
+      "main": [
+        [
+          {
+            "node": "Code - Probe Chatwoot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "e55f4768-3f5c-517d-9c25-478aa0e2aef2",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

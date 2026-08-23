@@ -1,0 +1,243 @@
+{
+  "id": "wwEnhiqcbUBKldRA_autocom",
+  "name": "AUTOCOM DEV - Remarketing 3 Retomas [3h,6h,12h]_autocom",
+  "nodes": [
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "url-mcp",
+              "name": "URL_MCP",
+              "value": "http://mcp_server:8000",
+              "type": "string"
+            },
+            {
+              "id": "account-id",
+              "name": "account_id",
+              "value": "2",
+              "type": "string"
+            },
+            {
+              "id": "dry-run",
+              "name": "dry_run",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "max-items",
+              "name": "max_items",
+              "value": 250,
+              "type": "number"
+            },
+            {
+              "id": "lookback-hours",
+              "name": "lookback_hours",
+              "value": 48,
+              "type": "number"
+            },
+            {
+              "id": "inbox-id",
+              "name": "inbox_id",
+              "value": 15,
+              "type": "number"
+            },
+            {
+              "id": "remarketing-schedule-minutes",
+              "name": "remarketing_schedule_minutes",
+              "value": "[240,1440]",
+              "type": "string"
+            },
+            {
+              "id": "max-attempts",
+              "name": "max_attempts",
+              "value": 2,
+              "type": "number"
+            },
+            {
+              "id": "live-send-confirmed",
+              "name": "live_send_confirmed",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "candidate-scan-limit",
+              "name": "candidate_scan_limit",
+              "value": 250,
+              "type": "number"
+            },
+            {
+              "id": "max-sends-per-run",
+              "name": "max_sends_per_run",
+              "value": 5,
+              "type": "number"
+            },
+            {
+              "id": "max-sends-per-hour",
+              "name": "max_sends_per_hour",
+              "value": 10,
+              "type": "number"
+            },
+            {
+              "id": "max-sends-per-day",
+              "name": "max_sends_per_day",
+              "value": 25,
+              "type": "number"
+            },
+            {
+              "id": "business-days",
+              "name": "business_days",
+              "value": "[0,1,2,3,4]",
+              "type": "string"
+            },
+            {
+              "id": "business-hour-start",
+              "name": "business_hour_start",
+              "value": 9,
+              "type": "number"
+            },
+            {
+              "id": "business-hour-end",
+              "name": "business_hour_end",
+              "value": 18,
+              "type": "number"
+            },
+            {
+              "id": "message-mode",
+              "name": "message_mode",
+              "value": "personalized",
+              "type": "string"
+            },
+            {
+              "id": "service-followup-only",
+              "name": "service_followup_only",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "campaign-send-confirmed",
+              "name": "campaign_send_confirmed",
+              "value": true,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "8d84c247-010e-4428-98ae-cb6c3542812f",
+      "name": "Set Environment",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -464,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function parseSchedule(value) {\n  if (Array.isArray(value)) return value;\n  const text = String(value || '').trim();\n  if (!text) return [];\n  try {\n    const parsed = JSON.parse(text);\n    if (Array.isArray(parsed)) return parsed;\n  } catch (error) {\n    // Fall through to comma-separated parsing.\n  }\n  return text.split(',').map((part) => part.trim());\n}\n\nfunction normalizeSchedule(value) {\n  const values = parseSchedule(value);\n  const schedule = [];\n  let previous = 0;\n  for (const value of values) {\n    const minutes = Number(value);\n    if (!Number.isFinite(minutes) || minutes <= previous) continue;\n    schedule.push(Math.trunc(minutes));\n    previous = Math.trunc(minutes);\n    if (schedule.length === 2) break;\n  }\n  return schedule.length ? schedule : [240, 1440];\n}\n\nfunction isTrue(value) {\n  return value === true || ['1', 'true', 'yes', 'si'].includes(String(value || '').trim().toLowerCase());\n}\n\nconst accountId = Number($json.account_id || 0);\nconst inboxId = Number($json.inbox_id || 0);\nconst payload = {\n  dry_run: isTrue($json.dry_run),\n  live_send_confirmed: isTrue($json.live_send_confirmed),\n  service_followup_only: isTrue($json.service_followup_only),\n  campaign_send_confirmed: isTrue($json.campaign_send_confirmed),\n  candidate_scan_limit: Number($json.candidate_scan_limit || 250),\n  max_items: Number($json.max_items || $json.candidate_scan_limit || 250),\n  max_sends_per_run: Number($json.max_sends_per_run || 5),\n  max_sends_per_hour: Number($json.max_sends_per_hour || 10),\n  max_sends_per_day: Number($json.max_sends_per_day || 25),\n  remarketing_schedule_minutes: normalizeSchedule($json.remarketing_schedule_minutes),\n  max_attempts: Math.min(Math.max(Number($json.max_attempts || 2), 1), 2),\n  lookback_hours: Number($json.lookback_hours || 48),\n  business_days: $json.business_days || [0, 1, 2, 3, 4],\n  business_hour_start: Number($json.business_hour_start || 9),\n  business_hour_end: Number($json.business_hour_end || 18),\n};\nif (accountId) payload.account_id = accountId;\nif (inboxId) payload.inbox_id = inboxId;\nreturn [{ json: { ...$json, payload } }];"
+      },
+      "id": "d2327b23-e0df-42f6-8f73-da801902bbb3",
+      "name": "Build Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.URL_MCP + '/api/autocom/lead-remarketing/process' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.payload }}",
+        "options": {}
+      },
+      "id": "347d898e-bd3f-495b-8988-5988e45468c1",
+      "name": "Process MCP",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "ead5121d-e3fc-40f6-b082-8b298d102bdb",
+      "name": "Every 3 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -688,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Set Environment": {
+      "main": [
+        [
+          {
+            "node": "Build Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Payload": {
+      "main": [
+        [
+          {
+            "node": "Process MCP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 3 minutes": {
+      "main": [
+        [
+          {
+            "node": "Set Environment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "6ccb760b-aa84-5ee7-9c14-892c003a9694",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

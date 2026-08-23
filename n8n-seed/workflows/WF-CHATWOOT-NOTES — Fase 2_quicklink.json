@@ -1,0 +1,291 @@
+{
+  "id": "4NoUteBrGRtdxiYz_quicklink",
+  "name": "WF-CHATWOOT-NOTES — Fase 2_quicklink",
+  "nodes": [
+    {
+      "id": "sticky-c2-001",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -220,
+        80
+      ],
+      "parameters": {
+        "content": "## WF-CHATWOOT-NOTES — Fase 2\n\n**Objetivo:** Enviar nota privada en Chatwoot\ncon contexto del lead + historial CRIS.\n\n**Trigger:** CRON cada 5 minutos\n**Condición:** chatwoot_conv_id IS NOT NULL\n             AND chatwoot_attrs_updated_at IS NULL\n**Idempotente:** una vez enviada, attrs_updated_at queda seteado\n**Pre-req:** Fase 1 completada (V21 aplicada ✓)",
+        "height": 300,
+        "width": 380,
+        "color": 5
+      }
+    },
+    {
+      "id": "cron-c2-001",
+      "name": "CRON - Cada 5 Min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        280
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "pg-c2-001",
+      "name": "PG - Get Synced No Notes",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        260,
+        280
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT c.id AS conv_id, c.nombre, c.telefono, c.marca, c.modelo, c.estado, c.quicklink_id, c.chatwoot_conv_id, c.chatwoot_contact_id, (SELECT json_agg(e ORDER BY e.created_at) FROM (SELECT tipo_evento, actor, contenido_msg, direccion, created_at FROM eventos_conversacion WHERE conversation_id = c.id AND contenido_msg IS NOT NULL ORDER BY created_at ASC LIMIT 15) e) AS mensajes FROM conversaciones c WHERE c.chatwoot_conv_id IS NOT NULL AND c.chatwoot_attrs_updated_at IS NULL AND c.estado NOT IN ('PENDIENTE','DESCARTADO') ORDER BY c.created_at ASC LIMIT 50",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "loop-c2-001",
+      "name": "Loop - Each Conv",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        520,
+        280
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "set-c2-done",
+      "name": "Set - Notes Done",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        740,
+        480
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "status",
+              "value": "notes_done",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "finished_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "code-c2-build",
+      "name": "Code - Build Lead Note",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        740,
+        280
+      ],
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst mensajes = item.mensajes || [];\n\nconst lines = [\n  '🤖 *CRIS — Contexto del Lead*',\n  '',\n  `*Cliente:* ${item.nombre || 'Prospecto'}`,\n  `*Teléfono:* ${item.telefono || ''}`,\n  `*Vehículo:* ${[item.marca, item.modelo].filter(Boolean).join(' ')}`,\n  `*Estado CRIS:* ${item.estado || ''}`,\n  `*QuickLink ID:* ${item.quicklink_id || ''}`,\n];\n\nif (mensajes.length > 0) {\n  lines.push('');\n  lines.push(`*Historial de mensajes (${mensajes.length}):*`);\n  mensajes.forEach(m => {\n    const ts = m.created_at\n      ? new Date(m.created_at).toLocaleString('es-EC', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})\n      : '';\n    const dir = m.direccion === 'inbound' ? '← Lead' : '→ CRIS';\n    const texto = (m.contenido_msg || '').substring(0, 200);\n    lines.push(`[${ts}] ${dir}: ${texto}`);\n  });\n}\n\nlines.push('');\nlines.push('_Sincronizado automáticamente desde el agente CRIS._');\n\nconst noteContent = lines.join('\\n');\n\nconst noteBody = JSON.stringify({\n  content: noteContent,\n  message_type: 'outgoing',\n  private: true\n});\n\nconst eventoPayload = JSON.stringify({\n  chatwoot_conv_id: item.chatwoot_conv_id,\n  mensajes_incluidos: mensajes.length\n}).replace(/'/g, \"''\");\n\nreturn [{\n  json: {\n    conv_id: item.conv_id,\n    chatwoot_conv_id: item.chatwoot_conv_id,\n    note_body: noteBody,\n    evento_payload: eventoPayload\n  }\n}];"
+      }
+    },
+    {
+      "id": "http-c2-note",
+      "name": "HTTP - Post Private Note",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1000,
+        280
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "=http://172.18.0.24:3000/api/v1/accounts/2/conversations/{{ $json.chatwoot_conv_id }}/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.note_body }}",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "pg-c2-mark",
+      "name": "PG - Mark Note Synced",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1260,
+        280
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE conversaciones SET chatwoot_attrs_updated_at = now(), updated_at = now() WHERE id = '{{ $json.conv_id }}'::uuid",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "pg-c2-log",
+      "name": "PG - Log Note Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1520,
+        280
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO eventos_conversacion (conversation_id, tipo_evento, actor, payload) VALUES ('{{ $json.conv_id }}'::uuid, 'chatwoot_nota_enviada', 'sistema', '{{ $json.evento_payload }}')",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "CRON - Cada 5 Min": {
+      "main": [
+        [
+          {
+            "node": "PG - Get Synced No Notes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Get Synced No Notes": {
+      "main": [
+        [
+          {
+            "node": "Loop - Each Conv",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop - Each Conv": {
+      "main": [
+        [
+          {
+            "node": "Set - Notes Done",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Build Lead Note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Lead Note": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Post Private Note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Post Private Note": {
+      "main": [
+        [
+          {
+            "node": "PG - Mark Note Synced",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Mark Note Synced": {
+      "main": [
+        [
+          {
+            "node": "PG - Log Note Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Log Note Event": {
+      "main": [
+        [
+          {
+            "node": "Loop - Each Conv",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Bogota",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "618fb6e7-0cfc-5d8f-aabe-f890d10e3c42",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

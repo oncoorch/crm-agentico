@@ -1,0 +1,128 @@
+{
+  "id": "UMeX1elAulRlfFBw_quicklink",
+  "name": "OPS-08 — Delete Chatwoot Messages_quicklink",
+  "nodes": [
+    {
+      "id": "delete-message-webhook-001",
+      "name": "Webhook Delete Chatwoot Message",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        120,
+        260
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cris-ops-delete-chatwoot-messages",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "0hYeKlozui5dMRDE_quicklink",
+          "name": "QL Sync Manual Webhook Token_QUICKLINK"
+        }
+      },
+      "webhookId": "cris-ops-delete-chatwoot-messages"
+    },
+    {
+      "id": "delete-message-normalize-001",
+      "name": "Code - Normalize Deletes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        260
+      ],
+      "parameters": {
+        "jsCode": "const src = $json.body || $json || {};\nconst rows = Array.isArray(src.messages) ? src.messages : [src];\nreturn rows.map((row, idx) => {\n  const conversationId = Number(row.conversation_id || row.chatwoot_conv_id || 0);\n  const messageId = Number(row.message_id || row.id || 0);\n  if (!conversationId || !messageId) throw new Error('conversation_id and message_id are required at index ' + idx);\n  if (src.confirm !== 'DELETE_CHATWOOT_MESSAGES') throw new Error('confirm=DELETE_CHATWOOT_MESSAGES is required');\n  return {\n    json: {\n      conversation_id: conversationId,\n      message_id: messageId,\n      account_id: Number(row.account_id || src.account_id || 2),\n      base_url: String(row.base_url || src.base_url || 'http://chatwoot:3000').replace(/\\/$/, ''),\n    }\n  };\n});"
+      }
+    },
+    {
+      "id": "delete-message-http-001",
+      "name": "HTTP - Delete Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        740,
+        260
+      ],
+      "parameters": {
+        "method": "DELETE",
+        "url": "={{ $json.base_url + '/api/v1/accounts/' + $json.account_id + '/conversations/' + $json.conversation_id + '/messages/' + $json.message_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "delete-message-summary-001",
+      "name": "Code - Summarize Deletes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1060,
+        260
+      ],
+      "parameters": {
+        "jsCode": "return $input.all().map(item => ({ json: {\n  ok: !item.json.error,\n  statusCode: item.json.statusCode || item.json.status || null,\n  conversation_id: item.json.conversation_id || null,\n  message_id: item.json.message_id || null,\n  response: item.json\n}}));"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Delete Chatwoot Message": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalize Deletes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Normalize Deletes": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Delete Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Delete Message": {
+      "main": [
+        [
+          {
+            "node": "Code - Summarize Deletes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "2480854e-6b32-56d8-950b-b49e02c55c77",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

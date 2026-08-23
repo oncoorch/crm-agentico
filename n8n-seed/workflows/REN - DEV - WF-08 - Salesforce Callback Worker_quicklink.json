@@ -1,0 +1,315 @@
+{
+  "id": "renDev08SfCallback08_quicklink",
+  "name": "REN - DEV - WF-08 - Salesforce Callback Worker_quicklink",
+  "nodes": [
+    {
+      "id": "schedule-salesforce-callback-001",
+      "name": "Schedule - Poll Callbacks",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -760,
+        -80
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds",
+              "secondsInterval": 5
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "webhook-salesforce-callback-001",
+      "name": "Webhook - Trigger Callback Worker",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -760,
+        120
+      ],
+      "webhookId": "ren-dev-wf08-callback-worker",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "renov/dev/internal/salesforce-callback-worker",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "code-guard-salesforce-callback-001",
+      "name": "Code - Guard Worker Trigger",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -500,
+        20
+      ],
+      "parameters": {
+        "jsCode": "const headers = $json.headers && typeof $json.headers === 'object' ? $json.headers : null;\nif (!headers) return [{ json: { claim_allowed: true, trigger_source: 'schedule' } }];\nfunction readHeader(name) {\n  const key = Object.keys(headers).find((candidate) => candidate.toLowerCase() === name.toLowerCase());\n  return key ? String(headers[key] || '') : '';\n}\nlet expected = '';\ntry { expected = String($env.RENOV_INTERNAL_TOKEN || ''); } catch (error) {}\nconst authorization = readHeader('authorization');\nconst bearer = authorization.match(/^Bearer\\s+(.+)$/i)?.[1] || '';\nconst provided = readHeader('x-internal-token') || bearer;\nreturn [{ json: {\n  claim_allowed: Boolean(expected && provided === expected),\n  trigger_source: 'webhook',\n  error: expected && provided === expected ? null : 'UNAUTHORIZED',\n} }];"
+      }
+    },
+    {
+      "id": "if-claim-salesforce-callback-001",
+      "name": "IF - Claim Allowed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -280,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "claim-allowed",
+              "leftValue": "={{ $json.claim_allowed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "pg-claim-salesforce-callback-001",
+      "name": "Postgres - Claim Callback",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -40,
+        -40
+      ],
+      "alwaysOutputData": true,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM renovation_dev.claim_salesforce_callback('wf08');",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "if-callback-claimed-001",
+      "name": "IF - Callback Claimed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        200,
+        -40
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "callback-claimed",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "code-execute-salesforce-callback-001",
+      "name": "Code - Execute Salesforce Callback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        -100
+      ],
+      "parameters": {
+        "jsCode": "const item = $json;\nfunction env(name, fallback = '') { try { return String($env[name] || fallback); } catch (error) { return fallback; } }\nfunction formBody(values) {\n  return Object.entries(values)\n    .map(([key, value]) => encodeURIComponent(key) + '=' + encodeURIComponent(String(value)))\n    .join('&');\n}\nfunction safeError(error) {\n  if (!error) return 'unknown_error';\n  if (error.message) return String(error.message).slice(0, 500);\n  try { return JSON.stringify(error).slice(0, 500); } catch (nested) { return String(error).slice(0, 500); }\n}\nasync function request(options) {\n  try {\n    const response = await this.helpers.httpRequest({\n      method: options.method,\n      url: options.url,\n      headers: options.headers || {},\n      body: options.body,\n      json: true,\n      resolveWithFullResponse: true,\n      simple: false,\n      timeout: 10000,\n    });\n    const status = Number(response.statusCode || response.status || 200);\n    return { ok: status >= 200 && status < 300, status, body: response.body === undefined ? response : response.body };\n  } catch (error) {\n    const statusFromMessage = String(error?.message || '').match(/status code (\\d{3})/i)?.[1];\n    const status = Number(error.statusCode || error.response?.statusCode || error.response?.status || statusFromMessage || 0);\n    return { ok: false, status, body: null, error: safeError(error) };\n  }\n}\n\nconst baseUrl = env('SALESFORCE_DEV_BASE_URL', 'https://quicklink--uat.sandbox.my.salesforce.com').replace(/\\/+$/, '');\nconst tokenUrl = env('SALESFORCE_DEV_TOKEN_URL', baseUrl + '/services/oauth2/token');\nconst callbackType = String(item.callback_type || '');\nconst callbackUrl = callbackType === 'delivery_status'\n  ? env('SALESFORCE_DEV_DELIVERY_STATUS_URL', baseUrl + '/services/apexrest/omnicem/delivery-status')\n  : callbackType === 'inbound_message'\n    ? env('SALESFORCE_DEV_INBOUND_MESSAGE_URL', baseUrl + '/services/apexrest/omnicem/inbound-message')\n    : '';\nconst clientId = env('SALESFORCE_DEV_CLIENT_ID');\nconst clientSecret = env('SALESFORCE_DEV_CLIENT_SECRET');\nif (!callbackUrl || !clientId || !clientSecret) {\n  return [{ json: { ...item, callback_http_status: 422, callback_error: 'CALLBACK_CONFIG_INCOMPLETE' } }];\n}\n\nconst tokenResponse = await request.call(this, {\n  method: 'POST',\n  url: tokenUrl,\n  headers: { 'content-type': 'application/x-www-form-urlencoded' },\n  body: formBody({ grant_type: 'client_credentials', client_id: clientId, client_secret: clientSecret }),\n});\nconst accessToken = tokenResponse.body?.access_token;\nif (!tokenResponse.ok || !accessToken) {\n  return [{ json: {\n    ...item,\n    callback_http_status: tokenResponse.status || 0,\n    callback_error: tokenResponse.error || ('SALESFORCE_AUTH_FAILED_' + (tokenResponse.status || 0)),\n  } }];\n}\n\nconst callbackResponse = await request.call(this, {\n  method: 'POST',\n  url: callbackUrl,\n  headers: { authorization: 'Bearer ' + accessToken, 'content-type': 'application/json' },\n  body: item.payload,\n});\nreturn [{ json: {\n  ...item,\n  callback_http_status: callbackResponse.status || 0,\n  callback_error: callbackResponse.ok ? null : (callbackResponse.error || ('SALESFORCE_CALLBACK_FAILED_' + (callbackResponse.status || 0))),\n} }];"
+      }
+    },
+    {
+      "id": "code-build-callback-settle-001",
+      "name": "Code - Build Callback Settle",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        -100
+      ],
+      "parameters": {
+        "jsCode": "const item = $json;\nfunction q(value) { return String(value ?? '').replace(/'/g, \"''\"); }\nconst id = String(item.id || '');\nconst lease = String(item.lease_token || '');\nif (!/^[0-9a-f-]{36}$/i.test(id) || !/^[0-9a-f-]{36}$/i.test(lease)) throw new Error('INVALID_CALLBACK_LEASE');\nconst status = Number(item.callback_http_status);\nconst statusSql = Number.isInteger(status) && status >= 0 ? String(status) : 'NULL';\nconst errorSql = item.callback_error ? \"'\" + q(String(item.callback_error).slice(0, 500)) + \"'\" : 'NULL';\nreturn [{ json: { ...item, settle_sql: \"SELECT * FROM renovation_dev.settle_salesforce_callback('\" + id + \"'::uuid, '\" + lease + \"'::uuid, \" + statusSql + \"::integer, \" + errorSql + \"::text);\" } }];"
+      }
+    },
+    {
+      "id": "pg-settle-salesforce-callback-001",
+      "name": "Postgres - Settle Callback",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        920,
+        -100
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.settle_sql }}",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "note-salesforce-callback-001",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -780,
+        -420
+      ],
+      "parameters": {
+        "width": 860,
+        "height": 260,
+        "content": "## Salesforce callbacks\nDurable worker for `delivery-status` and `inbound-message`. Initial attempt plus retries at 30/120/300 seconds. No access token is returned or persisted in workflow data."
+      }
+    }
+  ],
+  "connections": {
+    "Schedule - Poll Callbacks": {
+      "main": [
+        [
+          {
+            "node": "Code - Guard Worker Trigger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Trigger Callback Worker": {
+      "main": [
+        [
+          {
+            "node": "Code - Guard Worker Trigger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Guard Worker Trigger": {
+      "main": [
+        [
+          {
+            "node": "IF - Claim Allowed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Claim Allowed?": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Claim Callback",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Postgres - Claim Callback": {
+      "main": [
+        [
+          {
+            "node": "IF - Callback Claimed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Callback Claimed?": {
+      "main": [
+        [
+          {
+            "node": "Code - Execute Salesforce Callback",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Code - Execute Salesforce Callback": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Callback Settle",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Callback Settle": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Settle Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "b2067771-47e9-5a2c-ba21-e3eaad98ded1",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

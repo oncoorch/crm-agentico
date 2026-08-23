@@ -1,0 +1,69 @@
+{
+  "id": "ZBZ7EYZ9lpKIp2Pf_quicklink",
+  "name": "WF-09 — DECISION LOGGER (sub-workflow)_quicklink",
+  "nodes": [
+    {
+      "id": "wh-log",
+      "name": "Webhook Decision Log",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        200,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cris-decision-log",
+        "responseMode": "onReceived",
+        "responseData": "noData",
+        "options": {}
+      },
+      "webhookId": "cris-dec-log-001"
+    },
+    {
+      "id": "pg-log",
+      "name": "PG — INSERT agent_decisions",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "\nINSERT INTO agent_decisions (\n  conversation_id,\n  estado_entrada,\n  mensaje_usuario,\n  intent,\n  sentiment,\n  confidence,\n  next_state,\n  trigger_handoff,\n  trigger_loss,\n  response_text,\n  full_response,\n  latencia_ms,\n  model_used,\n  is_fallback\n) VALUES (\n  '{{ $json.body.conversation_id }}'::uuid,\n  '{{ $json.body.estado_entrada }}',\n  '{{ $json.body.mensaje_usuario }}',\n  '{{ $json.body.intent }}',\n  '{{ $json.body.sentiment }}',\n  {{ $json.body.confidence || 0 }},\n  '{{ $json.body.next_state }}',\n  {{ $json.body.trigger_handoff || false }},\n  {{ $json.body.trigger_loss || false }},\n  '{{ $json.body.response_text }}',\n  '{{ JSON.stringify($json.body.full_response || {}) }}'::jsonb,\n  {{ $json.body.latencia_ms || 0 }},\n  '{{ $json.body.model_used || \"gpt-4.1-mini\" }}',\n  {{ $json.body.is_fallback || false }}\n)\nON CONFLICT DO NOTHING;\n",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Decision Log": {
+      "main": [
+        [
+          {
+            "node": "PG — INSERT agent_decisions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "95541a18-c448-59ae-a0ae-b5594ed0951b",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

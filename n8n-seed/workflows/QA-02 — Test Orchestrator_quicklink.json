@@ -1,0 +1,476 @@
+{
+  "id": "awr1JX6c2obnOnHa_quicklink",
+  "name": "QA-02 — Test Orchestrator_quicklink",
+  "nodes": [
+    {
+      "id": "qa-manual-trigger-001",
+      "name": "Manual Run",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        120,
+        180
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "qa-webhook-run-001",
+      "name": "Webhook Run",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        120,
+        420
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cris-qa-run",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "0hYeKlozui5dMRDE_quicklink",
+          "name": "QL Sync Manual Webhook Token_QUICKLINK"
+        }
+      },
+      "webhookId": "cris-qa-run-permanent"
+    },
+    {
+      "id": "qa-normalize-request-001",
+      "name": "Code - Normalize Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const src = $json.body || $json || {};\nconst defaultLeads = ['0998299109', '21999910781'].map(phone => ({ phone }));\nconst allowedModes = new Set(['shadow', 'live', 'hybrid']);\nconst allowedWindows = new Set(['3m', '1h', '24h']);\nconst defaultGroups = ['outbound', 'inbound', 'buttons', 'pricing', 'handoff', 'loss', 'scheduler', 'labels', 'negative', 'rejection', 'reopen'];\nconst deliveryMode = allowedModes.has(String(src.delivery_mode || src.mode || '').toLowerCase()) ? String(src.delivery_mode || src.mode).toLowerCase() : 'shadow';\nconst windowsRaw = Array.isArray(src.windows) && src.windows.length ? src.windows : ['3m'];\nconst windows = [...new Set(windowsRaw.map(v => String(v).toLowerCase()).filter(v => allowedWindows.has(v)))];\nconst groupsRaw = Array.isArray(src.scenario_groups) && src.scenario_groups.length ? src.scenario_groups : defaultGroups;\nconst scenarioGroups = [...new Set(groupsRaw.map(v => String(v).toLowerCase()).filter(Boolean))];\nconst leads = Array.isArray(src.leads) && src.leads.length ? src.leads : defaultLeads;\nfor (const lead of leads) {\n  if (lead.quicklink_id && !lead.marca) throw new Error('quicklink_id requires marca in CRIS QA input');\n}\nconst allowPublicMessages = src.allow_public_messages === true || String(src.allow_public_messages || '').toLowerCase() === 'true';\nconst liveWindowsRaw = Array.isArray(src.live_windows) && src.live_windows.length ? src.live_windows : ['3m'];\nconst liveWindows = [...new Set(liveWindowsRaw.map(v => String(v).toLowerCase()).filter(v => allowedWindows.has(v)))];\nconst runKey = String(src.run_id || src.run_key || `cris-qa-${Date.now()}`);\nreturn [{ json: {\n  run_key: runKey,\n  delivery_mode: deliveryMode,\n  allow_public_messages: allowPublicMessages,\n  windows: windows.length ? windows : ['3m'],\n  live_windows: liveWindows.length ? liveWindows : ['3m'],\n  scenario_groups: scenarioGroups.length ? scenarioGroups : defaultGroups,\n  leads,\n  cleanup: src.cleanup || 'manual',\n  concurrency: 1,\n  created_by: src.created_by || 'n8n-cris-qa',\n  input: src\n} }];"
+      }
+    },
+    {
+      "id": "qa-pg-create-run-001",
+      "name": "PG - Create Test Run",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        720,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nINSERT INTO cris_test_runs (run_key, delivery_mode, allow_public_messages, requested_windows, scenario_groups, input, created_by) VALUES ($1, $2, $3::boolean, $4::text[], $5::text[], $6::jsonb, $7) ON CONFLICT (run_key) DO UPDATE SET delivery_mode = EXCLUDED.delivery_mode, allow_public_messages = EXCLUDED.allow_public_messages, requested_windows = EXCLUDED.requested_windows, scenario_groups = EXCLUDED.scenario_groups, input = EXCLUDED.input, status = 'RUNNING', summary = '{}'::jsonb, error = NULL, started_at = now(), finished_at = NULL, updated_at = now() RETURNING id AS run_id, run_key, delivery_mode, allow_public_messages, requested_windows, scenario_groups;",
+        "options": {
+          "queryReplacement": "={{ [ $json.run_key, $json.delivery_mode, $json.allow_public_messages, $json.windows, $json.scenario_groups, JSON.stringify($json), $json.created_by ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "qa-pg-resolve-leads-001",
+      "name": "PG - Resolve Allowed Leads",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1020,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH input AS (SELECT $1::jsonb AS leads), requested AS (SELECT value AS request, NULLIF(value->>'phone', '') AS requested_phone, NULLIF(value->>'marca', '') AS requested_marca, CASE WHEN value ? 'lead_id' AND value->>'lead_id' <> '' THEN (value->>'lead_id')::uuid ELSE NULL END AS requested_lead_id, CASE WHEN value ? 'conversation_id' AND value->>'conversation_id' <> '' THEN (value->>'conversation_id')::uuid ELSE NULL END AS requested_conversation_id, CASE WHEN value ? 'quicklink_id' AND value->>'quicklink_id' ~ '^[0-9]+$' THEN (value->>'quicklink_id')::integer ELSE NULL END AS requested_quicklink_id FROM input, jsonb_array_elements(input.leads) value), candidates AS (SELECT r.*, cris_qa_digits(r.requested_phone) AS requested_digits FROM requested r WHERE cris_qa_is_allowed_phone(r.requested_phone)), matched AS (SELECT DISTINCT ON (c.requested_phone) c.request, c.requested_phone AS phone, COALESCE(lm.phone, conv.telefono, cris_qa_normalize_phone(c.requested_phone)) AS phone_e164, l.id AS lead_id, COALESCE(l.quicklink_id, conv.quicklink_id) AS quicklink_id, COALESCE(l.marca::text, conv.marca::text) AS marca, COALESCE(l.nombre_cliente, conv.nombre) AS nombre_cliente, COALESCE(l.telefono_1, conv.telefono) AS telefono_1, l.telefono_2, COALESCE(l.modelo, conv.modelo) AS modelo, l.estado_agente::text AS estado_agente, conv.id AS conversation_id, conv.estado::text AS conversation_state, conv.chatwoot_conv_id, conv.chatwoot_contact_id, lm.conversation_state AS memory_state, lm.outbound_sequence_status, lm.customer_engaged, lm.selected_plan, lm.selected_plan_name, lm.selected_plan_duration FROM candidates c LEFT JOIN leads_quicklink l ON ((c.requested_lead_id IS NOT NULL AND l.id = c.requested_lead_id) OR (c.requested_quicklink_id IS NOT NULL AND c.requested_marca IS NOT NULL AND l.quicklink_id = c.requested_quicklink_id AND l.marca::text = upper(c.requested_marca)) OR (cris_qa_digits(l.telefono_1) = c.requested_digits) OR (cris_qa_digits(l.telefono_2) = c.requested_digits) OR (c.requested_digits <> '' AND right(cris_qa_digits(l.telefono_1), length(c.requested_digits)) = c.requested_digits) OR (c.requested_digits <> '' AND right(cris_qa_digits(l.telefono_2), length(c.requested_digits)) = c.requested_digits) OR (cris_qa_normalize_phone(l.telefono_1) = cris_qa_normalize_phone(c.requested_phone))) LEFT JOIN LATERAL (SELECT cv.* FROM conversaciones cv WHERE (c.requested_conversation_id IS NOT NULL AND cv.id = c.requested_conversation_id) OR (l.conversacion_id IS NOT NULL AND cv.id = l.conversacion_id) OR (l.id IS NOT NULL AND cv.lead_id = l.id) OR (cris_qa_digits(cv.telefono) = c.requested_digits) OR (c.requested_digits <> '' AND right(cris_qa_digits(cv.telefono), length(c.requested_digits)) = c.requested_digits) ORDER BY cv.updated_at DESC NULLS LAST LIMIT 1) conv ON true LEFT JOIN LATERAL (SELECT mem.* FROM lead_memory mem WHERE (l.id IS NOT NULL AND mem.lead_id = l.id) OR (conv.id IS NOT NULL AND mem.conversation_id = conv.id) OR mem.phone = cris_qa_normalize_phone(c.requested_phone) OR cris_qa_digits(mem.phone) = c.requested_digits OR (c.requested_digits <> '' AND right(cris_qa_digits(mem.phone), length(c.requested_digits)) = c.requested_digits) ORDER BY mem.updated_at DESC NULLS LAST LIMIT 1) lm ON true ORDER BY c.requested_phone, conv.updated_at DESC NULLS LAST, l.updated_at DESC NULLS LAST) SELECT * FROM matched ORDER BY phone;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($('Code - Normalize Request').first().json.leads) ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "qa-build-cases-001",
+      "name": "Code - Build Case Matrix",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const cfg = $('Code - Normalize Request').first().json;\nconst run = $('PG - Create Test Run').first().json;\nconst leads = $input.all().map(item => item.json);\nconst groups = new Set(cfg.scenario_groups || []);\nconst shadowDefs = [\n  { id: 'shadow_outbound_preflight', group: 'outbound', title: 'Outbound initial payload can be prepared without real send' },\n  { id: 'shadow_inbound_interest_payload', group: 'inbound', title: 'Inbound interest payload shape is valid' },\n  { id: 'shadow_button_interest_payload', group: 'buttons', title: 'Deterministic interest button payload shape is valid' },\n  { id: 'shadow_pricing_request_payload', group: 'pricing', title: 'Pricing request payload shape is valid' },\n  { id: 'shadow_plan_selected_payload', group: 'pricing', title: 'Plan selection button payload shape is valid' },\n  { id: 'shadow_handoff_payload', group: 'handoff', title: 'Handoff button payload shape is valid' },\n  { id: 'shadow_loss_payload', group: 'loss', title: 'Loss reason button payload shape is valid' },\n  { id: 'shadow_scheduler_profile', group: 'scheduler', title: 'Scheduler window profile can be evaluated' },\n  { id: 'shadow_labels_projection', group: 'labels', title: 'WF-09 label projection should be checkable' },\n  { id: 'shadow_invalid_payload', group: 'negative', title: 'Invalid payload is captured as negative test evidence' },\n  { id: 'shadow_rejection_no_moment_payload', group: 'rejection', title: 'Rejection button No-por-el-momento payload shape is valid' },\n  { id: 'shadow_rejection_text_no_interest_payload', group: 'rejection', title: 'Rejection free-text no-me-interesa payload shape is valid' },\n  { id: 'shadow_rejection_loss_reason_payload', group: 'rejection', title: 'Loss reason list-reply payload shape is valid' },\n  { id: 'shadow_reopen_plan_payload', group: 'reopen', title: 'Reopen plan list-reply payload shape is valid' }\n];\nconst liveDefs = [\n  { id: 'live_outbound_initial_smoke', group: 'outbound', title: 'Live outbound intake smoke test' },\n  { id: 'live_tag_sync_smoke', group: 'labels', title: 'Live WF-09 tag sync smoke test' },\n  { id: 'live_rejection_no_moment_e2e', group: 'rejection', title: 'Live e2e: rejection button engages memory and cancels followups' },\n  { id: 'live_rejection_text_no_interest_e2e', group: 'rejection', title: 'Live e2e: free-text rejection in plan context reaches LOSS_REASON_PENDING' },\n  { id: 'live_rejection_loss_reason_e2e', group: 'rejection', title: 'Live e2e: loss reason selection closes LOST and completes sequence' },\n  { id: 'live_reopen_after_menu_e2e', group: 'reopen', title: 'Live e2e: reopen right after menu re-sends pricing (dedupe must not eat it)' }\n];\nconst defs = [];\nif (['shadow', 'hybrid'].includes(cfg.delivery_mode)) defs.push(...shadowDefs.map(d => ({ ...d, delivery_mode: 'shadow' })));\nif (['live', 'hybrid'].includes(cfg.delivery_mode) && cfg.allow_public_messages) defs.push(...liveDefs.map(d => ({ ...d, delivery_mode: 'live' })));\nconst cases = [];\nfor (const lead of leads) {\n  for (const windowProfile of cfg.windows) {\n    for (const def of defs) {\n      if (!groups.has(def.group)) continue;\n      if (def.delivery_mode === 'live' && !(cfg.live_windows || ['3m']).includes(windowProfile)) continue;\n      cases.push({\n        run_id: run.run_id,\n        run_key: run.run_key,\n        scenario_id: def.id,\n        scenario_group: def.group,\n        scenario_title: def.title,\n        delivery_mode: def.delivery_mode,\n        window_profile: windowProfile,\n        allow_public_messages: cfg.allow_public_messages,\n        cleanup: cfg.cleanup,\n        phone: lead.phone,\n        phone_e164: lead.phone_e164,\n        lead_id: lead.lead_id,\n        quicklink_id: lead.quicklink_id,\n        marca: lead.marca,\n        nombre_cliente: lead.nombre_cliente,\n        telefono_1: lead.telefono_1,\n        modelo: lead.modelo,\n        conversation_id: lead.conversation_id,\n        chatwoot_conv_id: lead.chatwoot_conv_id,\n        chatwoot_contact_id: lead.chatwoot_contact_id,\n        expected: { title: def.title, no_unapproved_leads: true, no_legacy_state: true, window_profile: windowProfile },\n        repro_payload: {}\n      });\n    }\n  }\n}\nreturn cases.map(json => ({ json }));"
+      }
+    },
+    {
+      "id": "qa-pg-insert-case-001",
+      "name": "PG - Insert Test Case",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1620,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH payload AS (SELECT $14::jsonb AS j), ins AS (INSERT INTO cris_test_cases (run_id, scenario_id, scenario_group, window_profile, delivery_mode, phone, phone_e164, lead_id, conversation_id, chatwoot_conv_id, chatwoot_contact_id, expected, repro_payload, status, started_at) VALUES ($1::uuid, $2, $3, $4, $5, $6, NULLIF($7::text, ''), NULLIF($8::text, '')::uuid, NULLIF($9::text, '')::uuid, NULLIF($10::text, '')::integer, NULLIF($11::text, '')::integer, $12::jsonb, $13::jsonb, 'RUNNING', now()) ON CONFLICT (run_id, scenario_id, window_profile, delivery_mode, phone) DO UPDATE SET status = 'RUNNING', expected = EXCLUDED.expected, repro_payload = EXCLUDED.repro_payload, started_at = now(), finished_at = NULL, error = NULL, updated_at = now() RETURNING *) SELECT ins.*, payload.j AS case_payload FROM ins CROSS JOIN payload;",
+        "options": {
+          "queryReplacement": "={{ [ $json.run_id, $json.scenario_id, $json.scenario_group, $json.window_profile, $json.delivery_mode, $json.phone, $json.phone_e164 || '', $json.lead_id || '', $json.conversation_id || '', $json.chatwoot_conv_id || '', $json.chatwoot_contact_id || '', JSON.stringify($json.expected || {}), JSON.stringify($json.repro_payload || {}), JSON.stringify($json) ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "qa-pg-snapshot-before-001",
+      "name": "PG - Snapshot Before",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1920,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH cr AS (SELECT * FROM cris_test_cases WHERE id = $1::uuid), lead_row AS (SELECT l.* FROM leads_quicklink l, cr WHERE l.id = cr.lead_id LIMIT 1), conv_row AS (SELECT c.* FROM conversaciones c, cr WHERE c.id = cr.conversation_id OR (cr.lead_id IS NOT NULL AND c.lead_id = cr.lead_id) ORDER BY c.updated_at DESC NULLS LAST LIMIT 1), mem_row AS (SELECT lm.* FROM lead_memory lm, cr LEFT JOIN conv_row cv ON true WHERE lm.conversation_id = cv.id OR lm.lead_id = cr.lead_id OR lm.phone = cr.phone_e164 OR cris_qa_digits(lm.phone) = cris_qa_digits(cr.phone) ORDER BY lm.updated_at DESC NULLS LAST LIMIT 1), pending AS (SELECT coalesce(jsonb_agg(to_jsonb(sf) ORDER BY sf.scheduled_at), '[]'::jsonb) AS rows FROM scheduled_followups sf, conv_row cv WHERE sf.conversation_id = cv.id AND sf.status = 'PENDING'), button_events AS (SELECT coalesce(jsonb_agg(to_jsonb(ev) ORDER BY ev.created_at DESC), '[]'::jsonb) AS rows FROM (SELECT wie.* FROM whatsapp_interaction_events wie, conv_row cv WHERE wie.conversation_id = cv.id ORDER BY wie.created_at DESC LIMIT 10) ev), transfers AS (SELECT coalesce(jsonb_agg(to_jsonb(th) ORDER BY th.created_at DESC), '[]'::jsonb) AS rows FROM transferencias_humano th, conv_row cv WHERE th.conversation_id = cv.id) SELECT cr.*, jsonb_build_object('lead', (SELECT to_jsonb(lead_row) FROM lead_row), 'conversation', (SELECT to_jsonb(conv_row) FROM conv_row), 'memory', (SELECT to_jsonb(mem_row) FROM mem_row), 'pending_followups', (SELECT rows FROM pending), 'button_events', (SELECT rows FROM button_events), 'transfers', (SELECT rows FROM transfers)) AS snapshot_before FROM cr;",
+        "options": {
+          "queryReplacement": "={{ [ $json.id ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "qa-execute-case-001",
+      "name": "Code - Execute Scenario",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2220,
+        300
+      ],
+      "parameters": {
+        "jsCode": "async function __salesProdHttpRequest(opts) {\n  if (opts && String(opts.url || '').includes('/rest/v1/')) {\n    opts = {\n      ...opts,\n      headers: {\n        ...(opts.headers || {}),\n        'Accept-Profile': 'sales_prod',\n        'Content-Profile': 'sales_prod',\n      },\n    };\n  }\n  return this.helpers.httpRequest(opts);\n}\n\nconst items = $input.all();\nconst delay = ms => new Promise(resolve => setTimeout(resolve, ms));\nfunction basePayload(item) {\n  return {\n    test_run_id: item.run_id,\n    test_case_id: item.id,\n    scenario_id: item.scenario_id,\n    window_profile: item.window_profile,\n    phone: item.phone_e164 || item.phone,\n    marca: item.case_payload?.marca || item.snapshot_before?.lead?.marca || item.case_payload?.requested_marca || 'KIA',\n    quicklink_id: item.case_payload?.quicklink_id || item.snapshot_before?.lead?.quicklink_id || null,\n    nombre_cliente: item.case_payload?.nombre_cliente || item.snapshot_before?.lead?.nombre_cliente || 'Cliente QA',\n    modelo: item.case_payload?.modelo || item.snapshot_before?.lead?.modelo || 'Vehiculo QA',\n    source: 'cris-qa'\n  };\n}\nfunction chatwootPayload(item, content, attrs = {}) {\n  const cw = item.chatwoot_conv_id || item.snapshot_before?.conversation?.chatwoot_conv_id || 999999;\n  const contact = item.chatwoot_contact_id || item.snapshot_before?.conversation?.chatwoot_contact_id || 999999;\n  const phone = item.phone_e164 || item.phone;\n  const msgId = `cris-qa-${item.id}-${Date.now()}`;\n  return {\n    account: { id: 2, name: 'Quicklink' },\n    content,\n    content_attributes: attrs,\n    content_type: 'text',\n    event: 'message_created',\n    id: msgId,\n    message_id: msgId,\n    message_type: 'incoming',\n    private: false,\n    conversation: { id: cw, display_id: cw, inbox_id: 2, can_reply: true, meta: { sender: { id: contact, phone_number: phone, type: 'contact' } }, messages: [{ id: msgId, content, conversation_id: cw, message_type: 0, sender_id: contact, sender_type: 'contact', sender: { id: contact, phone_number: phone, type: 'contact' }, content_attributes: attrs }] },\n    contact: { id: contact, phone_number: phone },\n    sender: { id: contact, phone_number: phone, type: 'contact' },\n    inbox: { id: 2 },\n    from: phone\n  };\n}\nfunction scenarioPayload(item) {\n  const id = item.scenario_id;\n  if (id.includes('reopen_plan') || id.includes('reopen_after_menu')) return { kind: 'master_inbound', reopen: true, url: 'http://localhost:5678/webhook/messages_created_test', body: chatwootPayload(item, 'button_action: PROPOSAL_CONFIRMATION\\nmodel: -\\nbutton_text: -\\nbutton_payload: revisar_otro_plan', { list_reply: { id: 'revisar_otro_plan', title: 'Revisar otro plan' } }) };\n  if (id.includes('rejection_no_moment')) return { kind: 'master_inbound', rejection: 'no_moment', url: 'http://localhost:5678/webhook/messages_created_test', body: chatwootPayload(item, 'button_action: -\\nmodel: -\\nbutton_text: No por el momento\\nbutton_payload: No por el momento', { button_reply: { id: 'no_por_el_momento', title: 'No por el momento' } }) };\n  if (id.includes('rejection_text_no_interest')) return { kind: 'master_inbound', rejection: 'text_no_interest', url: 'http://localhost:5678/webhook/messages_created_test', body: chatwootPayload(item, 'no me interesa') };\n  if (id.includes('rejection_loss_reason')) return { kind: 'master_inbound', rejection: 'loss_reason', url: 'http://localhost:5678/webhook/messages_created_test', body: chatwootPayload(item, 'button_action: -\\nmodel: -\\nbutton_text: \\u274c No me interesa\\nbutton_payload: loss_not_interested', { list_reply: { id: 'loss_not_interested', title: '\\u274c No me interesa' } }) };\n  if (id.includes('outbound')) return { kind: 'outbound', url: 'http://localhost:5678/webhook/quicklink-lead-inbound', body: basePayload(item) };\n  if (id.includes('button_interest')) return { kind: 'master_inbound', url: 'http://localhost:5678/webhook/messages_created_test', body: chatwootPayload(item, 'button_action: INTEREST\\nmodel: -\\nbutton_text: Cuentame mas\\nbutton_payload: cuentame_mas', { button_reply: { id: 'cuentame_mas', title: 'Cuentame mas' } }) };\n  if (id.includes('plan_selected')) return { kind: 'master_inbound', url: 'http://localhost:5678/webhook/messages_created_test', body: chatwootPayload(item, 'button_action: PLAN_SELECTION\\nmodel: -\\nbutton_text: 12 meses\\nbutton_payload: plan_telemetria_12m', { button_reply: { id: 'plan_telemetria_12m', title: '12 meses' } }) };\n  if (id.includes('handoff')) return { kind: 'master_inbound', url: 'http://localhost:5678/webhook/messages_created_test', body: chatwootPayload(item, 'button_action: HANDOFF\\nmodel: -\\nbutton_text: Si, quiero contratar\\nbutton_payload: contactar_a_un_asesor', { button_reply: { id: 'contactar_a_un_asesor', title: 'Si, quiero contratar' } }) };\n  if (id.includes('loss')) return { kind: 'master_inbound', url: 'http://localhost:5678/webhook/messages_created_test', body: chatwootPayload(item, 'button_action: LOSS_REASON\\nmodel: -\\nbutton_text: No me interesa\\nbutton_payload: loss_no_interes', { button_reply: { id: 'loss_no_interes', title: 'No me interesa' } }) };\n  if (id.includes('pricing')) return { kind: 'master_inbound', url: 'http://localhost:5678/webhook/messages_created_test', body: chatwootPayload(item, 'Quiero saber el precio') };\n  if (id.includes('tag_sync')) return { kind: 'tag_sync', url: 'http://localhost:5678/webhook/cris-tags-sync', body: { conversation_id: item.conversation_id, chatwoot_conv_id: item.chatwoot_conv_id, source: 'cris-qa' } };\n  return { kind: 'shadow_note', url: null, body: { scenario_id: id, note: 'shadow evidence only' } };\n}\nconst QA_SB_URL = 'https://quicklink.spb.aigentss.cloud';\nconst QA_SB_KEY = '${REDACTED_JWT}';\nconst QA_SB_H = { apikey: QA_SB_KEY, Authorization: 'Bearer ' + QA_SB_KEY, 'Content-Type': 'application/json' };\n\nasync function preSeedRejection(item, mode) {\n  // Conversación desechable con el estado requerido: INSERT no pasa por el\n  // trigger FSM (BEFORE UPDATE). Vinculada al lead QA para que Snapshot After\n  // la resuelva (ORDER BY updated_at DESC) y con los chatwoot ids reales para\n  // que CRIS-01 la encuentre al procesar el inbound.\n  const stateByMode = { no_moment: 'CONTACTED_1', text_no_interest: 'QUOTED', loss_reason: 'LOSS_REASON_PENDING' };\n  const state = stateByMode[mode];\n  const seed = { seeded: false, conv_id: null, followup_id: null, errors: [] };\n  if (!state || !item.lead_id) { seed.errors.push('missing state or lead_id'); return seed; }\n  try {\n    const convRows = await __salesProdHttpRequest.call(this, {\n      method: 'POST',\n      url: QA_SB_URL + '/rest/v1/conversaciones',\n      headers: { ...QA_SB_H, Prefer: 'return=representation' },\n      body: JSON.stringify({\n        lead_id: item.lead_id,\n        marca: (item.marca || 'KIA').toUpperCase(),\n        canal: 'WHATSAPP',\n        estado: state,\n        telefono: item.telefono_1 || item.phone,\n        nombre: item.nombre_cliente || 'Cliente QA',\n        modelo: item.modelo || null,\n        chatwoot_conv_id: item.chatwoot_conv_id || null,\n        chatwoot_contact_id: item.chatwoot_contact_id || null,\n        ultima_respuesta_at: new Date().toISOString()\n      })\n    });\n    const conv = Array.isArray(convRows) ? convRows[0] : convRows;\n    if (!conv?.id) { seed.errors.push('conversation insert returned no id'); return seed; }\n    seed.conv_id = conv.id;\n    const memPatch = {\n      conversation_id: conv.id,\n      conversation_state: state,\n      customer_engaged: mode !== 'no_moment',\n      outbound_sequence_status: 'ACTIVE',\n      followup_at: null,\n      loss_reason_code: null,\n      last_customer_decision: null,\n      selected_plan: mode === 'text_no_interest' ? 'PLAN_1_YEAR' : null,\n      last_response_type: mode === 'text_no_interest' ? 'PRICE_PRESENTED' : null,\n      updated_at: new Date().toISOString()\n    };\n    if (mode === 'no_moment') memPatch.last_inbound_message_at = null;\n    await __salesProdHttpRequest.call(this, {\n      method: 'PATCH',\n      url: QA_SB_URL + '/rest/v1/lead_memory?phone=eq.' + encodeURIComponent(item.phone_e164 || item.phone),\n      headers: { ...QA_SB_H, Prefer: 'return=minimal' },\n      body: JSON.stringify(memPatch)\n    });\n    if (mode === 'no_moment') {\n      const fuRows = await __salesProdHttpRequest.call(this, {\n        method: 'POST',\n        url: QA_SB_URL + '/rest/v1/scheduled_followups',\n        headers: { ...QA_SB_H, Prefer: 'return=representation' },\n        body: JSON.stringify({\n          conversation_id: conv.id,\n          tipo_followup: 'CONTACTED_2',\n          status: 'PENDING',\n          scheduled_at: new Date(Date.now() + 60 * 60 * 1000).toISOString()\n        })\n      }).catch(e => { seed.errors.push('followup:' + String(e.message || e).slice(0, 120)); return null; });\n      const fu = Array.isArray(fuRows) ? fuRows[0] : fuRows;\n      if (fu?.id) seed.followup_id = fu.id;\n    }\n    seed.seeded = true;\n  } catch (e) {\n    seed.errors.push(String(e.message || e).slice(0, 200));\n  }\n  return seed;\n}\n\nasync function preSeedReopen(item) {\n  // Usa la conversación QA REAL: reopen no requiere estados terminales.\n  // Siembra memoria PLAN_SELECTED con plan elegido + un PRICING_SENT sintético\n  // AHORA para reproducir la ventana <2min del bug (ejecución 76974).\n  const seed = { seeded: false, conv_id: item.conversation_id || null, seed_at: new Date().toISOString(), errors: [] };\n  if (!seed.conv_id) { seed.errors.push('missing conversation_id'); return seed; }\n  try {\n    await __salesProdHttpRequest.call(this, {\n      method: 'PATCH',\n      url: QA_SB_URL + '/rest/v1/lead_memory?phone=eq.' + encodeURIComponent(item.phone_e164 || item.phone),\n      headers: { ...QA_SB_H, Prefer: 'return=minimal' },\n      body: JSON.stringify({\n        conversation_id: seed.conv_id,\n        conversation_state: 'PLAN_SELECTED',\n        customer_engaged: true,\n        outbound_sequence_status: 'ACTIVE',\n        selected_plan: 'PLAN_1_YEAR',\n        selected_plan_name: 'KIA TELEMETRÍA',\n        selected_plan_duration: 12,\n        last_response_type: 'PLAN_SELECTION',\n        plan_reopen_count: 0,\n        loss_reason_code: null,\n        followup_at: null,\n        updated_at: new Date().toISOString()\n      })\n    });\n    await __salesProdHttpRequest.call(this, {\n      method: 'POST',\n      url: QA_SB_URL + '/rest/v1/eventos_conversacion',\n      headers: { ...QA_SB_H, Prefer: 'return=minimal' },\n      body: JSON.stringify({\n        conversation_id: seed.conv_id,\n        tipo_evento: 'PRICING_SENT',\n        actor: 'CRIS',\n        datos_evento: { source: 'cse_send_pricing', qa_seed: true, inbound_message_id: 'qa-seed-' + Date.now() }\n      })\n    });\n    // El BTN-GUARD exige una interacción activa que espere REVIEW_OTHER_PLAN\n    // (igual que registra CSE — Send Plan Confirmation en el flujo real).\n    await __salesProdHttpRequest.call(this, {\n      method: 'POST',\n      url: QA_SB_URL + '/rest/v1/rpc/set_active_conversation_interaction',\n      headers: QA_SB_H,\n      body: JSON.stringify({\n        p_conversation_id: seed.conv_id,\n        p_interaction_type: 'PROPOSAL_CONFIRMATION',\n        p_allowed_actions: ['CONTRACT_NOW', 'SEND_PROPOSAL', 'TALK_TO_ADVISOR', 'REVIEW_OTHER_PLAN'],\n        p_state: 'PLAN_SELECTED',\n        p_payload: { source: 'qa_reopen_seed' }\n      })\n    });\n    seed.seeded = true;\n  } catch (e) {\n    seed.errors.push(String(e.message || e).slice(0, 200));\n  }\n  return seed;\n}\n\nasync function countPricingSentSince(convId, sinceIso) {\n  try {\n    const rows = await __salesProdHttpRequest.call(this, {\n      method: 'GET',\n      url: QA_SB_URL + '/rest/v1/eventos_conversacion?conversation_id=eq.' + encodeURIComponent(convId) + '&tipo_evento=eq.PRICING_SENT&created_at=gt.' + encodeURIComponent(sinceIso) + '&datos_evento->>qa_seed=is.null&select=id&limit=10',\n      headers: QA_SB_H\n    });\n    return Array.isArray(rows) ? rows.length : 0;\n  } catch (e) {\n    return -1;\n  }\n}\n\nconst out = [];\nfor (const input of items) {\n  const item = input.json;\n  const payload = scenarioPayload(item);\n  let action = { status: 'prepared', sent: false, response_status: null, response_body: null, execution_id: null };\n  let caseStatus = 'RUNNING';\n  let error = null;\n  if (!item.lead_id && !item.conversation_id && item.scenario_group !== 'negative') {\n    caseStatus = 'SKIPPED';\n    error = 'allowed phone did not resolve to lead or conversation';\n  } else if (item.delivery_mode === 'live') {\n    let reopenSeed = null;\n    if (payload.reopen) {\n      reopenSeed = await preSeedReopen.call(this, item);\n      item.reopen_seed = reopenSeed;\n      if (!reopenSeed.seeded) {\n        caseStatus = 'SKIPPED';\n        error = 'reopen pre-seed failed: ' + reopenSeed.errors.join(' | ').slice(0, 300);\n        out.push({ json: { ...item, action: { status: 'seed_failed', sent: false, response_status: null, response_body: null, execution_id: null }, action_status: 'seed_failed', outbox_payload: payload, execution_ids_new: [], case_status_after_execute: caseStatus, execute_error: error } });\n        continue;\n      }\n    }\n    let rejectionSeed = null;\n    if (payload.rejection) {\n      rejectionSeed = await preSeedRejection.call(this, item, payload.rejection);\n      item.rejection_seed = rejectionSeed;\n      if (!rejectionSeed.seeded) {\n        caseStatus = 'SKIPPED';\n        error = 'rejection pre-seed failed: ' + rejectionSeed.errors.join(' | ').slice(0, 300);\n        out.push({ json: { ...item, action: { status: 'seed_failed', sent: false, response_status: null, response_body: null, execution_id: null }, action_status: 'seed_failed', outbox_payload: payload, execution_ids_new: [], case_status_after_execute: caseStatus, execute_error: error } });\n        continue;\n      }\n      // el snapshot debe mirar la conversación desechable\n      item.conversation_id = rejectionSeed.conv_id;\n    }\n    try {\n      const response = await __salesProdHttpRequest.call(this, { method: 'POST', url: payload.url, headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(payload.body), timeout: 45000, ignoreHttpStatusErrors: true, returnFullResponse: true });\n      action = { status: 'sent', sent: true, response_status: response.statusCode || response.status || 200, response_body: response.body || response, execution_id: response.body?.executionId || null };\n      await delay(payload.reopen ? 30000 : (payload.rejection ? (payload.rejection === 'text_no_interest' ? 25000 : 15000) : (payload.kind === 'outbound' ? 6000 : 12000)));\n      if (payload.reopen && reopenSeed?.seeded) {\n        item.reopen_pricing_events_after = await countPricingSentSince.call(this, reopenSeed.conv_id, reopenSeed.seed_at);\n      }\n    } catch (e) {\n      action = { status: 'send_failed', sent: false, response_status: null, response_body: String(e.message || e).slice(0, 500), execution_id: null };\n      error = String(e.message || e).slice(0, 500);\n    }\n  } else {\n    action = { status: 'shadow_recorded', sent: false, response_status: null, response_body: null, execution_id: null };\n  }\n  out.push({ json: { ...item, action, action_status: action.status, outbox_payload: payload, execution_ids_new: action.execution_id ? [action.execution_id] : [], case_status_after_execute: caseStatus, execute_error: error } });\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "qa-pg-record-outbox-001",
+      "name": "PG - Record Outbox Evidence",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2520,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH input AS (SELECT $1::jsonb AS j), ins AS (INSERT INTO cris_test_outbox (run_id, case_id, delivery_mode, channel, target_phone, target_conversation_id, message_type, would_send_payload, sent, external_status, external_response) SELECT (j->>'run_id')::uuid, (j->>'id')::uuid, j->>'delivery_mode', 'whatsapp', coalesce(j->>'phone_e164', j->>'phone'), NULLIF(j->>'conversation_id', '')::uuid, j->'outbox_payload'->>'kind', j->'outbox_payload', coalesce((j->'action'->>'sent')::boolean, false), j->'action'->>'status', coalesce(j->'action'->'response_body', '{}'::jsonb) FROM input RETURNING id) SELECT input.j AS case_json, (SELECT id FROM ins) AS outbox_id FROM input;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json) ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "qa-pg-snapshot-after-001",
+      "name": "PG - Snapshot After",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2820,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH input AS (SELECT $1::jsonb AS j, $2::uuid AS outbox_id), cr AS (SELECT * FROM cris_test_cases WHERE id = (SELECT (j->>'id')::uuid FROM input)), lead_row AS (SELECT l.* FROM leads_quicklink l, cr WHERE l.id = cr.lead_id LIMIT 1), conv_row AS (SELECT c.* FROM conversaciones c, cr WHERE c.id = cr.conversation_id OR (cr.lead_id IS NOT NULL AND c.lead_id = cr.lead_id) ORDER BY c.updated_at DESC NULLS LAST LIMIT 1), mem_row AS (SELECT lm.* FROM lead_memory lm, cr LEFT JOIN conv_row cv ON true WHERE lm.conversation_id = cv.id OR lm.lead_id = cr.lead_id OR lm.phone = cr.phone_e164 OR cris_qa_digits(lm.phone) = cris_qa_digits(cr.phone) ORDER BY lm.updated_at DESC NULLS LAST LIMIT 1), pending AS (SELECT coalesce(jsonb_agg(to_jsonb(sf) ORDER BY sf.scheduled_at), '[]'::jsonb) AS rows FROM scheduled_followups sf, conv_row cv WHERE sf.conversation_id = cv.id AND sf.status = 'PENDING'), button_events AS (SELECT coalesce(jsonb_agg(to_jsonb(ev) ORDER BY ev.created_at DESC), '[]'::jsonb) AS rows FROM (SELECT wie.* FROM whatsapp_interaction_events wie, conv_row cv WHERE wie.conversation_id = cv.id ORDER BY wie.created_at DESC LIMIT 10) ev), transfers AS (SELECT coalesce(jsonb_agg(to_jsonb(th) ORDER BY th.created_at DESC), '[]'::jsonb) AS rows FROM transferencias_humano th, conv_row cv WHERE th.conversation_id = cv.id), outbox AS (SELECT coalesce(jsonb_agg(to_jsonb(o) ORDER BY o.created_at DESC), '[]'::jsonb) AS rows FROM cris_test_outbox o, cr WHERE o.case_id = cr.id) SELECT cr.*, input.j AS case_json, input.outbox_id, jsonb_build_object('lead', (SELECT to_jsonb(lead_row) FROM lead_row), 'conversation', (SELECT to_jsonb(conv_row) FROM conv_row), 'memory', (SELECT to_jsonb(mem_row) FROM mem_row), 'pending_followups', (SELECT rows FROM pending), 'button_events', (SELECT rows FROM button_events), 'transfers', (SELECT rows FROM transfers), 'outbox', (SELECT rows FROM outbox)) AS snapshot_after FROM cr CROSS JOIN input;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json.case_json), $json.outbox_id ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "qa-evaluate-assertions-001",
+      "name": "Code - Evaluate Assertions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const legacy = new Set(['COTIZACION', 'INTERESADO', 'TRANSFERIDO_HUMANO', 'OPORTUNIDAD_PERDIDA', 'CONTACTO_1', 'CONTACTO_2', 'CONTACTO_3']);\nreturn $input.all().map(input => {\n  const item = input.json;\n  const caseJson = item.case_json || {};\n  const after = item.snapshot_after || {};\n  const before = caseJson.snapshot_before || {};\n  const action = caseJson.action || {};\n  const convState = after.conversation?.estado || null;\n  const memState = after.memory?.conversation_state || null;\n  const assertions = [];\n  assertions.push({ id: 'allowed_phone_resolved', pass: Boolean(item.lead_id || item.conversation_id) || item.scenario_group === 'negative', expected: 'lead or conversation exists for allowed test phone', actual: item.lead_id || item.conversation_id || null });\n  assertions.push({ id: 'outbox_evidence_recorded', pass: Array.isArray(after.outbox) && after.outbox.length > 0, expected: 'outbox evidence exists', actual: after.outbox?.length || 0 });\n  assertions.push({ id: 'no_legacy_conversation_state', pass: !convState || !legacy.has(String(convState).toUpperCase()), expected: 'canonical state only', actual: convState });\n  assertions.push({ id: 'no_legacy_memory_state', pass: !memState || !legacy.has(String(memState).toUpperCase()), expected: 'canonical memory state only', actual: memState });\n  if (item.delivery_mode === 'live') {\n    assertions.push({ id: 'live_webhook_accepted', pass: action.status === 'sent' && Number(action.response_status || 0) >= 200 && Number(action.response_status || 0) < 300, expected: '2xx webhook response', actual: action });\n  } else {\n    assertions.push({ id: 'shadow_no_real_send', pass: action.status === 'shadow_recorded' && action.sent === false, expected: 'no real send in shadow', actual: action });\n  }\n  if (String(item.scenario_id || '').includes('scheduler')) {\n    assertions.push({ id: 'window_profile_known', pass: ['3m', '1h', '24h'].includes(item.window_profile), expected: 'known scheduler profile', actual: item.window_profile });\n  }\n  const sid = String(item.scenario_id || '');\n  if (item.delivery_mode === 'live' && sid.includes('rejection_no_moment')) {\n    assertions.push({ id: 'rejection_memory_engaged', pass: after.memory?.customer_engaged === true, expected: 'customer_engaged=true after rejection button', actual: after.memory?.customer_engaged ?? null });\n    assertions.push({ id: 'rejection_followups_cancelled', pass: (after.pending_followups || []).length === 0, expected: '0 PENDING followups after rejection', actual: after.pending_followups?.length || 0 });\n  }\n  if (item.delivery_mode === 'live' && sid.includes('rejection_text_no_interest')) {\n    const stateNow = String(after.conversation?.estado || after.memory?.conversation_state || '').toUpperCase();\n    assertions.push({ id: 'rejection_reaches_loss_pending', pass: stateNow === 'LOSS_REASON_PENDING', expected: 'LOSS_REASON_PENDING', actual: stateNow });\n  }\n  if (item.delivery_mode === 'live' && sid.includes('rejection_loss_reason')) {\n    assertions.push({ id: 'loss_state_lost', pass: String(after.conversation?.estado || '').toUpperCase() === 'LOST', expected: 'estado LOST', actual: after.conversation?.estado || null });\n    assertions.push({ id: 'loss_sequence_completed', pass: String(after.memory?.outbound_sequence_status || '').toUpperCase() === 'COMPLETED', expected: 'outbound_sequence_status COMPLETED', actual: after.memory?.outbound_sequence_status || null });\n    assertions.push({ id: 'loss_no_pending_followups', pass: (after.pending_followups || []).length === 0, expected: '0 PENDING followups after LOST', actual: after.pending_followups?.length || 0 });\n  }\n  if (item.delivery_mode === 'live' && String(item.scenario_id || '').includes('reopen_after_menu')) {\n    const _reopenEvts = (item.case_json || {}).reopen_pricing_events_after ?? item.reopen_pricing_events_after;\n    assertions.push({ id: 'reopen_menu_delivered', pass: Number(_reopenEvts) >= 1, expected: 'nuevo PRICING_SENT tras el reopen (dedupe no debe comerlo)', actual: _reopenEvts ?? null });\n    assertions.push({ id: 'reopen_count_incremented', pass: Number(after.memory?.plan_reopen_count || 0) >= 1, expected: 'plan_reopen_count >= 1', actual: after.memory?.plan_reopen_count ?? null });\n  }\n  const hardFails = assertions.filter(a => !a.pass);\n  let status = caseJson.case_status_after_execute || 'RUNNING';\n  if (status !== 'SKIPPED') status = hardFails.length ? 'FAILED' : 'PASSED';\n  const severity = hardFails.length ? (item.delivery_mode === 'live' ? 'P1' : 'P2') : null;\n  const actual = { action, before_summary: { state: before.conversation?.estado || null, memory_state: before.memory?.conversation_state || null }, after_summary: { state: convState, memory_state: memState, pending_followups: after.pending_followups?.length || 0, outbox: after.outbox?.length || 0 } };\n  const finding = hardFails.length ? { severity, title: `${item.scenario_id} failed ${hardFails.length} assertion(s)`, expected: item.expected || {}, actual, suspected_node: item.delivery_mode === 'live' ? 'CRIS runtime' : 'CRIS QA harness', evidence: { assertions: hardFails, snapshot_after: after }, repro_payload: caseJson.outbox_payload || item.repro_payload || {} } : null;\n  return { json: { ...item, final_status: status, final_severity: severity, assertions, actual, finding, final_error: caseJson.execute_error || (hardFails.length ? hardFails.map(f => f.id).join('; ') : null), execution_ids_final: caseJson.execution_ids_new || [] } };\n});"
+      }
+    },
+    {
+      "id": "qa-pg-finalize-case-001",
+      "name": "PG - Finalize Test Case",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3420,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH input AS (SELECT $1::jsonb AS j), upd AS (UPDATE cris_test_cases SET status = input.j->>'final_status', severity = NULLIF(input.j->>'final_severity', ''), actual = coalesce(input.j->'actual', '{}'::jsonb), assertions = coalesce(input.j->'assertions', '[]'::jsonb), execution_ids = coalesce(input.j->'execution_ids_final', '[]'::jsonb), snapshot_before = coalesce(input.j->'case_json'->'snapshot_before', '{}'::jsonb), snapshot_after = coalesce(input.j->'snapshot_after', '{}'::jsonb), error = NULLIF(input.j->>'final_error', ''), finished_at = now(), updated_at = now() FROM input WHERE cris_test_cases.id = (input.j->>'id')::uuid RETURNING cris_test_cases.*), finding AS (INSERT INTO cris_test_findings (run_id, case_id, severity, title, expected, actual, suspected_node, evidence, repro_payload) SELECT (input.j->>'run_id')::uuid, (input.j->>'id')::uuid, input.j->'finding'->>'severity', input.j->'finding'->>'title', coalesce(input.j->'finding'->'expected', '{}'::jsonb), coalesce(input.j->'finding'->'actual', '{}'::jsonb), input.j->'finding'->>'suspected_node', coalesce(input.j->'finding'->'evidence', '{}'::jsonb), coalesce(input.j->'finding'->'repro_payload', '{}'::jsonb) FROM input WHERE input.j ? 'finding' AND input.j->'finding' <> 'null'::jsonb RETURNING id) SELECT upd.run_id, upd.id AS case_id, upd.status, upd.severity, (SELECT id FROM finding) AS finding_id FROM upd;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json) ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "qa-aggregate-results-001",
+      "name": "Code - Aggregate Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3720,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(i => i.json);\nconst runId = rows[0]?.run_id || $('PG - Create Test Run').first().json.run_id;\nconst counts = rows.reduce((acc, r) => { acc.total++; acc[String(r.status || 'UNKNOWN').toLowerCase()] = (acc[String(r.status || 'UNKNOWN').toLowerCase()] || 0) + 1; if (r.finding_id) acc.findings++; return acc; }, { total: 0, passed: 0, failed: 0, skipped: 0, findings: 0 });\nlet status = 'PASSED';\nif (counts.failed > 0 && counts.passed > 0) status = 'PARTIAL';\nelse if (counts.failed > 0) status = 'FAILED';\nelse if (counts.skipped > 0 || counts.findings > 0) status = 'PARTIAL';\nreturn [{ json: { run_id: runId, status, summary: counts } }];"
+      }
+    },
+    {
+      "id": "qa-pg-finalize-run-001",
+      "name": "PG - Finalize Test Run",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        4020,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nUPDATE cris_test_runs SET status = $2, summary = $3::jsonb, finished_at = now(), updated_at = now() WHERE id = $1::uuid RETURNING id AS run_id, run_key, status, summary, started_at, finished_at;",
+        "options": {
+          "queryReplacement": "={{ [ $json.run_id, $json.status, JSON.stringify($json.summary) ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "qa-sticky-001",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        120,
+        -120
+      ],
+      "parameters": {
+        "content": "## CRIS QA - Test Orchestrator\n\nWebhook: POST /cris-qa-run\n\nDefault allowlist only:\n- 0998299109\n- 21999910781\n\nDefault mode: shadow.\nLive sends require delivery_mode live/hybrid and allow_public_messages=true.\n\nRequires migration V91.",
+        "height": 300,
+        "width": 420
+      }
+    }
+  ],
+  "connections": {
+    "Manual Run": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalize Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Run": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalize Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Normalize Request": {
+      "main": [
+        [
+          {
+            "node": "PG - Create Test Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Create Test Run": {
+      "main": [
+        [
+          {
+            "node": "PG - Resolve Allowed Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Resolve Allowed Leads": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Case Matrix",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Case Matrix": {
+      "main": [
+        [
+          {
+            "node": "PG - Insert Test Case",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Insert Test Case": {
+      "main": [
+        [
+          {
+            "node": "PG - Snapshot Before",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Snapshot Before": {
+      "main": [
+        [
+          {
+            "node": "Code - Execute Scenario",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Execute Scenario": {
+      "main": [
+        [
+          {
+            "node": "PG - Record Outbox Evidence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Record Outbox Evidence": {
+      "main": [
+        [
+          {
+            "node": "PG - Snapshot After",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Snapshot After": {
+      "main": [
+        [
+          {
+            "node": "Code - Evaluate Assertions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Evaluate Assertions": {
+      "main": [
+        [
+          {
+            "node": "PG - Finalize Test Case",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Finalize Test Case": {
+      "main": [
+        [
+          {
+            "node": "Code - Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Aggregate Results": {
+      "main": [
+        [
+          {
+            "node": "PG - Finalize Test Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "a1858cac-49af-5ad3-9630-980555c1a2b9",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

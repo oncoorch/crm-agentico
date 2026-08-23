@@ -1,0 +1,508 @@
+{
+  "id": "nEO25M9mglFO3DMf_quicklink",
+  "name": "REN - DEV - WF-01 - Assignments Sync API_quicklink",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "renov/dev/v1/assignments/accounts",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -240,
+        -160
+      ],
+      "id": "wh-accounts",
+      "name": "POST Sync Accounts",
+      "webhookId": "7c1e5a92-4d3b-4a18-9f26-1b8d3e40c771"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "renov/dev/v1/assignments/vehicles",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -240,
+        0
+      ],
+      "id": "wh-vehicles",
+      "name": "POST Sync Vehicles",
+      "webhookId": "5b3d8e14-6a72-4c09-8e51-9d2f7a6b3c48"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "renov/dev/v1/assignments/contracts",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -240,
+        160
+      ],
+      "id": "wh-contracts",
+      "name": "POST Sync Contracts",
+      "webhookId": "9e4a2c76-1f58-4b3d-a067-4c8e5b19d206"
+    },
+    {
+      "parameters": {
+        "jsCode": "const providerOAuthCrypto = require('crypto');\nconst PROVIDER_OAUTH_REQUIRED_SCOPE = 'salesforce.integration';\nconst PROVIDER_OAUTH_TOKEN_TTL_SECONDS = 900;\n\nfunction providerOAuthEnv(name) {\n  try { return String($env[name] || ''); } catch (error) { return ''; }\n}\n\nfunction providerOAuthHeader(headers, name) {\n  const target = name.toLowerCase();\n  for (const [key, value] of Object.entries(headers || {})) {\n    if (String(key).toLowerCase() === target) return Array.isArray(value) ? value[0] : value;\n  }\n  return '';\n}\n\nfunction providerOAuthScopes(value) {\n  return [...new Set(String(value || '').trim().split(/\\s+/).filter(Boolean))];\n}\n\nfunction providerOAuthBase64Url(value) {\n  return Buffer.from(value).toString('base64').replace(/=/g, '').replace(/\\+/g, '-').replace(/\\//g, '_');\n}\n\nfunction providerOAuthDecodeSegment(segment) {\n  if (!/^[A-Za-z0-9_-]+$/.test(String(segment || ''))) throw new Error('invalid base64url');\n  const padding = (4 - (segment.length % 4)) % 4;\n  const decoded = Buffer.from(segment + '='.repeat(padding), 'base64');\n  if (providerOAuthBase64Url(decoded) !== segment) throw new Error('non-canonical base64url');\n  return decoded;\n}\n\nfunction providerOAuthFailure(statusCode, error, description) {\n  return { ok: false, statusCode, body: { error, error_description: description } };\n}\n\nfunction providerOAuthInvalidToken() {\n  return providerOAuthFailure(401, 'invalid_token', 'The access token is invalid or expired.');\n}\n\nfunction validateProviderBearerJwt(request) {\n  const jwtSecret = providerOAuthEnv('RENOV_OAUTH_JWT_SECRET');\n  const issuer = providerOAuthEnv('RENOV_OAUTH_ISSUER');\n  const audience = providerOAuthEnv('RENOV_OAUTH_AUDIENCE');\n  const configuredClientId = providerOAuthEnv('RENOV_OAUTH_CLIENT_ID');\n  const configuredScopes = providerOAuthScopes(providerOAuthEnv('RENOV_OAUTH_SCOPE'));\n  const allowedClientIds = providerOAuthEnv('RENOV_PROVIDER_CLIENT_IDS')\n    .split(',')\n    .map((value) => value.trim().toLowerCase())\n    .filter(Boolean);\n\n  if (!jwtSecret || !issuer || !audience || !configuredClientId\n      || !configuredScopes.includes(PROVIDER_OAUTH_REQUIRED_SCOPE)\n      || allowedClientIds.length === 0) {\n    return providerOAuthFailure(503, 'server_error', 'OAuth server configuration is unavailable.');\n  }\n\n  const headers = request && request.headers && typeof request.headers === 'object' ? request.headers : {};\n  const authorization = String(providerOAuthHeader(headers, 'authorization') || '');\n  const bearerMatch = authorization.match(/^Bearer[ \\t]+([^ \\t]+)[ \\t]*$/i);\n  const xClientId = String(providerOAuthHeader(headers, 'x-client-id') || '').trim().toLowerCase();\n  if (!bearerMatch || !xClientId || !allowedClientIds.includes(xClientId)) return providerOAuthInvalidToken();\n\n  const token = bearerMatch[1];\n  const parts = token.split('.');\n  if (parts.length !== 3) return providerOAuthInvalidToken();\n\n  let header;\n  let payload;\n  let signature;\n  try {\n    header = JSON.parse(providerOAuthDecodeSegment(parts[0]).toString('utf8'));\n    payload = JSON.parse(providerOAuthDecodeSegment(parts[1]).toString('utf8'));\n    signature = providerOAuthDecodeSegment(parts[2]);\n  } catch (error) {\n    return providerOAuthInvalidToken();\n  }\n  if (!header || typeof header !== 'object' || Array.isArray(header) || header.alg !== 'HS256') {\n    return providerOAuthInvalidToken();\n  }\n  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return providerOAuthInvalidToken();\n\n  const expectedSignature = providerOAuthCrypto\n    .createHmac('sha256', jwtSecret)\n    .update(parts[0] + '.' + parts[1], 'utf8')\n    .digest();\n  if (signature.length !== expectedSignature.length\n      || !providerOAuthCrypto.timingSafeEqual(signature, expectedSignature)) {\n    return providerOAuthInvalidToken();\n  }\n\n  if (payload.iss !== issuer || payload.aud !== audience\n      || typeof payload.sub !== 'string' || typeof payload.client_id !== 'string'\n      || payload.sub !== configuredClientId || payload.client_id !== configuredClientId\n      || payload.sub !== payload.client_id) {\n    return providerOAuthInvalidToken();\n  }\n\n  const tokenScopes = providerOAuthScopes(payload.scope);\n  if (!tokenScopes.includes(PROVIDER_OAUTH_REQUIRED_SCOPE)\n      || !tokenScopes.every((scope) => configuredScopes.includes(scope))) {\n    return providerOAuthFailure(403, 'insufficient_scope', 'The access token lacks the required scope.');\n  }\n\n  const numericDatesAreValid = Number.isSafeInteger(payload.iat)\n    && Number.isSafeInteger(payload.nbf)\n    && Number.isSafeInteger(payload.exp);\n  const now = Math.floor(Date.now() / 1000);\n  if (!numericDatesAreValid\n      || payload.nbf !== payload.iat\n      || payload.exp - payload.iat !== PROVIDER_OAUTH_TOKEN_TTL_SECONDS\n      || payload.iat > now\n      || payload.nbf > now\n      || payload.exp <= now) {\n    return providerOAuthInvalidToken();\n  }\n\n  return {\n    ok: true,\n    clientId: payload.client_id,\n    providerClientId: xClientId,\n    scope: tokenScopes.join(' '),\n    claims: payload,\n  };\n}\n\nconst providerOAuthRequest = $input.first().json || {};\nconst providerOAuthAuth = validateProviderBearerJwt(providerOAuthRequest);\nif (!providerOAuthAuth.ok) {\n  return [{ json: { statusCode: providerOAuthAuth.statusCode, body: providerOAuthAuth.body, authorized: false } }];\n}\n\nfunction env(name, fallback = '') {\n  try { return $env[name] || fallback; } catch (e) { return fallback; }\n}\n\nconst request = $input.first().json;\nconst headers = request.headers ?? {};\nconst body = request.body ?? {};\nconst params = request.params ?? {};\n\n// =====================================================================\n// REUSABLE SNIPPET — kept identical to AUTH-01 / Validate Provider API Key.\n// Contract: docs/CONTRATO_API_SALESFORCE.md, \"Autenticacion (T-1.17)\".\n// =====================================================================\nfunction response(statusCode, responseBody) {\n  return [{ json: { statusCode, body: responseBody } }];\n}\n\nfunction apiError(statusCode, code, message, details = []) {\n  return response(statusCode, { code, message, details });\n}\n\nfunction readHeader(name) {\n  const target = name.toLowerCase();\n  for (const [key, value] of Object.entries(headers)) {\n    if (String(key).toLowerCase() === target) {\n      return Array.isArray(value) ? value[0] : value;\n    }\n  }\n  return '';\n}\n\n// ======================= end of reusable snippet =======================\n\n// SQL comes from renovaciones-db/sync/*.sql, embedded verbatim at build time.\n// It is chosen by a validated enum and never built from request data: every\n// value travels as a query parameter.\nconst SQL = {\n  \"accounts\": \"-- POST /v1/assignments/accounts  (work item 16155)\\n-- $1 = JSON array of normalised records, $2 = syncBatchId.\\nWITH incoming AS (\\n  SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(\\n    sf_account_id text,\\n    phone         text,\\n    sf_owner_id   text,\\n    sf_username   text,\\n    full_name     text,\\n    status        text\\n  )\\n),\\n-- ON CONFLICT DO UPDATE returns the row whether it was inserted or already\\n-- existed, so this CTE yields every advisor named in the batch. That is what\\n-- lets the account upsert resolve advisor_id in the same statement.\\ntouched_advisors AS (\\n  INSERT INTO renovation_dev.advisors (salesforce_user_id, full_name, active, synced_at)\\n  SELECT DISTINCT\\n         i.sf_owner_id,\\n         coalesce(nullif(btrim(i.sf_username), ''), i.sf_owner_id),\\n         true,\\n         now()\\n    FROM incoming i\\n   WHERE nullif(btrim(coalesce(i.sf_owner_id, '')), '') IS NOT NULL\\n  ON CONFLICT (salesforce_user_id) DO UPDATE\\n    SET synced_at = now()\\n  RETURNING id, salesforce_user_id\\n),\\nupserted AS (\\n  INSERT INTO renovation_dev.quicklink_account_assignments AS account (\\n    salesforce_contact_id, full_name, phone, sf_owner_id, sf_username,\\n    advisor_id, sync_batch_id, deleted_at, synced_at\\n  )\\n  SELECT i.sf_account_id,\\n         nullif(btrim(coalesce(i.full_name, '')), ''),\\n         i.phone,\\n         nullif(btrim(coalesce(i.sf_owner_id, '')), ''),\\n         nullif(btrim(coalesce(i.sf_username, '')), ''),\\n         adv.id,\\n         $2,\\n         NULL,\\n         now()\\n    FROM incoming i\\n    LEFT JOIN touched_advisors adv ON adv.salesforce_user_id = i.sf_owner_id\\n  ON CONFLICT (salesforce_contact_id) DO UPDATE SET\\n    full_name     = coalesce(EXCLUDED.full_name, account.full_name),\\n    phone         = EXCLUDED.phone,\\n    sf_owner_id   = EXCLUDED.sf_owner_id,\\n    sf_username   = EXCLUDED.sf_username,\\n    advisor_id    = EXCLUDED.advisor_id,\\n    sync_batch_id = EXCLUDED.sync_batch_id,\\n    -- A record reported again is alive again: undo any anti-zombie purge.\\n    deleted_at    = NULL,\\n    synced_at     = now(),\\n    updated_at    = now()\\n  RETURNING id\\n)\\nSELECT (SELECT count(*) FROM upserted)::int AS upserted,\\n       '[]'::jsonb AS db_rejected;\\n\",\n  \"vehicles\": \"-- POST /v1/assignments/vehicles  (work item 16171)\\n-- $1 = JSON array of normalised records, $2 = syncBatchId.\\nWITH incoming AS (\\n  SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(\\n    sf_vehicle_id  text,\\n    sf_account_id  text,\\n    brand          text,\\n    model          text,\\n    sf_placa       text,\\n    sf_chasis      text,\\n    vehicle_type   text,\\n    service_name   text\\n  )\\n),\\nresolved AS (\\n  SELECT i.*, a.id AS account_uuid\\n    FROM incoming i\\n    LEFT JOIN renovation_dev.quicklink_account_assignments a\\n           ON a.salesforce_contact_id = i.sf_account_id\\n          AND a.deleted_at IS NULL\\n),\\n-- A vehicle whose account was never synced cannot be stored; it is reported\\n-- back rather than silently dropped by the join.\\nunmatched AS (\\n  SELECT sf_vehicle_id FROM resolved WHERE account_uuid IS NULL\\n),\\nupserted AS (\\n  INSERT INTO renovation_dev.quicklink_vehicle_assignments (\\n    customer_id, salesforce_vehicle_id, brand, model, sf_placa, sf_chasis,\\n    vehicle_type, service_name, sync_batch_id, deleted_at, synced_at\\n  )\\n  SELECT r.account_uuid,\\n         r.sf_vehicle_id,\\n         r.brand,\\n         nullif(btrim(coalesce(r.model, '')), ''),\\n         nullif(btrim(coalesce(r.sf_placa, '')), ''),\\n         nullif(btrim(coalesce(r.sf_chasis, '')), ''),\\n         coalesce(nullif(btrim(coalesce(r.vehicle_type, '')), ''), 'car')::renovation_dev.vehicle_type,\\n         r.service_name,\\n         $2,\\n         NULL,\\n         now()\\n    FROM resolved r\\n   WHERE r.account_uuid IS NOT NULL\\n  ON CONFLICT (salesforce_vehicle_id) DO UPDATE SET\\n    customer_id   = EXCLUDED.customer_id,\\n    brand         = EXCLUDED.brand,\\n    model         = EXCLUDED.model,\\n    sf_placa      = EXCLUDED.sf_placa,\\n    sf_chasis     = EXCLUDED.sf_chasis,\\n    vehicle_type  = EXCLUDED.vehicle_type,\\n    service_name  = EXCLUDED.service_name,\\n    sync_batch_id = EXCLUDED.sync_batch_id,\\n    deleted_at    = NULL,\\n    synced_at     = now(),\\n    updated_at    = now()\\n  RETURNING id\\n)\\nSELECT (SELECT count(*) FROM upserted)::int AS upserted,\\n       coalesce(\\n         (SELECT jsonb_agg(jsonb_build_object('sf_vehicleId', sf_vehicle_id,\\n                                              'reason', 'UNKNOWN_ACCOUNT'))\\n            FROM unmatched),\\n         '[]'::jsonb\\n       ) AS db_rejected;\\n\",\n  \"contracts\": \"-- POST /v1/assignments/contracts (work item 16187)\\n-- $1 = JSON array of normalised records, $2 = syncBatchId.\\nWITH incoming AS (\\n  SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(\\n    sf_contract_id text,\\n    sf_account_id  text,\\n    sf_vehicle_id  text,\\n    sf_owner_id    text,\\n    sf_start_date  date,\\n    sf_end_date    date,\\n    contract_status text\\n  )\\n),\\nresolved AS (\\n  SELECT i.*, a.id AS account_uuid, v.id AS vehicle_uuid\\n    FROM incoming i\\n    LEFT JOIN renovation_dev.quicklink_account_assignments a\\n           ON a.salesforce_contact_id = i.sf_account_id\\n          AND a.deleted_at IS NULL\\n     LEFT JOIN renovation_dev.quicklink_vehicle_assignments v\\n            ON v.salesforce_vehicle_id = i.sf_vehicle_id\\n           AND v.customer_id = a.id\\n           AND v.deleted_at IS NULL\\n),\\nunmatched AS (\\n  SELECT sf_contract_id, sf_account_id, sf_vehicle_id\\n    FROM resolved\\n   WHERE account_uuid IS NULL OR vehicle_uuid IS NULL\\n),\\nupserted AS (\\n  INSERT INTO renovation_dev.quicklink_contract_assignments (\\n    sf_contract_id, account_id, vehicle_id, sf_account_id, sf_vehicle_id,\\n    sf_owner_id, sf_start_date, sf_end_date, contract_status,\\n    sync_batch_id, deleted_at, synced_at\\n  )\\n  SELECT r.sf_contract_id, r.account_uuid, r.vehicle_uuid, r.sf_account_id,\\n         r.sf_vehicle_id, r.sf_owner_id, r.sf_start_date, r.sf_end_date,\\n         nullif(btrim(coalesce(r.contract_status, '')), ''),\\n         $2, NULL, now()\\n    FROM resolved r\\n   WHERE r.account_uuid IS NOT NULL\\n     AND r.vehicle_uuid IS NOT NULL\\n  ON CONFLICT (sf_contract_id) DO UPDATE SET\\n    account_id      = EXCLUDED.account_id,\\n    vehicle_id      = EXCLUDED.vehicle_id,\\n    sf_account_id   = EXCLUDED.sf_account_id,\\n    sf_vehicle_id   = EXCLUDED.sf_vehicle_id,\\n    sf_owner_id     = EXCLUDED.sf_owner_id,\\n    sf_start_date   = EXCLUDED.sf_start_date,\\n    sf_end_date     = EXCLUDED.sf_end_date,\\n    contract_status = EXCLUDED.contract_status,\\n    sync_batch_id   = EXCLUDED.sync_batch_id,\\n    deleted_at      = NULL,\\n    synced_at       = now(),\\n    updated_at      = now()\\n  RETURNING id, vehicle_id, sf_end_date\\n),\\n-- Keep the denormalised copy the campaign view falls back to in step.\\nmirrored AS (\\n  UPDATE renovation_dev.quicklink_vehicle_assignments v\\n     SET expiration_date = u.sf_end_date\\n    FROM upserted u\\n   WHERE v.id = u.vehicle_id\\n     AND u.sf_end_date IS NOT NULL\\n  RETURNING v.id\\n)\\nSELECT (SELECT count(*) FROM upserted)::int AS upserted,\\n        coalesce(\\n          (SELECT jsonb_agg(jsonb_build_object('sf_contractId', sf_contract_id,\\n                                               'sf_accountId', sf_account_id,\\n                                               'sf_vehicleId', sf_vehicle_id,\\n                                               'reason', 'UNKNOWN_ACCOUNT'))\\n            FROM unmatched),\\n         '[]'::jsonb\\n       ) AS db_rejected;\\n\",\n  \"reassign\": \"-- PATCH /v1/assignments/{accountId} (work item 16155)\\n-- Takes one parameter: a JSON array holding the single record to reassign.\\n-- No sync batch id: a reassignment is a point change and must not be swept up\\n-- by the anti-zombie purge of the next full sync.\\nWITH incoming AS (\\n  SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(\\n    sf_account_id text,\\n    sf_owner_id   text,\\n    sf_username   text\\n  )\\n),\\ntouched_advisors AS (\\n  INSERT INTO renovation_dev.advisors (salesforce_user_id, full_name, active, synced_at)\\n  SELECT DISTINCT\\n         i.sf_owner_id,\\n         coalesce(nullif(btrim(i.sf_username), ''), i.sf_owner_id),\\n         true,\\n         now()\\n    FROM incoming i\\n  ON CONFLICT (salesforce_user_id) DO UPDATE\\n    SET synced_at = now()\\n  RETURNING id, salesforce_user_id\\n),\\nreassigned AS (\\n  UPDATE renovation_dev.quicklink_account_assignments a\\n     SET sf_owner_id = i.sf_owner_id,\\n         sf_username = nullif(btrim(coalesce(i.sf_username, '')), ''),\\n         advisor_id  = adv.id,\\n         synced_at   = now(),\\n         updated_at  = now()\\n    FROM incoming i\\n    JOIN touched_advisors adv ON adv.salesforce_user_id = i.sf_owner_id\\n   WHERE a.salesforce_contact_id = i.sf_account_id\\n     AND a.deleted_at IS NULL\\n  RETURNING a.id\\n)\\nSELECT (SELECT count(*) FROM reassigned)::int AS upserted,\\n       '[]'::jsonb AS db_rejected;\\n\"\n};\n\nconst BATCH_LIMIT = 2000;\n\n// Commercial service name by brand (docs/REGLAS_NEGOCIO.md section 2). The\n// provider calculates it: Salesforce does not send it, so a rename here never\n// requires a release on their side.\nconst SERVICE_BY_BRAND = {\n  kia: 'telemetría KIA',\n  hyundai: 'My Hyundai Link',\n  ford: 'Quito Motors Connect',\n  jac: 'Jac Connect',\n  ankai: 'Camioneta del Ecuador',\n  honda: 'Honda Connect',\n  'land rover': 'Land Rover Connect',\n  bajaj: 'Quicklink Motos',\n};\n\nfunction serviceNameFor(brand, vehicleType) {\n  const key = String(brand || '').trim().toLowerCase();\n  if (key === 'honda' && vehicleType === 'motorcycle') return 'Honda Satelital';\n  if (SERVICE_BY_BRAND[key]) return SERVICE_BY_BRAND[key];\n  return vehicleType === 'motorcycle' ? 'Quicklink Motos' : 'Quicklink Autos';\n}\n\n// E.164 with an Ecuadorian default, per T-1.16.\nfunction normalisePhone(raw) {\n  let value = String(raw ?? '').trim();\n  if (!value) return null;\n  const hadPlus = value.startsWith('+');\n  value = value.replace(/[^0-9]/g, '');\n  if (!value) return null;\n  if (!hadPlus) {\n    if (value.startsWith('00')) value = value.slice(2);\n    else if (value.startsWith('593')) { /* already the country code */ }\n    else if (value.startsWith('0')) value = '593' + value.slice(1);\n    else if (value.length === 9) value = '593' + value;\n  }\n  const candidate = '+' + value;\n  return /^\\+[1-9][0-9]{7,14}$/.test(candidate) ? candidate : null;\n}\n\nfunction text(value) {\n  const trimmed = String(value ?? '').trim();\n  return trimmed === '' ? null : trimmed;\n}\n\nfunction isIsoDate(value) {\n  return value === null || /^\\d{4}-\\d{2}-\\d{2}$/.test(String(value));\n}\n\nconst ENTITIES = {\n  accounts: {\n    key: 'sf_accountId',\n    sql: SQL.accounts,\n    map(record, reject) {\n      const sfAccountId = text(record.sf_accountId);\n      const phone = normalisePhone(record.sf_phone ?? record.phone);\n      if (!sfAccountId) return reject('MISSING_REQUIRED_FIELD', null);\n      if (!phone) return reject('INVALID_PHONE', sfAccountId);\n      return {\n        sf_account_id: sfAccountId,\n        phone: phone,\n        sf_owner_id: text(record.sf_ownerId),\n        sf_username: text(record.sf_username),\n        full_name: text(record.sf_accountName ?? record.full_name),\n        status: text(record.status),\n      };\n    },\n  },\n  vehicles: {\n    key: 'sf_vehicleId',\n    sql: SQL.vehicles,\n    map(record, reject) {\n      const sfVehicleId = text(record.sf_vehicleId);\n      const sfAccountId = text(record.sf_accountId);\n      const brand = text(record.sf_marca ?? record.brand);\n      if (!sfVehicleId || !sfAccountId || !brand) {\n        return reject('MISSING_REQUIRED_FIELD', sfVehicleId);\n      }\n      const vehicleType = String(record.vehicle_type ?? 'car').toLowerCase() === 'motorcycle'\n        ? 'motorcycle'\n        : 'car';\n      return {\n        sf_vehicle_id: sfVehicleId,\n        sf_account_id: sfAccountId,\n        brand: brand,\n        model: text(record.sf_modelo ?? record.model),\n        sf_placa: text(record.sf_placa),\n        sf_chasis: text(record.sf_chasis),\n        vehicle_type: vehicleType,\n        service_name: serviceNameFor(brand, vehicleType),\n      };\n    },\n  },\n  contracts: {\n    key: 'sf_contractId',\n    sql: SQL.contracts,\n    map(record, reject) {\n      const sfContractId = text(record.sf_contractId);\n      const sfAccountId = text(record.sf_accountId);\n      if (!sfContractId || !sfAccountId) {\n        return reject('MISSING_REQUIRED_FIELD', sfContractId);\n      }\n      const startDate = text(record.sf_startDate);\n      const endDate = text(record.sf_endDate);\n      if (!isIsoDate(startDate) || !isIsoDate(endDate)) {\n        return reject('INVALID_PAYLOAD', sfContractId);\n      }\n      return {\n        sf_contract_id: sfContractId,\n        sf_account_id: sfAccountId,\n        sf_vehicle_id: text(record.sf_vehicleId),\n        sf_owner_id: text(record.sf_ownerId),\n        sf_start_date: startDate,\n        sf_end_date: endDate,\n        contract_status: text(record.contractStatus ?? record.contract_status),\n      };\n    },\n  },\n};\n\n// This n8n instance registers webhook paths literally, so ':entity' never\n// resolves as a route parameter. The entity is taken from the last path\n// segment instead; params is still honoured in case that changes.\nfunction entityFromPath() {\n  const url = String(request.webhookUrl ?? request.path ?? '');\n  const segments = url.split('?')[0].split('/').filter(Boolean);\n  return segments.length ? segments[segments.length - 1].toLowerCase() : '';\n}\n\nconst isReassign = request.method === 'PATCH';\n\n// --- PATCH /v1/assignments/{accountId} ---------------------------------\nif (isReassign) {\n  const accountId = text(params.accountId ?? body.sf_accountId);\n  const ownerId = text(body.sf_ownerId);\n  if (!accountId || !ownerId) {\n    return apiError(400, 'INVALID_PAYLOAD', 'Se requieren el accountId en la ruta y sf_ownerId en el body.');\n  }\n  return [{\n    json: {\n      statusCode: 200,\n      ok: true,\n      entity: 'reassign',\n      sql: SQL.reassign,\n      query_params: [JSON.stringify([{\n        sf_account_id: accountId,\n        sf_owner_id: ownerId,\n        sf_username: text(body.sf_username),\n      }])],\n      sync_batch_id: null,\n      received: 1,\n      rejected: 0,\n      rejected_records: [],\n    },\n  }];\n}\n\n// --- POST /v1/assignments/{entity} -------------------------------------\nconst entityName = String(params.entity ?? '').toLowerCase() || entityFromPath();\nconst entity = ENTITIES[entityName];\n\nif (!entity) {\n  return apiError(\n    400,\n    'INVALID_PAYLOAD',\n    'Entidad no soportada: ' + entityName + '. Use accounts, vehicles o contracts.',\n  );\n}\n\nconst syncBatchId = text(body.syncBatchId);\nif (!syncBatchId) {\n  return apiError(400, 'INVALID_PAYLOAD', 'Falta syncBatchId.');\n}\n\nconst records = body.records;\nif (!Array.isArray(records) || records.length === 0) {\n  return apiError(400, 'INVALID_PAYLOAD', 'records debe ser un arreglo con al menos un registro.');\n}\nif (records.length > BATCH_LIMIT) {\n  return apiError(\n    413,\n    'INVALID_PAYLOAD',\n    'El lote supera el maximo de ' + BATCH_LIMIT + ' registros por request.',\n  );\n}\n\nconst rows = [];\nconst rejected = [];\nconst seen = new Set();\n\nfor (const record of records) {\n  let rejectedHere = null;\n  const reject = (reason, key) => {\n    rejectedHere = { [entity.key]: key, reason: reason };\n    return null;\n  };\n\n  const mapped = entity.map(record ?? {}, reject);\n\n  if (rejectedHere) {\n    rejected.push(rejectedHere);\n    continue;\n  }\n\n  // T-1.16: two records with the same primary key cannot coexist in one batch.\n  const primaryKey = mapped[Object.keys(mapped)[0]];\n  if (seen.has(primaryKey)) {\n    rejected.push({ [entity.key]: primaryKey, reason: 'DUPLICATE_KEY_IN_BATCH' });\n    continue;\n  }\n  seen.add(primaryKey);\n  rows.push(mapped);\n}\n\nif (rows.length === 0) {\n  return response(422, {\n    code: 'INVALID_PAYLOAD',\n    message: 'Ningun registro del lote es valido.',\n    syncBatchId: syncBatchId,\n    received: records.length,\n    upserted: 0,\n    rejected: rejected.length,\n    rejectedRecords: rejected,\n  });\n}\n\nreturn [{\n  json: {\n    statusCode: 200,\n    ok: true,\n    entity: entityName,\n    sql: entity.sql,\n    query_params: [JSON.stringify(rows), syncBatchId],\n    sync_batch_id: syncBatchId,\n    received: records.length,\n    rejected: rejected.length,\n    rejected_records: rejected,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "id": "post-validate",
+      "name": "Validate Sync Request"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ok",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        0
+      ],
+      "id": "post-if",
+      "name": "IF Sync Accepted"
+    },
+    {
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": {
+          "queryReplacement": "={{ $json.query_params }}",
+          "queryBatching": "single"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        720,
+        -96
+      ],
+      "id": "post-upsert",
+      "name": "Postgres - Upsert Assignments",
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merges what the validator rejected up front with what the database refused,\n// and shapes the response defined in docs/CONTRATO_API_SALESFORCE.md.\nconst validated = $('Validate Sync Request').first().json;\nconst result = $input.first().json ?? {};\n\nconst upserted = Number(result.upserted ?? 0);\n\n// db_rejected carries records the statement could not store, e.g. a vehicle\n// whose account was never synced. Postgres returns it as a JSON array.\nlet dbRejected = result.db_rejected ?? [];\nif (typeof dbRejected === 'string') {\n  try { dbRejected = JSON.parse(dbRejected); } catch (e) { dbRejected = []; }\n}\nif (!Array.isArray(dbRejected)) {\n  dbRejected = [];\n}\n\nconst rejectedRecords = [...(validated.rejected_records ?? []), ...dbRejected];\n\nconst body = {\n  syncBatchId: validated.sync_batch_id,\n  received: validated.received,\n  upserted: upserted,\n  rejected: rejectedRecords.length,\n  rejectedRecords: rejectedRecords,\n};\n\nif (validated.entity === 'reassign') {\n  delete body.syncBatchId;\n  // A PATCH against an account that does not exist changes nothing.\n  if (upserted === 0) {\n    return [{\n      json: {\n        statusCode: 404,\n        body: {\n          code: 'INVALID_PAYLOAD',\n          message: 'La cuenta no existe o esta purgada; no se reasigno nada.',\n          details: [],\n        },\n      },\n    }];\n  }\n  return [{ json: { statusCode: 200, body: { reassigned: upserted } } }];\n}\n\nreturn [{ json: { statusCode: 200, body: body } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        -96
+      ],
+      "id": "post-shape",
+      "name": "Shape Sync Response"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.statusCode }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1200,
+        -96
+      ],
+      "id": "post-respond-ok",
+      "name": "Respond Sync"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.statusCode }}"
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        720,
+        128
+      ],
+      "id": "post-respond-denied",
+      "name": "Respond Sync Rejected"
+    },
+    {
+      "parameters": {
+        "httpMethod": "PATCH",
+        "path": "renov/dev/v1/assignments",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -240,
+        520
+      ],
+      "id": "patch-webhook",
+      "name": "PATCH Assignment Owner",
+      "webhookId": "2a9f7b31-8c05-4e6d-b714-5f2a9c8e10d3"
+    },
+    {
+      "parameters": {
+        "jsCode": "const providerOAuthCrypto = require('crypto');\nconst PROVIDER_OAUTH_REQUIRED_SCOPE = 'salesforce.integration';\nconst PROVIDER_OAUTH_TOKEN_TTL_SECONDS = 900;\n\nfunction providerOAuthEnv(name) {\n  try { return String($env[name] || ''); } catch (error) { return ''; }\n}\n\nfunction providerOAuthHeader(headers, name) {\n  const target = name.toLowerCase();\n  for (const [key, value] of Object.entries(headers || {})) {\n    if (String(key).toLowerCase() === target) return Array.isArray(value) ? value[0] : value;\n  }\n  return '';\n}\n\nfunction providerOAuthScopes(value) {\n  return [...new Set(String(value || '').trim().split(/\\s+/).filter(Boolean))];\n}\n\nfunction providerOAuthBase64Url(value) {\n  return Buffer.from(value).toString('base64').replace(/=/g, '').replace(/\\+/g, '-').replace(/\\//g, '_');\n}\n\nfunction providerOAuthDecodeSegment(segment) {\n  if (!/^[A-Za-z0-9_-]+$/.test(String(segment || ''))) throw new Error('invalid base64url');\n  const padding = (4 - (segment.length % 4)) % 4;\n  const decoded = Buffer.from(segment + '='.repeat(padding), 'base64');\n  if (providerOAuthBase64Url(decoded) !== segment) throw new Error('non-canonical base64url');\n  return decoded;\n}\n\nfunction providerOAuthFailure(statusCode, error, description) {\n  return { ok: false, statusCode, body: { error, error_description: description } };\n}\n\nfunction providerOAuthInvalidToken() {\n  return providerOAuthFailure(401, 'invalid_token', 'The access token is invalid or expired.');\n}\n\nfunction validateProviderBearerJwt(request) {\n  const jwtSecret = providerOAuthEnv('RENOV_OAUTH_JWT_SECRET');\n  const issuer = providerOAuthEnv('RENOV_OAUTH_ISSUER');\n  const audience = providerOAuthEnv('RENOV_OAUTH_AUDIENCE');\n  const configuredClientId = providerOAuthEnv('RENOV_OAUTH_CLIENT_ID');\n  const configuredScopes = providerOAuthScopes(providerOAuthEnv('RENOV_OAUTH_SCOPE'));\n  const allowedClientIds = providerOAuthEnv('RENOV_PROVIDER_CLIENT_IDS')\n    .split(',')\n    .map((value) => value.trim().toLowerCase())\n    .filter(Boolean);\n\n  if (!jwtSecret || !issuer || !audience || !configuredClientId\n      || !configuredScopes.includes(PROVIDER_OAUTH_REQUIRED_SCOPE)\n      || allowedClientIds.length === 0) {\n    return providerOAuthFailure(503, 'server_error', 'OAuth server configuration is unavailable.');\n  }\n\n  const headers = request && request.headers && typeof request.headers === 'object' ? request.headers : {};\n  const authorization = String(providerOAuthHeader(headers, 'authorization') || '');\n  const bearerMatch = authorization.match(/^Bearer[ \\t]+([^ \\t]+)[ \\t]*$/i);\n  const xClientId = String(providerOAuthHeader(headers, 'x-client-id') || '').trim().toLowerCase();\n  if (!bearerMatch || !xClientId || !allowedClientIds.includes(xClientId)) return providerOAuthInvalidToken();\n\n  const token = bearerMatch[1];\n  const parts = token.split('.');\n  if (parts.length !== 3) return providerOAuthInvalidToken();\n\n  let header;\n  let payload;\n  let signature;\n  try {\n    header = JSON.parse(providerOAuthDecodeSegment(parts[0]).toString('utf8'));\n    payload = JSON.parse(providerOAuthDecodeSegment(parts[1]).toString('utf8'));\n    signature = providerOAuthDecodeSegment(parts[2]);\n  } catch (error) {\n    return providerOAuthInvalidToken();\n  }\n  if (!header || typeof header !== 'object' || Array.isArray(header) || header.alg !== 'HS256') {\n    return providerOAuthInvalidToken();\n  }\n  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return providerOAuthInvalidToken();\n\n  const expectedSignature = providerOAuthCrypto\n    .createHmac('sha256', jwtSecret)\n    .update(parts[0] + '.' + parts[1], 'utf8')\n    .digest();\n  if (signature.length !== expectedSignature.length\n      || !providerOAuthCrypto.timingSafeEqual(signature, expectedSignature)) {\n    return providerOAuthInvalidToken();\n  }\n\n  if (payload.iss !== issuer || payload.aud !== audience\n      || typeof payload.sub !== 'string' || typeof payload.client_id !== 'string'\n      || payload.sub !== configuredClientId || payload.client_id !== configuredClientId\n      || payload.sub !== payload.client_id) {\n    return providerOAuthInvalidToken();\n  }\n\n  const tokenScopes = providerOAuthScopes(payload.scope);\n  if (!tokenScopes.includes(PROVIDER_OAUTH_REQUIRED_SCOPE)\n      || !tokenScopes.every((scope) => configuredScopes.includes(scope))) {\n    return providerOAuthFailure(403, 'insufficient_scope', 'The access token lacks the required scope.');\n  }\n\n  const numericDatesAreValid = Number.isSafeInteger(payload.iat)\n    && Number.isSafeInteger(payload.nbf)\n    && Number.isSafeInteger(payload.exp);\n  const now = Math.floor(Date.now() / 1000);\n  if (!numericDatesAreValid\n      || payload.nbf !== payload.iat\n      || payload.exp - payload.iat !== PROVIDER_OAUTH_TOKEN_TTL_SECONDS\n      || payload.iat > now\n      || payload.nbf > now\n      || payload.exp <= now) {\n    return providerOAuthInvalidToken();\n  }\n\n  return {\n    ok: true,\n    clientId: payload.client_id,\n    providerClientId: xClientId,\n    scope: tokenScopes.join(' '),\n    claims: payload,\n  };\n}\n\nconst providerOAuthRequest = $input.first().json || {};\nconst providerOAuthAuth = validateProviderBearerJwt(providerOAuthRequest);\nif (!providerOAuthAuth.ok) {\n  return [{ json: { statusCode: providerOAuthAuth.statusCode, body: providerOAuthAuth.body, authorized: false } }];\n}\n\nfunction env(name, fallback = '') {\n  try { return $env[name] || fallback; } catch (e) { return fallback; }\n}\n\nconst request = $input.first().json;\nconst headers = request.headers ?? {};\nconst body = request.body ?? {};\nconst params = request.params ?? {};\n\n// =====================================================================\n// REUSABLE SNIPPET — kept identical to AUTH-01 / Validate Provider API Key.\n// Contract: docs/CONTRATO_API_SALESFORCE.md, \"Autenticacion (T-1.17)\".\n// =====================================================================\nfunction response(statusCode, responseBody) {\n  return [{ json: { statusCode, body: responseBody } }];\n}\n\nfunction apiError(statusCode, code, message, details = []) {\n  return response(statusCode, { code, message, details });\n}\n\nfunction readHeader(name) {\n  const target = name.toLowerCase();\n  for (const [key, value] of Object.entries(headers)) {\n    if (String(key).toLowerCase() === target) {\n      return Array.isArray(value) ? value[0] : value;\n    }\n  }\n  return '';\n}\n\n// ======================= end of reusable snippet =======================\n\n// SQL comes from renovaciones-db/sync/*.sql, embedded verbatim at build time.\n// It is chosen by a validated enum and never built from request data: every\n// value travels as a query parameter.\nconst SQL = {\n  \"accounts\": \"-- POST /v1/assignments/accounts  (work item 16155)\\n-- $1 = JSON array of normalised records, $2 = syncBatchId.\\nWITH incoming AS (\\n  SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(\\n    sf_account_id text,\\n    phone         text,\\n    sf_owner_id   text,\\n    sf_username   text,\\n    full_name     text,\\n    status        text\\n  )\\n),\\n-- ON CONFLICT DO UPDATE returns the row whether it was inserted or already\\n-- existed, so this CTE yields every advisor named in the batch. That is what\\n-- lets the account upsert resolve advisor_id in the same statement.\\ntouched_advisors AS (\\n  INSERT INTO renovation_dev.advisors (salesforce_user_id, full_name, active, synced_at)\\n  SELECT DISTINCT\\n         i.sf_owner_id,\\n         coalesce(nullif(btrim(i.sf_username), ''), i.sf_owner_id),\\n         true,\\n         now()\\n    FROM incoming i\\n   WHERE nullif(btrim(coalesce(i.sf_owner_id, '')), '') IS NOT NULL\\n  ON CONFLICT (salesforce_user_id) DO UPDATE\\n    SET synced_at = now()\\n  RETURNING id, salesforce_user_id\\n),\\nupserted AS (\\n  INSERT INTO renovation_dev.quicklink_account_assignments AS account (\\n    salesforce_contact_id, full_name, phone, sf_owner_id, sf_username,\\n    advisor_id, sync_batch_id, deleted_at, synced_at\\n  )\\n  SELECT i.sf_account_id,\\n         nullif(btrim(coalesce(i.full_name, '')), ''),\\n         i.phone,\\n         nullif(btrim(coalesce(i.sf_owner_id, '')), ''),\\n         nullif(btrim(coalesce(i.sf_username, '')), ''),\\n         adv.id,\\n         $2,\\n         NULL,\\n         now()\\n    FROM incoming i\\n    LEFT JOIN touched_advisors adv ON adv.salesforce_user_id = i.sf_owner_id\\n  ON CONFLICT (salesforce_contact_id) DO UPDATE SET\\n    full_name     = coalesce(EXCLUDED.full_name, account.full_name),\\n    phone         = EXCLUDED.phone,\\n    sf_owner_id   = EXCLUDED.sf_owner_id,\\n    sf_username   = EXCLUDED.sf_username,\\n    advisor_id    = EXCLUDED.advisor_id,\\n    sync_batch_id = EXCLUDED.sync_batch_id,\\n    -- A record reported again is alive again: undo any anti-zombie purge.\\n    deleted_at    = NULL,\\n    synced_at     = now(),\\n    updated_at    = now()\\n  RETURNING id\\n)\\nSELECT (SELECT count(*) FROM upserted)::int AS upserted,\\n       '[]'::jsonb AS db_rejected;\\n\",\n  \"vehicles\": \"-- POST /v1/assignments/vehicles  (work item 16171)\\n-- $1 = JSON array of normalised records, $2 = syncBatchId.\\nWITH incoming AS (\\n  SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(\\n    sf_vehicle_id  text,\\n    sf_account_id  text,\\n    brand          text,\\n    model          text,\\n    sf_placa       text,\\n    sf_chasis      text,\\n    vehicle_type   text,\\n    service_name   text\\n  )\\n),\\nresolved AS (\\n  SELECT i.*, a.id AS account_uuid\\n    FROM incoming i\\n    LEFT JOIN renovation_dev.quicklink_account_assignments a\\n           ON a.salesforce_contact_id = i.sf_account_id\\n          AND a.deleted_at IS NULL\\n),\\n-- A vehicle whose account was never synced cannot be stored; it is reported\\n-- back rather than silently dropped by the join.\\nunmatched AS (\\n  SELECT sf_vehicle_id FROM resolved WHERE account_uuid IS NULL\\n),\\nupserted AS (\\n  INSERT INTO renovation_dev.quicklink_vehicle_assignments (\\n    customer_id, salesforce_vehicle_id, brand, model, sf_placa, sf_chasis,\\n    vehicle_type, service_name, sync_batch_id, deleted_at, synced_at\\n  )\\n  SELECT r.account_uuid,\\n         r.sf_vehicle_id,\\n         r.brand,\\n         nullif(btrim(coalesce(r.model, '')), ''),\\n         nullif(btrim(coalesce(r.sf_placa, '')), ''),\\n         nullif(btrim(coalesce(r.sf_chasis, '')), ''),\\n         coalesce(nullif(btrim(coalesce(r.vehicle_type, '')), ''), 'car')::renovation_dev.vehicle_type,\\n         r.service_name,\\n         $2,\\n         NULL,\\n         now()\\n    FROM resolved r\\n   WHERE r.account_uuid IS NOT NULL\\n  ON CONFLICT (salesforce_vehicle_id) DO UPDATE SET\\n    customer_id   = EXCLUDED.customer_id,\\n    brand         = EXCLUDED.brand,\\n    model         = EXCLUDED.model,\\n    sf_placa      = EXCLUDED.sf_placa,\\n    sf_chasis     = EXCLUDED.sf_chasis,\\n    vehicle_type  = EXCLUDED.vehicle_type,\\n    service_name  = EXCLUDED.service_name,\\n    sync_batch_id = EXCLUDED.sync_batch_id,\\n    deleted_at    = NULL,\\n    synced_at     = now(),\\n    updated_at    = now()\\n  RETURNING id\\n)\\nSELECT (SELECT count(*) FROM upserted)::int AS upserted,\\n       coalesce(\\n         (SELECT jsonb_agg(jsonb_build_object('sf_vehicleId', sf_vehicle_id,\\n                                              'reason', 'UNKNOWN_ACCOUNT'))\\n            FROM unmatched),\\n         '[]'::jsonb\\n       ) AS db_rejected;\\n\",\n  \"contracts\": \"-- POST /v1/assignments/contracts (work item 16187)\\n-- $1 = JSON array of normalised records, $2 = syncBatchId.\\nWITH incoming AS (\\n  SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(\\n    sf_contract_id text,\\n    sf_account_id  text,\\n    sf_vehicle_id  text,\\n    sf_owner_id    text,\\n    sf_start_date  date,\\n    sf_end_date    date,\\n    contract_status text\\n  )\\n),\\nresolved AS (\\n  SELECT i.*, a.id AS account_uuid, v.id AS vehicle_uuid\\n    FROM incoming i\\n    LEFT JOIN renovation_dev.quicklink_account_assignments a\\n           ON a.salesforce_contact_id = i.sf_account_id\\n          AND a.deleted_at IS NULL\\n     LEFT JOIN renovation_dev.quicklink_vehicle_assignments v\\n            ON v.salesforce_vehicle_id = i.sf_vehicle_id\\n           AND v.customer_id = a.id\\n           AND v.deleted_at IS NULL\\n),\\nunmatched AS (\\n  SELECT sf_contract_id, sf_account_id, sf_vehicle_id\\n    FROM resolved\\n   WHERE account_uuid IS NULL OR vehicle_uuid IS NULL\\n),\\nupserted AS (\\n  INSERT INTO renovation_dev.quicklink_contract_assignments (\\n    sf_contract_id, account_id, vehicle_id, sf_account_id, sf_vehicle_id,\\n    sf_owner_id, sf_start_date, sf_end_date, contract_status,\\n    sync_batch_id, deleted_at, synced_at\\n  )\\n  SELECT r.sf_contract_id, r.account_uuid, r.vehicle_uuid, r.sf_account_id,\\n         r.sf_vehicle_id, r.sf_owner_id, r.sf_start_date, r.sf_end_date,\\n         nullif(btrim(coalesce(r.contract_status, '')), ''),\\n         $2, NULL, now()\\n    FROM resolved r\\n   WHERE r.account_uuid IS NOT NULL\\n     AND r.vehicle_uuid IS NOT NULL\\n  ON CONFLICT (sf_contract_id) DO UPDATE SET\\n    account_id      = EXCLUDED.account_id,\\n    vehicle_id      = EXCLUDED.vehicle_id,\\n    sf_account_id   = EXCLUDED.sf_account_id,\\n    sf_vehicle_id   = EXCLUDED.sf_vehicle_id,\\n    sf_owner_id     = EXCLUDED.sf_owner_id,\\n    sf_start_date   = EXCLUDED.sf_start_date,\\n    sf_end_date     = EXCLUDED.sf_end_date,\\n    contract_status = EXCLUDED.contract_status,\\n    sync_batch_id   = EXCLUDED.sync_batch_id,\\n    deleted_at      = NULL,\\n    synced_at       = now(),\\n    updated_at      = now()\\n  RETURNING id, vehicle_id, sf_end_date\\n),\\n-- Keep the denormalised copy the campaign view falls back to in step.\\nmirrored AS (\\n  UPDATE renovation_dev.quicklink_vehicle_assignments v\\n     SET expiration_date = u.sf_end_date\\n    FROM upserted u\\n   WHERE v.id = u.vehicle_id\\n     AND u.sf_end_date IS NOT NULL\\n  RETURNING v.id\\n)\\nSELECT (SELECT count(*) FROM upserted)::int AS upserted,\\n        coalesce(\\n          (SELECT jsonb_agg(jsonb_build_object('sf_contractId', sf_contract_id,\\n                                               'sf_accountId', sf_account_id,\\n                                               'sf_vehicleId', sf_vehicle_id,\\n                                               'reason', 'UNKNOWN_ACCOUNT'))\\n            FROM unmatched),\\n         '[]'::jsonb\\n       ) AS db_rejected;\\n\",\n  \"reassign\": \"-- PATCH /v1/assignments/{accountId} (work item 16155)\\n-- Takes one parameter: a JSON array holding the single record to reassign.\\n-- No sync batch id: a reassignment is a point change and must not be swept up\\n-- by the anti-zombie purge of the next full sync.\\nWITH incoming AS (\\n  SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(\\n    sf_account_id text,\\n    sf_owner_id   text,\\n    sf_username   text\\n  )\\n),\\ntouched_advisors AS (\\n  INSERT INTO renovation_dev.advisors (salesforce_user_id, full_name, active, synced_at)\\n  SELECT DISTINCT\\n         i.sf_owner_id,\\n         coalesce(nullif(btrim(i.sf_username), ''), i.sf_owner_id),\\n         true,\\n         now()\\n    FROM incoming i\\n  ON CONFLICT (salesforce_user_id) DO UPDATE\\n    SET synced_at = now()\\n  RETURNING id, salesforce_user_id\\n),\\nreassigned AS (\\n  UPDATE renovation_dev.quicklink_account_assignments a\\n     SET sf_owner_id = i.sf_owner_id,\\n         sf_username = nullif(btrim(coalesce(i.sf_username, '')), ''),\\n         advisor_id  = adv.id,\\n         synced_at   = now(),\\n         updated_at  = now()\\n    FROM incoming i\\n    JOIN touched_advisors adv ON adv.salesforce_user_id = i.sf_owner_id\\n   WHERE a.salesforce_contact_id = i.sf_account_id\\n     AND a.deleted_at IS NULL\\n  RETURNING a.id\\n)\\nSELECT (SELECT count(*) FROM reassigned)::int AS upserted,\\n       '[]'::jsonb AS db_rejected;\\n\"\n};\n\nconst BATCH_LIMIT = 2000;\n\n// Commercial service name by brand (docs/REGLAS_NEGOCIO.md section 2). The\n// provider calculates it: Salesforce does not send it, so a rename here never\n// requires a release on their side.\nconst SERVICE_BY_BRAND = {\n  kia: 'telemetría KIA',\n  hyundai: 'My Hyundai Link',\n  ford: 'Quito Motors Connect',\n  jac: 'Jac Connect',\n  ankai: 'Camioneta del Ecuador',\n  honda: 'Honda Connect',\n  'land rover': 'Land Rover Connect',\n  bajaj: 'Quicklink Motos',\n};\n\nfunction serviceNameFor(brand, vehicleType) {\n  const key = String(brand || '').trim().toLowerCase();\n  if (key === 'honda' && vehicleType === 'motorcycle') return 'Honda Satelital';\n  if (SERVICE_BY_BRAND[key]) return SERVICE_BY_BRAND[key];\n  return vehicleType === 'motorcycle' ? 'Quicklink Motos' : 'Quicklink Autos';\n}\n\n// E.164 with an Ecuadorian default, per T-1.16.\nfunction normalisePhone(raw) {\n  let value = String(raw ?? '').trim();\n  if (!value) return null;\n  const hadPlus = value.startsWith('+');\n  value = value.replace(/[^0-9]/g, '');\n  if (!value) return null;\n  if (!hadPlus) {\n    if (value.startsWith('00')) value = value.slice(2);\n    else if (value.startsWith('593')) { /* already the country code */ }\n    else if (value.startsWith('0')) value = '593' + value.slice(1);\n    else if (value.length === 9) value = '593' + value;\n  }\n  const candidate = '+' + value;\n  return /^\\+[1-9][0-9]{7,14}$/.test(candidate) ? candidate : null;\n}\n\nfunction text(value) {\n  const trimmed = String(value ?? '').trim();\n  return trimmed === '' ? null : trimmed;\n}\n\nfunction isIsoDate(value) {\n  return value === null || /^\\d{4}-\\d{2}-\\d{2}$/.test(String(value));\n}\n\nconst ENTITIES = {\n  accounts: {\n    key: 'sf_accountId',\n    sql: SQL.accounts,\n    map(record, reject) {\n      const sfAccountId = text(record.sf_accountId);\n      const phone = normalisePhone(record.sf_phone ?? record.phone);\n      if (!sfAccountId) return reject('MISSING_REQUIRED_FIELD', null);\n      if (!phone) return reject('INVALID_PHONE', sfAccountId);\n      return {\n        sf_account_id: sfAccountId,\n        phone: phone,\n        sf_owner_id: text(record.sf_ownerId),\n        sf_username: text(record.sf_username),\n        full_name: text(record.sf_accountName ?? record.full_name),\n        status: text(record.status),\n      };\n    },\n  },\n  vehicles: {\n    key: 'sf_vehicleId',\n    sql: SQL.vehicles,\n    map(record, reject) {\n      const sfVehicleId = text(record.sf_vehicleId);\n      const sfAccountId = text(record.sf_accountId);\n      const brand = text(record.sf_marca ?? record.brand);\n      if (!sfVehicleId || !sfAccountId || !brand) {\n        return reject('MISSING_REQUIRED_FIELD', sfVehicleId);\n      }\n      const vehicleType = String(record.vehicle_type ?? 'car').toLowerCase() === 'motorcycle'\n        ? 'motorcycle'\n        : 'car';\n      return {\n        sf_vehicle_id: sfVehicleId,\n        sf_account_id: sfAccountId,\n        brand: brand,\n        model: text(record.sf_modelo ?? record.model),\n        sf_placa: text(record.sf_placa),\n        sf_chasis: text(record.sf_chasis),\n        vehicle_type: vehicleType,\n        service_name: serviceNameFor(brand, vehicleType),\n      };\n    },\n  },\n  contracts: {\n    key: 'sf_contractId',\n    sql: SQL.contracts,\n    map(record, reject) {\n      const sfContractId = text(record.sf_contractId);\n      const sfAccountId = text(record.sf_accountId);\n      if (!sfContractId || !sfAccountId) {\n        return reject('MISSING_REQUIRED_FIELD', sfContractId);\n      }\n      const startDate = text(record.sf_startDate);\n      const endDate = text(record.sf_endDate);\n      if (!isIsoDate(startDate) || !isIsoDate(endDate)) {\n        return reject('INVALID_PAYLOAD', sfContractId);\n      }\n      return {\n        sf_contract_id: sfContractId,\n        sf_account_id: sfAccountId,\n        sf_vehicle_id: text(record.sf_vehicleId),\n        sf_owner_id: text(record.sf_ownerId),\n        sf_start_date: startDate,\n        sf_end_date: endDate,\n        contract_status: text(record.contractStatus ?? record.contract_status),\n      };\n    },\n  },\n};\n\n// This n8n instance registers webhook paths literally, so ':entity' never\n// resolves as a route parameter. The entity is taken from the last path\n// segment instead; params is still honoured in case that changes.\nfunction entityFromPath() {\n  const url = String(request.webhookUrl ?? request.path ?? '');\n  const segments = url.split('?')[0].split('/').filter(Boolean);\n  return segments.length ? segments[segments.length - 1].toLowerCase() : '';\n}\n\nconst isReassign = request.method === 'PATCH';\n\n// --- PATCH /v1/assignments/{accountId} ---------------------------------\nif (isReassign) {\n  const accountId = text(params.accountId ?? body.sf_accountId);\n  const ownerId = text(body.sf_ownerId);\n  if (!accountId || !ownerId) {\n    return apiError(400, 'INVALID_PAYLOAD', 'Se requieren el accountId en la ruta y sf_ownerId en el body.');\n  }\n  return [{\n    json: {\n      statusCode: 200,\n      ok: true,\n      entity: 'reassign',\n      sql: SQL.reassign,\n      query_params: [JSON.stringify([{\n        sf_account_id: accountId,\n        sf_owner_id: ownerId,\n        sf_username: text(body.sf_username),\n      }])],\n      sync_batch_id: null,\n      received: 1,\n      rejected: 0,\n      rejected_records: [],\n    },\n  }];\n}\n\n// --- POST /v1/assignments/{entity} -------------------------------------\nconst entityName = String(params.entity ?? '').toLowerCase() || entityFromPath();\nconst entity = ENTITIES[entityName];\n\nif (!entity) {\n  return apiError(\n    400,\n    'INVALID_PAYLOAD',\n    'Entidad no soportada: ' + entityName + '. Use accounts, vehicles o contracts.',\n  );\n}\n\nconst syncBatchId = text(body.syncBatchId);\nif (!syncBatchId) {\n  return apiError(400, 'INVALID_PAYLOAD', 'Falta syncBatchId.');\n}\n\nconst records = body.records;\nif (!Array.isArray(records) || records.length === 0) {\n  return apiError(400, 'INVALID_PAYLOAD', 'records debe ser un arreglo con al menos un registro.');\n}\nif (records.length > BATCH_LIMIT) {\n  return apiError(\n    413,\n    'INVALID_PAYLOAD',\n    'El lote supera el maximo de ' + BATCH_LIMIT + ' registros por request.',\n  );\n}\n\nconst rows = [];\nconst rejected = [];\nconst seen = new Set();\n\nfor (const record of records) {\n  let rejectedHere = null;\n  const reject = (reason, key) => {\n    rejectedHere = { [entity.key]: key, reason: reason };\n    return null;\n  };\n\n  const mapped = entity.map(record ?? {}, reject);\n\n  if (rejectedHere) {\n    rejected.push(rejectedHere);\n    continue;\n  }\n\n  // T-1.16: two records with the same primary key cannot coexist in one batch.\n  const primaryKey = mapped[Object.keys(mapped)[0]];\n  if (seen.has(primaryKey)) {\n    rejected.push({ [entity.key]: primaryKey, reason: 'DUPLICATE_KEY_IN_BATCH' });\n    continue;\n  }\n  seen.add(primaryKey);\n  rows.push(mapped);\n}\n\nif (rows.length === 0) {\n  return response(422, {\n    code: 'INVALID_PAYLOAD',\n    message: 'Ningun registro del lote es valido.',\n    syncBatchId: syncBatchId,\n    received: records.length,\n    upserted: 0,\n    rejected: rejected.length,\n    rejectedRecords: rejected,\n  });\n}\n\nreturn [{\n  json: {\n    statusCode: 200,\n    ok: true,\n    entity: entityName,\n    sql: entity.sql,\n    query_params: [JSON.stringify(rows), syncBatchId],\n    sync_batch_id: syncBatchId,\n    received: records.length,\n    rejected: rejected.length,\n    rejected_records: rejected,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        520
+      ],
+      "id": "patch-validate",
+      "name": "Validate Reassign Request"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ok",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        520
+      ],
+      "id": "patch-if",
+      "name": "IF Reassign Accepted"
+    },
+    {
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": {
+          "queryReplacement": "={{ $json.query_params }}",
+          "queryBatching": "single"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        720,
+        424
+      ],
+      "id": "patch-upsert",
+      "name": "Postgres - Reassign Account",
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merges what the validator rejected up front with what the database refused,\n// and shapes the response defined in docs/CONTRATO_API_SALESFORCE.md.\nconst validated = $('Validate Sync Request').first().json;\nconst result = $input.first().json ?? {};\n\nconst upserted = Number(result.upserted ?? 0);\n\n// db_rejected carries records the statement could not store, e.g. a vehicle\n// whose account was never synced. Postgres returns it as a JSON array.\nlet dbRejected = result.db_rejected ?? [];\nif (typeof dbRejected === 'string') {\n  try { dbRejected = JSON.parse(dbRejected); } catch (e) { dbRejected = []; }\n}\nif (!Array.isArray(dbRejected)) {\n  dbRejected = [];\n}\n\nconst rejectedRecords = [...(validated.rejected_records ?? []), ...dbRejected];\n\nconst body = {\n  syncBatchId: validated.sync_batch_id,\n  received: validated.received,\n  upserted: upserted,\n  rejected: rejectedRecords.length,\n  rejectedRecords: rejectedRecords,\n};\n\nif (validated.entity === 'reassign') {\n  delete body.syncBatchId;\n  // A PATCH against an account that does not exist changes nothing.\n  if (upserted === 0) {\n    return [{\n      json: {\n        statusCode: 404,\n        body: {\n          code: 'INVALID_PAYLOAD',\n          message: 'La cuenta no existe o esta purgada; no se reasigno nada.',\n          details: [],\n        },\n      },\n    }];\n  }\n  return [{ json: { statusCode: 200, body: { reassigned: upserted } } }];\n}\n\nreturn [{ json: { statusCode: 200, body: body } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        424
+      ],
+      "id": "patch-shape",
+      "name": "Shape Reassign Response"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.statusCode }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1200,
+        424
+      ],
+      "id": "patch-respond-ok",
+      "name": "Respond Reassign"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.statusCode }}"
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        720,
+        648
+      ],
+      "id": "patch-respond-denied",
+      "name": "Respond Reassign Rejected"
+    },
+    {
+      "parameters": {
+        "content": "## WF-01 - Assignments Sync API\n\nImplementa **T-1.18**: el push de asignaciones desde Salesforce.\n\n- `POST /webhook/renov/dev/v1/assignments/accounts`\n- `POST /webhook/renov/dev/v1/assignments/vehicles`\n- `POST /webhook/renov/dev/v1/assignments/contracts`\n- `PATCH /webhook/renov/dev/v1/assignments` con `sf_accountId` en el body\n\n**Desviacion del contrato**: T-1.18 define el PATCH como `/assignments/{accountId}`. Esta instancia de n8n registra los paths de webhook de forma literal y no resuelve parametros de ruta, asi que el id va en el body. A confirmar en la reunion T-1.19.\n\nEl SQL vive en `renovaciones-db/sync/*.sql` y se embebe al construir el workflow, asi que `make db-verify` ejercita exactamente los mismos statements. Los datos del cliente viajan siempre como parametros `$1`/`$2`, nunca concatenados.\n\nAuth: OAuth 2.0 Bearer JWT de AUTH-01 + `X-Client-Id`; falla cerrado si falta la configuracion `RENOV_OAUTH_*`.\n\nContrato: `docs/CONTRATO_API_SALESFORCE.md`.",
+        "height": 500,
+        "width": 460
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        -300
+      ],
+      "id": "sync-sticky",
+      "name": "Sticky Note"
+    }
+  ],
+  "connections": {
+    "Validate Sync Request": {
+      "main": [
+        [
+          {
+            "node": "IF Sync Accepted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Sync Accepted": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Upsert Assignments",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Sync Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Upsert Assignments": {
+      "main": [
+        [
+          {
+            "node": "Shape Sync Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Sync Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PATCH Assignment Owner": {
+      "main": [
+        [
+          {
+            "node": "Validate Reassign Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Reassign Request": {
+      "main": [
+        [
+          {
+            "node": "IF Reassign Accepted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Reassign Accepted": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Reassign Account",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Reassign Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Reassign Account": {
+      "main": [
+        [
+          {
+            "node": "Shape Reassign Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Reassign Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Reassign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST Sync Accounts": {
+      "main": [
+        [
+          {
+            "node": "Validate Sync Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST Sync Vehicles": {
+      "main": [
+        [
+          {
+            "node": "Validate Sync Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST Sync Contracts": {
+      "main": [
+        [
+          {
+            "node": "Validate Sync Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "c71a6932-d09b-50bd-a4c1-4bdcc6efd874",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

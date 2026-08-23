@@ -1,0 +1,823 @@
+{
+  "id": "jgwEppOV0imuMXeZ_quicklink",
+  "name": "CRIS-10 — Chatwoot Sync v2_quicklink",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## WF-CHATWOOT-SYNC v2\n\n**Cambios vs v1:**\n- Verifica lead_memory antes de crear contacto/conv\n- Reutiliza conv activa si existe (open/pending)\n- Llama a upsert_lead_memory_chatwoot_ids()\n- Nunca crea conv duplicada para el mismo lead\n\n**Cred PG:** Supabase VPS (bpXsDuBulR5Lk1Yf)\n**Cred HTTP:** Chatwoot API (i5ezyRiVmSifQ3el)\n**Pre-req:** Migraciones V26–V28 aplicadas",
+        "height": 320,
+        "width": 400,
+        "color": 4
+      },
+      "id": "sticky-v2-001",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -112,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nSELECT\n  c.id AS conv_id,\n  lq.nombre_cliente AS nombre,\n  lq.telefono_1     AS telefono,\n  c.marca,\n  lq.modelo,\n  lq.quicklink_id::text AS quicklink_id,\n  COALESCE(cm.chatwoot_inbox_id, 2) AS inbox_id,\n  -- Datos de lead_memory para evitar conversaciones duplicadas\n  lm.chatwoot_contact_id AS lm_contact_id,\n  lm.chatwoot_conv_id    AS lm_conv_id,\n  lm.phone               AS lm_phone\nFROM conversaciones c\nJOIN  leads_quicklink lq ON lq.id = c.lead_id\nLEFT JOIN configuracion_marcas cm ON cm.marca = c.marca\nLEFT JOIN lead_memory lm ON lm.conversation_id = c.id\nWHERE c.chatwoot_contact_id IS NULL\n  AND c.chatwoot_conv_id IS NULL\n  AND c.estado NOT IN ('NEW_LEAD','WON','LOST','NOT_CONTACTABLE','DISCARDED')\nORDER BY c.created_at ASC\nLIMIT 50",
+        "options": {}
+      },
+      "id": "pg-v2-pending",
+      "name": "PG - Get Pending Sync",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        224,
+        320
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "loop-v2-001",
+      "name": "Loop - Each Conv",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        448,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "status",
+              "value": "sync_done",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "finished_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-v2-done",
+      "name": "Set - Sync Done",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        672,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json || {};\nconst rawPhone = String(item.telefono || '').replace(/[\\s\\-\\(\\)]/g, '');\nif (!item.conv_id || !rawPhone) {\n  return [];\n}\nlet phone = rawPhone;\nif (!phone.startsWith('+')) {\n  phone = '+593' + phone.replace(/^0+/, '');\n}\nif (!/^\\+\\d{8,15}$/.test(phone) || phone === '+593') {\n  return [];\n}\nconst phoneLocal = phone.replace(/^\\+593/, '');\nreturn [{\n  json: {\n    conv_id:     item.conv_id,\n    nombre:      item.nombre || 'Prospecto',\n    marca:       item.marca  || '',\n    modelo:      item.modelo || '',\n    quicklink_id: item.quicklink_id || '',\n    inbox_id:    item.inbox_id || 2,\n    phone_e164:  phone,\n    phone_local: phoneLocal,\n    // Datos de lead_memory ya traídos en el query\n    lm_contact_id: item.lm_contact_id || null,\n    lm_conv_id:    item.lm_conv_id    || null,\n    lm_phone:      item.lm_phone      || phone,\n  }\n}];"
+      },
+      "id": "code-v2-norm",
+      "name": "Code - Normalize Phone",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-lm",
+              "leftValue": "={{ $json.lm_conv_id }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-v2-has-lm-conv",
+      "name": "IF - Has LM Conv ID",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=http://chatwoot:3000/api/v1/accounts/2/conversations/{{ $json.lm_conv_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "http-v2-verify-conv",
+      "name": "HTTP - Verify Existing Conv",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        176
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const conv     = $input.first().json;\nconst prev     = $('Code - Normalize Phone').first().json;\nconst status   = conv.status || '';\nconst isActive = ['open','pending'].includes(status);\nreturn [{\n  json: {\n    ...prev,\n    existing_conv_id:     isActive ? (prev.lm_conv_id || null) : null,\n    existing_contact_id:  isActive ? (prev.lm_contact_id || null) : null,\n    conv_reused:          isActive,\n    existing_conv_status: status,\n  }\n}];"
+      },
+      "id": "code-v2-check-status",
+      "name": "Code - Check Conv Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-active",
+              "leftValue": "={{ $json.conv_reused }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-v2-conv-active",
+      "name": "IF - Conv Still Active",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1568,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://chatwoot:3000/api/v1/accounts/2/contacts/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $json.phone_local }}"
+            },
+            {
+              "name": "include_contacts",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "http-v2-search",
+      "name": "HTTP - Search Chatwoot Contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1792,
+        400
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const searchResult = $input.first().json;\nconst prev         = $('Code - Normalize Phone').first().json;\nconst contacts     = searchResult.payload || [];\nconst found        = contacts.length > 0;\nconst contactId    = found ? contacts[0].id : null;\nreturn [{\n  json: {\n    ...prev,\n    contact_found: found,\n    contact_id:    contactId,\n  }\n}];"
+      },
+      "id": "code-v2-after-search",
+      "name": "Code - After Search",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-cf",
+              "leftValue": "={{ $json.contact_found }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-v2-contact-found",
+      "name": "IF - Contact Found",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2240,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=http://chatwoot:3000/api/v1/accounts/2/contacts/{{ $json.contact_id }}/conversations",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "http-v2-get-contact-convs",
+      "name": "HTTP - Get Contact Conversations",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2464,
+        304
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp      = $input.first().json;\nconst prev      = $('Code - After Search').first().json;\nconst convList  = (resp.data && resp.data.payload) ? resp.data.payload\n                  : (resp.payload || []);\nconst inboxId   = prev.inbox_id || 2;\n\n// Buscar conversación abierta o pendiente en el inbox correcto\nconst active = convList.find(c =>\n  c.inbox_id === inboxId &&\n  ['open','pending'].includes(c.status)\n);\n\nreturn [{\n  json: {\n    ...prev,\n    active_conv_found: !!active,\n    active_conv_id:    active ? active.id : null,\n    active_conv_status: active ? active.status : null,\n    conv_reused:       !!active,\n  }\n}];"
+      },
+      "id": "code-v2-find-active",
+      "name": "Code - Find Active Conv",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2688,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-af",
+              "leftValue": "={{ $json.active_conv_found }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-v2-active-found",
+      "name": "IF - Active Conv Found",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2912,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://chatwoot:3000/api/v1/accounts/2/contacts",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "name",
+              "value": "={{ $json.nombre }}"
+            },
+            {
+              "name": "phone_number",
+              "value": "={{ $json.phone_e164 }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "http-v2-create-contact",
+      "name": "HTTP - Create Chatwoot Contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2688,
+        512
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const res  = $input.first().json || {};\nconst prev = $('Code - Normalize Phone').first().json;\nconst contactId = Number(res.id || 0) || null;\nif (!contactId) {\n  return [];\n}\nreturn [{\n  json: {\n    ...prev,\n    contact_id: contactId,\n    contact_found: true,\n    active_conv_found: false,\n    active_conv_id: null,\n    conv_reused: false,\n  }\n}];"
+      },
+      "id": "code-v2-after-create",
+      "name": "Code - After Create Contact",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2912,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://chatwoot:3000/api/v1/accounts/2/conversations",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "inbox_id",
+              "value": "={{ $json.inbox_id }}"
+            },
+            {
+              "name": "contact_id",
+              "value": "={{ $json.contact_id }}"
+            },
+            {
+              "name": "status",
+              "value": "open"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "http-v2-create-conv",
+      "name": "HTTP - Create Conversation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3136,
+        464
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n// Fuentes posibles de los IDs:\n//   conv reutilizada de lead_memory    → existing_conv_id / active_conv_id\n//   conv nueva creada en Create Conv   → input.id\nconst convResult = input;\nconst orig = input;\n\n// Determinar conv_id final\nlet finalConvId = 0;\nlet finalContactId = 0;\nlet reused = false;\n\nif (orig.existing_conv_id && orig.conv_reused) {\n  // Rama: conv verificada desde lead_memory (branch IF - Conv Still Active = TRUE)\n  finalConvId     = orig.existing_conv_id;\n  finalContactId  = orig.existing_contact_id || 0;\n  reused          = true;\n} else if (orig.active_conv_id && orig.conv_reused) {\n  // Rama: conv activa encontrada en contacto Chatwoot\n  finalConvId     = orig.active_conv_id;\n  finalContactId  = orig.contact_id || 0;\n  reused          = true;\n} else {\n  // Rama: conv nueva creada\n  finalConvId     = orig.id || orig.chatwoot_conv_id || 0;\n  finalContactId  = orig.contact_id ||\n    (orig.meta && orig.meta.sender ? orig.meta.sender.id : 0) || 0;\n  reused          = false;\n}\n\nconst syncOk = finalConvId > 0;\nconst payload = JSON.stringify({\n  chatwoot_conv_id: syncOk ? finalConvId : null,\n  chatwoot_contact_id: finalContactId > 0 ? finalContactId : null,\n  reused,\n  error: syncOk ? null : 'conv_id_missing'\n}).replace(/'/g, \"''\");\n\nreturn [{\n  json: {\n    conv_id:            orig.conv_id,\n    phone_e164:         orig.phone_e164,\n    chatwoot_contact_id: finalContactId,\n    chatwoot_conv_id:   finalConvId,\n    sync_ok:            syncOk,\n    conv_reused:        reused,\n    evento_tipo:        syncOk ? 'chatwoot_sync_completado' : 'chatwoot_sync_fallido',\n    evento_payload:     payload,\n  }\n}];"
+      },
+      "id": "code-v2-extract",
+      "name": "Code - Extract Conv IDs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3344,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SET search_path TO sales_prod, public, extensions;\nSELECT upsert_chatwoot_ids('{{ $json.conv_id }}'::uuid, {{ $json.chatwoot_contact_id }}::integer, {{ $json.chatwoot_conv_id }}::integer)",
+        "options": {}
+      },
+      "id": "pg-v2-update-conv",
+      "name": "PG - Update Chatwoot IDs (conversaciones)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3584,
+        224
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SET search_path TO sales_prod, public, extensions;\nSELECT upsert_lead_memory_chatwoot_ids('{{ $json.phone_e164 }}'::TEXT, {{ $json.chatwoot_contact_id }}::integer, {{ $json.chatwoot_conv_id }}::integer)",
+        "options": {}
+      },
+      "id": "pg-v2-update-lm",
+      "name": "PG - Update Lead Memory Chatwoot IDs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3584,
+        512
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SET search_path TO sales_prod, public, extensions;\nINSERT INTO eventos_conversacion (conversation_id, tipo_evento, actor, payload) VALUES ('{{ $json.conv_id }}'::uuid, '{{ $json.evento_tipo }}', 'sistema', '{{ $json.evento_payload }}')",
+        "options": {}
+      },
+      "id": "pg-v2-log",
+      "name": "PG - Log Sync Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3808,
+        592
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "cron-v2-001",
+      "name": "CRON - Cada 30 Min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        320
+      ]
+    }
+  ],
+  "connections": {
+    "PG - Get Pending Sync": {
+      "main": [
+        [
+          {
+            "node": "Loop - Each Conv",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop - Each Conv": {
+      "main": [
+        [
+          {
+            "node": "Set - Sync Done",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Normalize Phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Normalize Phone": {
+      "main": [
+        [
+          {
+            "node": "IF - Has LM Conv ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Has LM Conv ID": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Verify Existing Conv",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP - Search Chatwoot Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Verify Existing Conv": {
+      "main": [
+        [
+          {
+            "node": "Code - Check Conv Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Check Conv Status": {
+      "main": [
+        [
+          {
+            "node": "IF - Conv Still Active",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Conv Still Active": {
+      "main": [
+        [
+          {
+            "node": "Code - Extract Conv IDs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP - Search Chatwoot Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Search Chatwoot Contact": {
+      "main": [
+        [
+          {
+            "node": "Code - After Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - After Search": {
+      "main": [
+        [
+          {
+            "node": "IF - Contact Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Contact Found": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Get Contact Conversations",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP - Create Chatwoot Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Get Contact Conversations": {
+      "main": [
+        [
+          {
+            "node": "Code - Find Active Conv",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Find Active Conv": {
+      "main": [
+        [
+          {
+            "node": "IF - Active Conv Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Active Conv Found": {
+      "main": [
+        [
+          {
+            "node": "Code - Extract Conv IDs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP - Create Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Create Chatwoot Contact": {
+      "main": [
+        [
+          {
+            "node": "Code - After Create Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - After Create Contact": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Create Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Create Conversation": {
+      "main": [
+        [
+          {
+            "node": "Code - Extract Conv IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Extract Conv IDs": {
+      "main": [
+        [
+          {
+            "node": "PG - Update Chatwoot IDs (conversaciones)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "PG - Update Lead Memory Chatwoot IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Update Chatwoot IDs (conversaciones)": {
+      "main": [
+        []
+      ]
+    },
+    "PG - Update Lead Memory Chatwoot IDs": {
+      "main": [
+        [
+          {
+            "node": "PG - Log Sync Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Log Sync Event": {
+      "main": [
+        [
+          {
+            "node": "Loop - Each Conv",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CRON - Cada 30 Min": {
+      "main": [
+        [
+          {
+            "node": "PG - Get Pending Sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Bogota",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "07502e83-9aca-5a24-9791-48bd99b9e1d2",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

@@ -1,0 +1,92 @@
+{
+  "id": "sc7xJ6DQY0vFZNJk_hyundai",
+  "name": "PROD - SGC Report Integration into Chatwoot_hyundai",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "sgc-report-chatwoot",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "b95d7d65-01d6-4b36-9fdd-18058910c528",
+      "name": "SGC Dashboard API",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "3f4c489c-2278-49f5-a489-61f3f8150f22",
+      "onError": "continueRegularOutput",
+      "notes": "Public read-only dashboard endpoint. Returns aggregate metrics only."
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.mcp_url }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "0a8e352c-4772-4d02-9013-189529c43f66",
+      "name": "Fetch SGC Dashboard Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        272,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "notes": "Calls the MCP read-only report. Query params accepted by the webhook are forwarded: account_id, from_date, to_date, all, inbox_id."
+    },
+    {
+      "parameters": {
+        "jsCode": "const query = $json.query || {};\nconst pairs = [];\nfunction addParam(key, value) {\n  if (value === undefined || value === null || value === '') return;\n  pairs.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(value)));\n}\naddParam('account_id', query.account_id || 2);\nfor (const key of ['from_date', 'to_date', 'all', 'inbox_id']) {\n  addParam(key, query[key]);\n}\nreturn [{\n  json: {\n    ...$json,\n    mcp_url: 'http://mcp_server_prod:8000/api/reports/sgc-dashboard?' + pairs.join('&'),\n  },\n}];"
+      },
+      "id": "24443a48-f33e-4254-bc43-93be5b17b679",
+      "name": "Build SGC Report URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        136,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "SGC Dashboard API": {
+      "main": [
+        [
+          {
+            "node": "Build SGC Report URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build SGC Report URL": {
+      "main": [
+        [
+          {
+            "node": "Fetch SGC Dashboard Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "a59dca63-90ac-5a3b-8ee2-9e0ff80e478c",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

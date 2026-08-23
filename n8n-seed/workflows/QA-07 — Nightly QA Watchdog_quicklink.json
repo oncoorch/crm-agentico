@@ -1,0 +1,282 @@
+{
+  "id": "gWQ0pnorm3ixybBr_quicklink",
+  "name": "QA-07 — Nightly QA Watchdog_quicklink",
+  "nodes": [
+    {
+      "id": "qa07-schedule",
+      "name": "Schedule - Nightly 03:30 ECT",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        220,
+        200
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 3 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "qa07-webhook",
+      "name": "Webhook - Run Nightly Now",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        220,
+        420
+      ],
+      "webhookId": "qa-nightly-now-permanent",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "qa-nightly-now",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "0hYeKlozui5dMRDE_quicklink",
+          "name": "QL Sync Manual Webhook Token_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "qa07-run-qa02",
+      "name": "HTTP - QA-08 Catalogo (gate)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/cris-qa-catalog",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ gate: true, run_key: 'nightly-' + $now.toMillis(), created_by: 'qa-nightly' }) }}",
+        "options": {
+          "timeout": 900000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "0hYeKlozui5dMRDE_quicklink",
+          "name": "QL Sync Manual Webhook Token_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "qa07-evaluate",
+      "name": "Code - Evaluate & Build Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        820,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nlet isWebhook = false, reqBody = {};\ntry { if ($('Webhook - Run Nightly Now').isExecuted) { isWebhook = true; reqBody = $('Webhook - Run Nightly Now').first().json.body || {}; } } catch (e) {}\nconst raw = $json.body !== undefined ? $json.body : $json;\nconst payload = Array.isArray(raw) ? (raw[0] || {}) : (raw || {});\nconst status = String(payload.status || 'UNKNOWN').toUpperCase();\nconst summary = payload.summary || {};\nconst failed = Number(summary.failed || 0);\nconst today = new Date().toISOString().slice(0, 10);\nconst forceTest = reqBody.test_alert === true || reqBody.test_alert === '1' || reqBody.test_alert === 1;\nconst alert = forceTest || failed > 0 || status === 'FAILED';\nif (!alert) { if (!isWebhook) staticData.lastNightlyOk = today; return [{ json: { send_alert: false, status, summary, run_key: payload.run_key || null } }]; }\nif (!isWebhook && !forceTest && staticData.lastAlertDate === today) { return [{ json: { send_alert: false, status: 'already_alerted_today', summary } }]; }\nif (!isWebhook) staticData.lastAlertDate = today;\nconst head = forceTest ? 'CRIS QA — [TEST alerta nightly]' : 'CRIS QA — Nightly FALLÓ';\nconst lines = [head + ' (' + today + ')', ''];\nlines.push('Catalogo (gate, 11 ship-blockers) status: ' + status);\nlines.push('casos: ' + (summary.passed || 0) + ' ok / ' + failed + ' fail / ' + (summary.skipped || 0) + ' skip (total ' + (summary.total || 0) + ')');\nif (summary.findings) lines.push('findings: ' + summary.findings);\nlines.push('');\nlines.push('Panel QA-06 · run ' + (payload.run_key || payload.run_id || '?'));\nreturn [{ json: { send_alert: true, status, summary, meta_payload: { messaging_product: 'whatsapp', recipient_type: 'individual', to: '5521999910781', type: 'text', text: { preview_url: false, body: lines.join('\\n').slice(0, 3900) } } } }];"
+      }
+    },
+    {
+      "id": "qa07-if-alert",
+      "name": "IF - Should Alert",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a1",
+              "leftValue": "={{ $json.send_alert === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "qa07-send",
+      "name": "HTTP - Send WhatsApp Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1380,
+        200
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v23.0/1114673978398967/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer ${REDACTED_TOKEN}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Code - Evaluate & Build Alert').first().json.meta_payload) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "qa07-response",
+      "name": "Code - Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1660,
+        200
+      ],
+      "parameters": {
+        "jsCode": "const resp = $json || {};\nconst status = resp.statusCode || resp.status || null;\nconst ev = $('Code - Evaluate & Build Alert').first().json;\nreturn [{ json: { alert_sent: true, http_status: status, qa_status: ev.status, summary: ev.summary } }];"
+      }
+    },
+    {
+      "id": "qa07-noalert",
+      "name": "No Alert",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1380,
+        420
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Schedule - Nightly 03:30 ECT": {
+      "main": [
+        [
+          {
+            "node": "HTTP - QA-08 Catalogo (gate)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Run Nightly Now": {
+      "main": [
+        [
+          {
+            "node": "HTTP - QA-08 Catalogo (gate)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - QA-08 Catalogo (gate)": {
+      "main": [
+        [
+          {
+            "node": "Code - Evaluate & Build Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Evaluate & Build Alert": {
+      "main": [
+        [
+          {
+            "node": "IF - Should Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Should Alert": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Send WhatsApp Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Send WhatsApp Alert": {
+      "main": [
+        [
+          {
+            "node": "Code - Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "3f4f07b1-cecc-5b42-96e3-2160fc542968",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

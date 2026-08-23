@@ -1,0 +1,97 @@
+{
+  "id": "aD1g5WKIWZaVaVWY_quicklink",
+  "name": "QA-05 — E2E DB Diagnostics_quicklink",
+  "nodes": [
+    {
+      "id": "wh-diag",
+      "name": "Webhook Diag",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "diag-test",
+        "options": {},
+        "responseMode": "responseNode"
+      },
+      "webhookId": "2e80cc99-5a44-4536-9417-5b4120298097"
+    },
+    {
+      "id": "pg-diag",
+      "name": "PG - Check State",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT json_build_object('ok', true, 'now', now()) AS state;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "resp-diag",
+      "name": "Respond Diag",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Diag": {
+      "main": [
+        [
+          {
+            "node": "PG - Check State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Check State": {
+      "main": [
+        [
+          {
+            "node": "Respond Diag",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "baeb73bd-518e-5e12-93e9-422d2105f966",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

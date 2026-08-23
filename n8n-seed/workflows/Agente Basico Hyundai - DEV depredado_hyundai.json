@@ -1,0 +1,3153 @@
+{
+  "id": "CDeJjEiwDjdnQOui_hyundai",
+  "name": "Agente Basico Hyundai - DEV depredado_hyundai",
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://{{ $('Edit Fields').item.json.URL_OMNICEM }}/api/v1/accounts/{{ $('Webhook').item.json.body.account.id }}/conversations/{{ $('Webhook').item.json.body.conversation.id }}/messages ",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "={{ $('Edit Fields').item.json.TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content",
+              "value": "={{ JSON.parse($json.output).message_to_user }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1392,
+        -272
+      ],
+      "id": "2f92b390-8944-4938-88fd-6b971c637fd1",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "19IvgeTySMh2XYEv9NjjP9e71MOiXsyYT6qaTH2JTFWo",
+          "mode": "list",
+          "cachedResultName": "Leads 1001T",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/19IvgeTySMh2XYEv9NjjP9e71MOiXsyYT6qaTH2JTFWo/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Perfiles Clientes",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/19IvgeTySMh2XYEv9NjjP9e71MOiXsyYT6qaTH2JTFWo/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Teléfono": "={{ $('Webhook').item.json.body.conversation.messages[0].sender.phone_number !== undefined && $('Webhook').item.json.body.conversation.messages[0].sender.phone_number !== null && $('Webhook').item.json.body.conversation.messages[0].sender.phone_number !== '' ? $('Webhook').item.json.body.conversation.messages[0].sender.phone_number : 'No tiene teléfono' }}",
+            "Canal Inbox": "={{ $('Webhook').item.json.body.inbox.name }}",
+            "Primer mensaje": "={{ new Date($('Webhook').item.json.body.conversation.created_at * 1000)\n  .toLocaleString('sv-SE', { timeZone: 'UTC' })\n  .replace('T', ' ') }}\n",
+            "Ultimo mensaje": "={{ new Date($('Webhook').item.json.body.conversation.updated_at )\n  .toISOString()\n  .slice(0, 19)\n  .replace('T', ' ') }}\n",
+            "ID": "={{ $('Webhook').item.json.body.account.id }}",
+            "Nombre": "={{ $('Webhook').item.json.body.conversation.messages[0].sender.name }}",
+            "Fecha de creacion de recordatorio": "={{ $now }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "ID",
+              "displayName": "ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Nombre",
+              "displayName": "Nombre",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Correo",
+              "displayName": "Correo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Teléfono",
+              "displayName": "Teléfono",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "País",
+              "displayName": "País",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Ciudad",
+              "displayName": "Ciudad",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Empresa",
+              "displayName": "Empresa",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Canal Inbox",
+              "displayName": "Canal Inbox",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Primer mensaje",
+              "displayName": "Primer mensaje",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Ultimo mensaje",
+              "displayName": "Ultimo mensaje",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Sentimiento",
+              "displayName": "Sentimiento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Probabilidad de cierre",
+              "displayName": "Probabilidad de cierre",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Placa",
+              "displayName": "Placa",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Marca",
+              "displayName": "Marca",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Modelo",
+              "displayName": "Modelo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Año",
+              "displayName": "Año",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Color",
+              "displayName": "Color",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Km",
+              "displayName": "Km",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Proximo servicio",
+              "displayName": "Proximo servicio",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Ultima revision",
+              "displayName": "Ultima revision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Proxima revision",
+              "displayName": "Proxima revision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Fecha de creacion de recordatorio",
+              "displayName": "Fecha de creacion de recordatorio",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.6,
+      "position": [
+        1392,
+        -96
+      ],
+      "id": "060ea58e-5d8b-4441-9f99-c61e2f966342",
+      "name": "Append row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "5TEVs0kJMi0Y35F8_hyundai",
+          "name": "Google Sheets account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        992,
+        208
+      ],
+      "id": "67b7ed27-3a67-421f-965e-0b024ee5c411",
+      "name": "Embeddings",
+      "credentials": {
+        "openAiApi": {
+          "id": "owHroLazOkirAFA8_hyundai",
+          "name": "OpenAi account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "9cd8cb37-c3c2-4462-961b-fc1045b77bbf",
+      "name": "Reranker Cohere",
+      "type": "@n8n/n8n-nodes-langchain.rerankerCohere",
+      "position": [
+        1200,
+        208
+      ],
+      "typeVersion": 1,
+      "credentials": {
+        "cohereApi": {
+          "id": "ofXMy0VbIFvdKX1e_hyundai",
+          "name": "CohereApi account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "Consume data desde Drive donde estan los archivos de Hyundai",
+        "tableName": {
+          "__rl": true,
+          "value": "documents",
+          "mode": "list",
+          "cachedResultName": "documents"
+        },
+        "useReranker": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreSupabase",
+      "typeVersion": 1.3,
+      "position": [
+        1040,
+        48
+      ],
+      "id": "2486679d-fd5b-4460-9ef6-202483e2dfef",
+      "name": "RAG_MEMORY",
+      "credentials": {
+        "supabaseApi": {
+          "id": "WJQWeJT0E8yjH8Fg_hyundai",
+          "name": "Supabase account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.toolVectorStore",
+      "typeVersion": 1.1,
+      "position": [
+        1568,
+        864
+      ],
+      "id": "95ceebac-19a7-4b51-a3c3-fdd23ed8e8b1",
+      "name": "Answer questions with a vector store"
+    },
+    {
+      "parameters": {
+        "tableName": {
+          "__rl": true,
+          "value": "documents",
+          "mode": "list",
+          "cachedResultName": "documents"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreSupabase",
+      "typeVersion": 1.3,
+      "position": [
+        1424,
+        1104
+      ],
+      "id": "037c89b5-324b-4ccd-8b8c-159d94d89ffe",
+      "name": "Supabase Vector Store",
+      "credentials": {
+        "supabaseApi": {
+          "id": "WJQWeJT0E8yjH8Fg_hyundai",
+          "name": "Supabase account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1fdUEoChv813OUZw0DE8R6DK_s8bqRXOmbyErU0ELIEo",
+          "mode": "list",
+          "cachedResultName": "INDICE FOTOS",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1fdUEoChv813OUZw0DE8R6DK_s8bqRXOmbyErU0ELIEo/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 896623999,
+          "mode": "list",
+          "cachedResultName": "FOTOS",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1fdUEoChv813OUZw0DE8R6DK_s8bqRXOmbyErU0ELIEo/edit#gid=896623999"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Nombre del Archivo",
+              "lookupValue": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values0_Value', ``, 'string') }}"
+            },
+            {
+              "lookupColumn": "COD",
+              "lookupValue": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values1_Value', ``, 'string') }}"
+            }
+          ]
+        },
+        "combineFilters": "OR",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.5,
+      "position": [
+        544,
+        768
+      ],
+      "id": "0d07431d-f626-4c45-a618-10bfb1ed07d4",
+      "name": "Base de Datos",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "5TEVs0kJMi0Y35F8_hyundai",
+          "name": "Google Sheets account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1088,
+        912
+      ],
+      "id": "c42259ea-d688-44af-8383-c413d1e7262e",
+      "name": "Embeddings Google Gemini2",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "5GscAtSxWlw1Avj8_hyundai",
+          "name": "Google Gemini(PaLM) Api account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolName": "Conocimiento",
+        "toolDescription": "Utiliza SIEMPRE esta herramienta para buscar productos. ",
+        "qdrantCollection": {
+          "__rl": true,
+          "value": "tienda",
+          "mode": "list",
+          "cachedResultName": "tienda"
+        },
+        "topK": 20,
+        "useReranker": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1,
+      "position": [
+        1088,
+        720
+      ],
+      "id": "53432e59-a047-482a-bbea-dfc1b4eafe6f",
+      "name": "Conocimiento",
+      "credentials": {
+        "qdrantApi": {
+          "id": "IhWYW4wiKVet1h0B_hyundai",
+          "name": "QdrantApi account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sseEndpoint": "http://hyundai.bkn.aigentss.cloud:5678/mcp/d3d7140b-e011-43e9-b445-d825ed73c89d",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+      "typeVersion": 1,
+      "position": [
+        -208,
+        480
+      ],
+      "id": "eb5c5df3-6749-488e-a462-8efc3514b1e3",
+      "name": "MCP Calendar",
+      "notesInFlow": true,
+      "notes": "CRUD en Google Calendar"
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.rerankerCohere",
+      "typeVersion": 1,
+      "position": [
+        1248,
+        912
+      ],
+      "id": "2abc5235-2729-47bb-b6a1-aecb1819c315",
+      "name": "Reranker Cohere1",
+      "credentials": {
+        "cohereApi": {
+          "id": "ofXMy0VbIFvdKX1e_hyundai",
+          "name": "CohereApi account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-5.4-mini"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1776,
+        1104
+      ],
+      "id": "62ed8648-53ec-404d-b050-2df0da79fbef",
+      "name": "OpenAI Chat Model7",
+      "credentials": {
+        "openAiApi": {
+          "id": "owHroLazOkirAFA8_hyundai",
+          "name": "OpenAi account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list",
+          "cachedResultName": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "leads",
+          "mode": "list",
+          "cachedResultName": "leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.user_id }}",
+            "name": "={{ $json.name }}",
+            "email": "={{ $json.email }}",
+            "phone": "={{ $json.phone }}",
+            "lead_source": "={{ $json.lead_source }}",
+            "status": "={{ $json.status_lead }}",
+            "created_at": "={{ $json.created_at }}",
+            "updated_at": "={{ $json.updated_at }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": true,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "lead_source",
+              "displayName": "lead_source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.6,
+      "position": [
+        320,
+        704
+      ],
+      "id": "f5ef1c51-adf6-4464-a3ac-67865bdb74c1",
+      "name": "Update leads",
+      "credentials": {
+        "postgres": {
+          "id": "oaLqS6SkJ0wZfqRH_hyundai",
+          "name": "Supabase VPS_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list",
+          "cachedResultName": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "clientes",
+          "mode": "list",
+          "cachedResultName": "clientes"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.user_id }}",
+            "longitud": 0,
+            "latitud": 0
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "lead_id",
+              "displayName": "lead_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "nombre",
+              "displayName": "nombre",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "apellido",
+              "displayName": "apellido",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "telefono",
+              "displayName": "telefono",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "genero",
+              "displayName": "genero",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "fecha_nacimiento",
+              "displayName": "fecha_nacimiento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "ciudad",
+              "displayName": "ciudad",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "direccion",
+              "displayName": "direccion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "latitud",
+              "displayName": "latitud",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "longitud",
+              "displayName": "longitud",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.6,
+      "position": [
+        208,
+        688
+      ],
+      "id": "ac79bdfa-ad51-4291-84a4-4f057cafe96a",
+      "name": "Update clientes",
+      "credentials": {
+        "postgres": {
+          "id": "oaLqS6SkJ0wZfqRH_hyundai",
+          "name": "Supabase VPS_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1392,
+        1296
+      ],
+      "id": "560bb617-29fc-46db-bd56-d9fe005008cf",
+      "name": "Embeddings 3-small",
+      "credentials": {
+        "openAiApi": {
+          "id": "owHroLazOkirAFA8_hyundai",
+          "name": "OpenAi account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "=Usa este Tool para obtener el ID o Link de Google Drive de las fotos o imagenes de autos Hyundai, se los puede ubicar por el nombre o el código y el resultante es el Link de google Drive o el ID del archivo den Google Drive.",
+        "documentId": {
+          "__rl": true,
+          "value": "1fdUEoChv813OUZw0DE8R6DK_s8bqRXOmbyErU0ELIEo",
+          "mode": "list",
+          "cachedResultName": "INDICE FOTOS",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1fdUEoChv813OUZw0DE8R6DK_s8bqRXOmbyErU0ELIEo/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 896623999,
+          "mode": "list",
+          "cachedResultName": "FOTOS",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1fdUEoChv813OUZw0DE8R6DK_s8bqRXOmbyErU0ELIEo/edit#gid=896623999"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Nombre del Archivo",
+              "lookupValue": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values0_Value', `Nombre del automovil que el cliente esta solicitando información, si existen varias filas que coincidan con el nombre del auto se debe recopilar todas las filas que han coincidido para que se envíe múltiples archivos.`, 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        992,
+        544
+      ],
+      "id": "a93d1f38-b774-4d20-80f9-4c40720709d7",
+      "name": "INDICE FOTOS",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "5TEVs0kJMi0Y35F8_hyundai",
+          "name": "Google Sheets account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "conversations",
+          "mode": "list",
+          "cachedResultName": "conversations"
+        },
+        "limit": 1,
+        "where": {
+          "values": [
+            {
+              "column": "lead_id",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values0_Value', `Código de identificación del cliente que fue credo mediante Hash la primera vez que envió un mensaje al agente usando un \"Generador de hash determinístico simple (FNV-1a modificado)\" con una longitud fija de 8 caracteres.`, 'string') }}"
+            },
+            {
+              "column": "status",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values1_Value', `Este valor incluye el estado del lead, llamado tambien status_lead o status en la tabla \"leads\", este valor puede tomar valores como: COLD, WARM, HOT, HOT C, HOT B, HOT A, PSR, RECLAMO, PEGUNTA, SUGERENCIA, PEDIDO, AGENDAMIENTO, CANCELACION, VENTA, DEVOLUCION, etc. `, 'string') }}"
+            },
+            {
+              "column": "channel",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values2_Value', `Este valor esta relacionado al canal de entrada del mensaje, por ejemplo si viene desde Whatsapp, Facebook, Instagram o Widget. `, 'string') }}"
+            },
+            {
+              "column": "last_message_at",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values3_Value', `Es el ultimo mensaje recibido desde el cliente en fechas pasadas. Este mensaje o mensajes son usados para que el agente tenga un contexto y pueda usar un perfil del usuario para poder darle una atención adecuada. `, 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.6,
+      "position": [
+        80,
+        352
+      ],
+      "id": "f9f7e4f3-4b97-45d1-8d66-56922c8bba07",
+      "name": "Get conversations1",
+      "credentials": {
+        "postgres": {
+          "id": "oaLqS6SkJ0wZfqRH_hyundai",
+          "name": "Supabase VPS_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list",
+          "cachedResultName": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "n8n_chat_histories",
+          "mode": "list",
+          "cachedResultName": "n8n_chat_histories"
+        },
+        "returnAll": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Return_All', ``, 'boolean') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        272
+      ],
+      "id": "5546c2a2-4cb3-4e1c-bc07-2fe15015fd4c",
+      "name": "Chat_History",
+      "credentials": {
+        "postgres": {
+          "id": "oaLqS6SkJ0wZfqRH_hyundai",
+          "name": "Supabase VPS_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Edit Fields').item.json.sessionId }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.3,
+      "position": [
+        48,
+        16
+      ],
+      "id": "fb31cf98-fb8f-492f-b6d9-cc3eb040c97b",
+      "name": "Chat Memory",
+      "credentials": {
+        "postgres": {
+          "id": "oaLqS6SkJ0wZfqRH_hyundai",
+          "name": "Supabase VPS_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "=Usa este Tool para obtener Link de Google Maps de las ubicaciones geograficas de los locales y agencias de Hyundai a nivel nacional en todo Ecuador, tambien usala para obtener la direccion del local y si la pregunta es similar por ejemplo a \"Agencias en la ciudad de Quito\" se debe retornar todas las ubicaciones de todos los concesionarios y agencias de hyundai en dicha ciudad, cada uno con su respectivo Nombre, direccion, ubicacion de google maps y los horarios de atencion. ",
+        "documentId": {
+          "__rl": true,
+          "value": "14zPhv60O8ZmkB0yXB9bv2rytMAfhGZYlLrLMWeDBwW4",
+          "mode": "list",
+          "cachedResultName": "Agencias Hyundai",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/14zPhv60O8ZmkB0yXB9bv2rytMAfhGZYlLrLMWeDBwW4/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Hoja 1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/14zPhv60O8ZmkB0yXB9bv2rytMAfhGZYlLrLMWeDBwW4/edit#gid=0"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Ciudad",
+              "lookupValue": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values0_Value', ``, 'string') }}"
+            },
+            {
+              "lookupColumn": "AGENCIA",
+              "lookupValue": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values1_Value', ``, 'string') }}"
+            },
+            {
+              "lookupColumn": "DIRECCIÓN",
+              "lookupValue": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values2_Value', ``, 'string') }}"
+            },
+            {
+              "lookupColumn": "UBICACIÓN GOOGLE MAPS",
+              "lookupValue": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values3_Value', ``, 'string') }}"
+            },
+            {
+              "lookupColumn": "TELÉFONO",
+              "lookupValue": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values4_Value', ``, 'string') }}"
+            },
+            {
+              "lookupColumn": "HORARIO",
+              "lookupValue": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values5_Value', ``, 'string') }}"
+            }
+          ]
+        },
+        "options": {
+          "outputFormatting": {
+            "values": {
+              "general": "FORMATTED_VALUE",
+              "date": "FORMATTED_STRING"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        608,
+        608
+      ],
+      "id": "07c586e0-7e67-4dd1-902f-09015051d4a6",
+      "name": "AGENCIAS_HYUNDAI",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "5TEVs0kJMi0Y35F8_hyundai",
+          "name": "Google Sheets account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Usa este Tool para obtener el ID o Link de Google Drive de las fichas técnicas de autos Hyundai, se los puede ubicar por el nombre o el código y el resultante es el Link de google Drive.",
+        "documentId": {
+          "__rl": true,
+          "value": "1B44fgt1lVKBmwFbcBZ4KFmgMdnkv2UWkABo2dOCCnbo",
+          "mode": "list",
+          "cachedResultName": "INDICE FICHAS TECNICAS",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1B44fgt1lVKBmwFbcBZ4KFmgMdnkv2UWkABo2dOCCnbo/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1141658180,
+          "mode": "list",
+          "cachedResultName": "FICHAS",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1B44fgt1lVKBmwFbcBZ4KFmgMdnkv2UWkABo2dOCCnbo/edit#gid=1141658180"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "COD",
+              "lookupValue": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values0_Value', `Código de la ficha técnica del auto, pueden ser estas: \nFT-01\nFT-02\nFT-03\nFT-04\nFT-05\nFT-06\nFT-07\nFT-08`, 'string') }}"
+            },
+            {
+              "lookupColumn": "NAME",
+              "lookupValue": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values1_Value', `Nombre de la ficha técnica del auto, pueden ser estas:\nGRAND I10 HB - FICHA TECNICA.pdf\nGRAND I10 SEDAN - FICHA TECNICA.pdf\nACCENT FICHA TECNICA (Horizontal VERSION L).pdf\nSTARIA FICHA TECNICA.pdf\nTUCSON FICHA TECNICA.pdf\nCRETA FICHA TECNICA.pdf\nKONA HYBRID FICHA TECNICA (Horizontal).pdf\nSANTA FE GLS FICHA TÉCNICA.pdf`, 'string') }}"
+            },
+            {
+              "lookupColumn": "LINK",
+              "lookupValue": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values2_Value', `Link de la ficha técnica que debe ser enviado al cliente para su descarga`, 'string') }}"
+            },
+            {
+              "lookupColumn": "ID",
+              "lookupValue": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values3_Value', `ID de Google Drive del documento, sirve para en los siguientes pasos ubicar el documento y enviarlo al cliente mediante el canal por el cual esta comunicándose: Whatsapp, Instagram, Facebook, etc...`, 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        832,
+        544
+      ],
+      "id": "47868438-01ad-4145-a21d-24815f9f162f",
+      "name": "INDICE_FICHAS_TECNICAS",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "5TEVs0kJMi0Y35F8_hyundai",
+          "name": "Google Sheets account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "CalculateTime",
+        "description": "=Llama a esta herramienta para convertir una frase de fecha relativa en español a una cadena de fecha y hora en formato ISO 8601.",
+        "jsCode": "/* CalculateTime - Versión Completa y Robusta */\n\n// 1. Validar entrada y rechazar formatos ISO\nconst input = query?.relativeTime;\nif (!input || typeof input !== 'string') {\n  throw new Error('query.relativeTime debe ser un string con fecha relativa o absoluta.');\n}\n\n// RECHAZAR FORMATOS ISO - El agente debe pasar el texto original del usuario\nconst formatosProhibidos = [\n  /\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}/,     // 2025-07-07T16:00:00\n  /\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}/,           // 2025-07-07T16:00\n  /^\\d{4}-\\d{2}-\\d{2}$/                      // 2025-07-07\n];\n\nfor (const patron of formatosProhibidos) {\n  if (patron.test(input.trim())) {\n    throw new Error(`FORMATO NO PERMITIDO: \"${input}\". El agente debe pasar el texto original del usuario (ej: \"viernes a las 4pm\", \"28 de julio\"), no fechas calculadas.`);\n  }\n}\n\n// 2. Configuración\nconst MESES = {\n  'enero': 0, 'febrero': 1, 'marzo': 2, 'abril': 3, 'mayo': 4, 'junio': 5,\n  'julio': 6, 'agosto': 7, 'septiembre': 8, 'octubre': 9, 'noviembre': 10, 'diciembre': 11\n};\n\nconst DIAS_SEMANA = {\n  'domingo': 0, 'lunes': 1, 'martes': 2, 'miercoles': 3,\n  'jueves': 4, 'viernes': 5, 'sabado': 6\n};\n\n// 3. Funciones auxiliares\nfunction obtenerFechaActualMTY() {\n  const now = new Date();\n  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);\n  return new Date(utc + (-5 * 3600000));\n}\n\nfunction normalizarTexto(texto) {\n  return texto.toLowerCase()\n              .trim()\n              .replace(/á/g, 'a')\n              .replace(/é/g, 'e')\n              .replace(/í/g, 'i')\n              .replace(/ó/g, 'o')\n              .replace(/ú/g, 'u')\n              .replace(/ñ/g, 'n');\n}\n\nfunction parsearHora(texto, fechaBase = null) {\n  // Buscar patrones de hora - mejorados para capturar más formatos\n  const patrones = [\n    /(\\d{1,2}):(\\d{2})\\s*(am|pm)?/i,           // 14:30, 2:30 PM\n    /(\\d{1,2})\\s*(am|pm)/i,                    // 2 PM, 9 AM, 11 am\n    /(\\d{1,2})\\s*h/i,                          // 14h, 9h\n    /las\\s+(\\d{1,2})\\s*(am|pm)?/i,             // las 4, las 11 am\n    /a\\s+las\\s+(\\d{1,2})\\s*(am|pm)?/i          // a las 11 am\n  ];\n  \n  for (const patron of patrones) {\n    const match = texto.match(patron);\n    if (match) {\n      let hora = parseInt(match[1], 10);\n      let minuto = match[2] && !isNaN(parseInt(match[2])) ? parseInt(match[2], 10) : 0;\n      const meridiem = match[2] && isNaN(parseInt(match[2])) ? match[2].toLowerCase() : \n                      match[3] ? match[3].toLowerCase() : null;\n      \n      // Validar rangos\n      if (hora < 0 || hora > 23 || minuto < 0 || minuto > 59) continue;\n      \n      // Ajustar AM/PM\n      if (meridiem) {\n        if (meridiem === 'pm' && hora < 12) hora += 12;\n        if (meridiem === 'am' && hora === 12) hora = 0;\n      }\n      \n      return { hora, minuto };\n    }\n  }\n  \n  return { hora: 9, minuto: 0 }; // Default\n}\n\nfunction crearFecha(año, mes, dia, hora = 9, minuto = 0) {\n  const fecha = new Date(año, mes, dia, hora, minuto, 0, 0);\n  \n  // Validar que la fecha sea real\n  if (fecha.getFullYear() !== año || fecha.getMonth() !== mes || fecha.getDate() !== dia) {\n    return null;\n  }\n  \n  return fecha;\n}\n\nfunction validarHorarioNegocio(fecha) {\n  const dia = fecha.getDay();\n  const hora = fecha.getHours();\n  \n  return (dia >= 1 && dia <= 5 && hora >= 9 && hora < 20) ||\n         (dia === 6 && hora >= 9 && hora < 15);\n}\n\nfunction formatearISO(fecha) {\n  const pad = n => String(n).padStart(2, '0');\n  return `${fecha.getFullYear()}-${pad(fecha.getMonth() + 1)}-${pad(fecha.getDate())}` +\n         `T${pad(fecha.getHours())}:${pad(fecha.getMinutes())}:${pad(fecha.getSeconds())}-05:00`;\n}\n\n// 4. Parser principal\nfunction parsearFecha(textoOriginal) {\n  const texto = normalizarTexto(textoOriginal);\n  const ahora = obtenerFechaActualMTY();\n  \n  // Casos directos - aplicar hora después de determinar la fecha base\n  if (texto.includes('hoy')) {\n    const tiempoInfo = parsearHora(texto);\n    return crearFecha(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), tiempoInfo.hora, tiempoInfo.minuto);\n  }\n  \n  if (texto.includes('pasado manana')) {\n    const pasadoMañana = new Date(ahora);\n    pasadoMañana.setDate(ahora.getDate() + 2);\n    const tiempoInfo = parsearHora(texto);\n    return crearFecha(pasadoMañana.getFullYear(), pasadoMañana.getMonth(), pasadoMañana.getDate(), tiempoInfo.hora, tiempoInfo.minuto);\n  }\n  \n  if (texto.includes('manana')) {\n    const mañana = new Date(ahora);\n    mañana.setDate(ahora.getDate() + 1);\n    const tiempoInfo = parsearHora(texto);\n    return crearFecha(mañana.getFullYear(), mañana.getMonth(), mañana.getDate(), tiempoInfo.hora, tiempoInfo.minuto);\n  }\n  \n  // Resto del código permanece igual...\n  const tiempoInfo = parsearHora(texto);\n  \n  // Formato ISO: Solo permitir si el usuario realmente escribió una fecha ISO\n  // NOTA: Este formato está limitado a casos muy específicos donde el usuario\n  // efectivamente escriba una fecha en formato ISO (muy raro)\n  const isoMatch = texto.match(/(\\d{4})-(\\d{1,2})-(\\d{1,2})(?:t(\\d{1,2}):(\\d{2}))?/);\n  if (isoMatch && input.includes('-') && input.includes('20')) { // Solo si parece que el usuario escribió ISO\n    const año = parseInt(isoMatch[1], 10);\n    const mes = parseInt(isoMatch[2], 10) - 1;\n    const dia = parseInt(isoMatch[3], 10);\n    \n    let hora = tiempoInfo.hora;\n    let minuto = tiempoInfo.minuto;\n    \n    // Si tiene hora en el ISO, usarla\n    if (isoMatch[4] && isoMatch[5]) {\n      hora = parseInt(isoMatch[4], 10);\n      minuto = parseInt(isoMatch[5], 10);\n    }\n    \n    return crearFecha(año, mes, dia, hora, minuto);\n  }\n  \n  // Formato \"DD de MES\"\n  const españolMatch = texto.match(/(\\d{1,2})\\s+de\\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)/);\n  if (españolMatch) {\n    const dia = parseInt(españolMatch[1], 10);\n    const nombreMes = españolMatch[2];\n    const mes = MESES[nombreMes];\n    \n    let año = ahora.getFullYear();\n    let fechaTest = crearFecha(año, mes, dia, tiempoInfo.hora, tiempoInfo.minuto);\n    \n    // Si ya pasó este año, usar el próximo\n    if (fechaTest && fechaTest <= ahora) {\n      año++;\n      fechaTest = crearFecha(año, mes, dia, tiempoInfo.hora, tiempoInfo.minuto);\n    }\n    \n    return fechaTest;\n  }\n  \n  // Formato \"DD/MM\" o \"DD/MM/YYYY\"\n  const slashMatch = texto.match(/(\\d{1,2})\\/(\\d{1,2})(?:\\/(\\d{2,4}))?/);\n  if (slashMatch) {\n    const dia = parseInt(slashMatch[1], 10);\n    const mes = parseInt(slashMatch[2], 10) - 1;\n    let año = slashMatch[3] ? parseInt(slashMatch[3], 10) : ahora.getFullYear();\n    \n    if (año < 100) {\n      año += año < 50 ? 2000 : 1900;\n    }\n    \n    return crearFecha(año, mes, dia, tiempoInfo.hora, tiempoInfo.minuto);\n  }\n  \n  // Días de la semana\n  for (const [nombreDia, indiceDia] of Object.entries(DIAS_SEMANA)) {\n    if (texto.includes(nombreDia)) {\n      const diaActual = ahora.getDay();\n      let diasHasta = (indiceDia - diaActual + 7) % 7;\n      \n      // Si es el mismo día, ir a la próxima semana\n      if (diasHasta === 0) {\n        diasHasta = 7;\n      }\n      \n      const fechaObjetivo = new Date(ahora);\n      fechaObjetivo.setDate(ahora.getDate() + diasHasta);\n      \n      return crearFecha(fechaObjetivo.getFullYear(), fechaObjetivo.getMonth(), fechaObjetivo.getDate(), tiempoInfo.hora, tiempoInfo.minuto);\n    }\n  }\n  \n  // Patrón \"en X días\"\n  const diasMatch = texto.match(/en\\s+(\\d+)\\s+dias?/);\n  if (diasMatch) {\n    const dias = parseInt(diasMatch[1], 10);\n    const fechaObjetivo = new Date(ahora);\n    fechaObjetivo.setDate(ahora.getDate() + dias);\n    \n    return crearFecha(fechaObjetivo.getFullYear(), fechaObjetivo.getMonth(), fechaObjetivo.getDate(), tiempoInfo.hora, tiempoInfo.minuto);\n  }\n  \n  return null;\n}\n\n// 5. Ejecución principal\ntry {\n  const fecha = parsearFecha(input);\n  \n  if (!fecha) {\n    throw new Error(`No se pudo interpretar la fecha: \"${input}\"`);\n  }\n  \n  const estaAbierto = validarHorarioNegocio(fecha);\n  return estaAbierto ? formatearISO(fecha) : 'closed';\n  \n} catch (error) {\n  throw error;\n}",
+        "specifyInputSchema": true,
+        "jsonSchemaExample": "{\n\t\"relativeTime\": \"mañana a las 4pm\"\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.1,
+      "position": [
+        -384,
+        432
+      ],
+      "id": "1d6c1374-cc40-4b03-a7fa-524967f2d888",
+      "name": "CalculateTime"
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Usa este Sheet para obtener precios de autos Hyundai, modelos, versiones y descripción básica de los autos. ",
+        "documentId": {
+          "__rl": true,
+          "value": "10ji6XceuK7JHhO6lpPN8fhdLCCQTjzFKsxItT-VNSX8",
+          "mode": "list",
+          "cachedResultName": "Modelos y precios",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/10ji6XceuK7JHhO6lpPN8fhdLCCQTjzFKsxItT-VNSX8/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Hoja 1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/10ji6XceuK7JHhO6lpPN8fhdLCCQTjzFKsxItT-VNSX8/edit#gid=0"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "MODELO",
+              "lookupValue": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values0_Value', `Modelo de autos`, 'string') }}"
+            },
+            {
+              "lookupColumn": "VERSION",
+              "lookupValue": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values1_Value', `Version del auto, por ejemplo, Hybrid, Diesel, Gasolina, 4x2, 4x4`, 'string') }}"
+            },
+            {
+              "lookupColumn": "PVP",
+              "lookupValue": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values2_Value', `Precio de venta de los autos en dólares americanos. Ejemplo: $ 20.290, esto es: \"veinte mil doscientos noventa dólares\". `, 'string') }}"
+            },
+            {
+              "lookupColumn": "DESCRIPCION",
+              "lookupValue": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values3_Value', `Usa esta columna para encontrar la descripción del modelo de auto que el cliente esta solicitando`, 'string') }}"
+            },
+            {
+              "lookupColumn": "NOMBRE",
+              "lookupValue": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values4_Value', `Nombre del modelo de vehículo que se esta mencionando o solicitando según las características indicadas o el rango de precio indicado por el cliente.`, 'string') }}"
+            }
+          ]
+        },
+        "options": {
+          "outputFormatting": {
+            "values": {
+              "general": "FORMATTED_VALUE",
+              "date": "FORMATTED_STRING"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        704,
+        752
+      ],
+      "id": "296dc37a-0538-43d4-9368-e15c07ca7d2c",
+      "name": "Modelos_precios",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "5TEVs0kJMi0Y35F8_hyundai",
+          "name": "Google Sheets account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.toolThink",
+      "typeVersion": 1.1,
+      "position": [
+        416,
+        448
+      ],
+      "id": "78354ee5-89bb-42e7-a25b-dfa61aadfd3e",
+      "name": "Think1"
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.toolCalculator",
+      "typeVersion": 1,
+      "position": [
+        800,
+        80
+      ],
+      "id": "5cae35d6-8860-4009-937a-b0758aaf7fc1",
+      "name": "Calculadora1"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-5.4-mini"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -208,
+        16
+      ],
+      "id": "4435e93e-9770-4db6-a921-344f35ad5203",
+      "name": "GPT Sch1",
+      "credentials": {
+        "openAiApi": {
+          "id": "owHroLazOkirAFA8_hyundai",
+          "name": "OpenAi account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.concat_message }}",
+        "hasOutputParser": true,
+        "needsFallback": true,
+        "options": {
+          "systemMessage": "=# System Message: 🤖 Hyundai Connect AI Agent (n8n + RAG + OmniCEM)\n\n## 🎯 Rol y Misión Principal\n* **Rol:** Eres **Hyundai Connect**, Asistente Virtual de Ventas y Servicio de **Hyundai Ecuador (OmniCEM/Chatwoot)**.\n* **Misión:** Aplicar el *Coaching* y la *PNL* para elevar proactivamente el estado del lead de **COLD → HOT A** y **confirmar una cita de Test Drive o Venta** en el menor tiempo.\n* **Tono:** **Proactivo, amable, confiable, claro y *persuasivo* (LATAM semiforma**l). Eres un agente *empático, cordial, elegante y profesional*. Utiliza lenguaje claro. Emplea **emoticones** (ej. 😉👍) para reforzar empatía y el llamado a la acción.\n\n---\n\n## 🗣️ Guía de Conversación (PNL, Persuasión y Recolección de Datos)\n* **Validación de Emociones:** Siempre **reconoce y valida** la emoción del usuario antes de responder (ej., \"Entiendo su **molestia** 😔, estamos aquí para solucionarlo\").\n* **Uso de Anclajes:** Utiliza palabras clave como **\"Innovación\", \"Confianza\" y \"Seguridad\"** al describir un vehículo.\n* **Técnica de *Presuposición*:** Asume la acción. En lugar de \"¿Quieres agendar?\", usa \"**¿Cuál de nuestras ciudades te viene mejor para tu Test Drive?** 📍\" o \"**¿Preferirías el financiamiento o pago de contado para tu nuevo Hyundai?**\"\n* **Principio de Escasez/Urgencia (HOT Leads):** Para leads HOT, menciona: \"Dado que tu decisión es **pronta (en menos de 7 días) 🔥**, te sugiero **reservar tu cita ahora** para asegurar la disponibilidad del modelo.\"\n* **PNL para Topic Steering:** Si el cliente se desvía del tema (Hyundai Ecuador), regresa de manera **empática y persuasiva** al tema principal: \"**Entiendo [emoción/interés del cliente]**, sin embargo, mi enfoque principal es asistirte con toda la información y servicios de **Hyundai Ecuador** para que encuentres tu vehículo ideal. ¿En qué modelo podemos concentrarnos hoy? 😉\"\n* **PNL para Recolección de Datos (CRÍTICO):** Durante la conversación, y de forma persuasiva, debes intentar recopilar: **Nombre y Apellido, Número de Cédula, Número de teléfono y Correo Electrónico**.\n\n* **DERIVACIÓN HÁBIL (PNL - PRECIOS):** Si preguntan por precios o cuotas exactas, **debes solicitar los datos críticos inmediatamente** y luego derivar al asesor humano.\n* **Frase de Derivación de Precios (ACTUALIZADA con Solicitud de Datos):** \"**¡Excelente pregunta!** Para garantizarte la información más **precisa** y adaptada a tu plan (**incluyendo promociones vigentes**), mi labor es conectarte con nuestra experta en crédito, **Oriana Pinilla**, ahora mismo. Para que te contacte inmediatamente y te dé una cifra exacta, **¿podrías confirmarme tu Nombre y Apellido, tu Número de Cédula, tu Número de Contacto y tu Correo Electrónico, por favor?** 📝 Con estos datos, tu atención será prioritaria. 😉\"\n* **Financiamiento:** Menciona la frase guía: “Precio sujeto a promociones vigentes y disponibilidad.”\n\n---\n\n## ⌚ Primer Mensaje OBLIGATORIO (Consentimiento)\n* **Hora Actual:** {{ $now }} (Zona horaria: America/Guayaquil, UTC-5).\n* **PRIMER MENSAJE ÚNICO (ESTRICTO):** Este es el **único** primer mensaje que debes enviar. La conversación solo avanza si el cliente responde, lo cual se toma como consentimiento.\n    * **\"¡Bienvenido a Hyundai Ecuador! Soy Hyundai Connect. Para seguir, es necesario que aceptes nuestros términos y condiciones. Al responder a este mensaje, das tu consentimiento expreso para el tratamiento de tus datos, según lo detallado en nuestra Política de Privacidad: https://hyundai.com.ec/static/media/proteccion.pdf\"**\n\n---\n\n## 💰 Progresión del Lead y Scoring (OmniCEM)\n| Estado Actual | Objetivo de PNL/Coaching | Próximo Estado |\n|:--------------|:-------------------------|:---------------|\n| **COLD** (> 90 días) | Detectar necesidad, cualificar datos clave. | **WARM** |\n| **WARM** (< 90 días) | Nutrir, cualificar (presupuesto, uso). | **HOT C** |\n| **HOT C** (< 30 días) | Consolidar, proponer test drive. | **HOT B** |\n| **HOT B** (≤ 15 días) | **Confirmar** día y hora de la cita. | **HOT A** |\n| **HOT A** (≤ 7 días) | **Cita Creada** → Ejecutar *db\\_execute* (crear cita y notificar jefe) **Y DERIVAR A HUMANO**. | — |\n| **PQR** (Queja) | Resolver queja/derivar a VOC. | **WARM** |\n\n---\n\n## 🚗 Mini-Playbooks y Reglas Críticas\n\n* **Recolección de Datos (CRÍTICO):** Para cualquier derivación a humano (Precio, HOT A, Límite de Intentos), es **OBLIGATORIO** recopilar y registrar: **Nombre y Apellido, Número de Cédula, Número de Contacto y Correo Electrónico**.\n* **Agendar test drive (MODIFICADA):** Valida datos → Agencias → CalculateTime/Check → **Create Event**. Una vez creado, debes **confirmar la cita inmediatamente** al cliente, **anunciar que se realizará una derivación** y **proporcionar la Dirección y Ubicación** del concesionario. Luego, establecer `handover_to_human: true`.\n    * *Ejemplo de respuesta al cliente:* \"¡Agenda confirmada! 📅 Hemos reservado tu Test Drive para [Modelo] el [Fecha] a las [Hora] en [Sucursal]. La ubicación de la agencia es: **[Dirección del Concesionario]** y el enlace: **[UBICACIÓN GOOGLE MAPS del Concesionario]**. En este momento, **activaré la derivación para que un agente experto te contacte personalmente** y te brinde una atención especializada antes de tu visita.\"\n* **Derivación (Agenda Confirmada/Precio):** Si se confirma una cita (**HOT A**) o si el cliente pide precios, el agente establece **`actions.handover_to_human: true`** para que el flujo de N8N active la conexión con el asesor humano, **enviando los datos recolectados en las entidades**.\n\n---\n\n## 📍 Consultas relacionadas a Concesionarios/Agencias/Talleres\n\n* **Sectorización de Quito:** Si el cliente indica estar en Quito, debes usar esta sectorización para listar las agencias más cercanas:\n    * **Quito Sur:** TRUSTMOTOR QUITO SUR, LANZOTY QUICENTRO SUR.\n    * **Quito Centro/Norte:** TRUSTMOTOR EL INCA, ASIACAR LA Y, TRUSTMOTOR/LA PRADERA, ASIAUTO MARIANA DE JESUS, TRUSTMOTOR 10 DE AGOSTO, ASIAUTO OCCIDENTAL, TRUSTMOTOR CONDADO.\n    * **Valles (Cumbayá/Los Chillos):** HYUNDAI TRUSTMOTOR CUMBAYA, TRUSTMOTOR LOS CHILLOS.\n    * *Si mencionan Tumbaco o Puembo, ofrece las opciones de Valles más cercanas.*\n* **LISTA COMPLETA DE SUCURSALES (Información exclusiva de la herramienta 'Agencias Hyundai'):**\n\n* **AMBATO**\n  - **ANDINAMOTORS INGAHURCO**: Av. Indoamerica entrada las viñas. Horario: Lunes a Viernes: 09:00 - 18:30 / Sábados: 09:30 - 13:30 [Ubicación: https://maps.app.goo.gl/A4xHtKZuGyULFLoo6].\n  - **ANDINAMOTORS AMBATO**: Av Atahualpa y Victor Hugo. Horario: Lunes a Viernes: 09:00 - 18:30 / Sábados: 09:30 - 13:30 [Ubicación: https://maps.app.goo.gl/mKnA6prZEERd2HGe9].\n\n* **CUENCA**\n  - **ASIACAR CUENCA**: Av. España 15-15 y Granada. Horario: Lunes a Viernes: 09:00 - 18:00 / Sábados: 10:00 - 14:00 [Ubicación: https://maps.app.goo.gl/gNdaTyzDJTzvdtEQ7].\n  - **TRUSTMOTOR CUENCA**: Simón Bolívar S/N y Av. Huayna Cápac (Esq.). Horario: Lunes a Viernes: 09:00 - 18:00 / Sábados: 10:00 - 14:00 [Ubicación: https://maps.app.goo.gl/Mttk4q1MoFNMJgMd9].\n\n* **EL COCA**\n  - **ASIAUTO EL COCA**: Av. Alejandro Labaka y Los Chontaduros. Horario: Lunes a Viernes: 09:00 - 18:00 / Sábados: 10:00 - 16:00 [Ubicación: https://maps.app.goo.gl/sShoTqRPegmpFRTF6].\n\n* **GUAYAQUIL**\n  - **TRUSTMOTOR AMERICAS**: Av. De Las Américas S/N y Hermano Miguel (Esq.) frente al Aeropuerto. Horario: Lunes a Viernes: 08:30 - 18:30 / Sábados: 09:00 - 14:00 [Ubicación: https://maps.app.goo.gl/4cpGzm2Wk1mARxdX8].\n  - **ASIAUTO AGUIRRE ABAD**: AV DE LAS AMERICAS JUNTO A LA UNIVERSIDAD LAICA. Horario: Lunes a Viernes: 09:00 - 18:00 / Sábados: 10:00 - 14:00 [Ubicación: https://maps.app.goo.gl/zS7Nse9WbsTi1XiRA].\n  - **TRUSTMOTOR FCO ORELLANA**: Av. Francisco de Orellana S/N y Alberto Borjes Najera. Horario: Lunes a Viernes: 09:00 - 18:00 / Sábados: 10:00 - 14:00 [Ubicación: https://maps.app.goo.gl/Ak6Z5Dn7fVTNLNB56].\n  - **ASIACAR CARLOS JULIO**: Av. Carlos Julio Arosemena Km 2 1/2. Horario: Lunes a Viernes: 09:00 - 18:00 / Sábados: 10:00 - 14:00 [Ubicación: https://maps.app.goo.gl/3wYv9aPCZZt1167Y7].\n  - **TRUSTMOTOR VILLA CLUB**: Plaza Pacifico, Avenida Principal Ciudadela Villa Club. Horario: Lunes a Viernes: 09:00 - 19:00 / Sábados: 09:00 - 19:00 / Domingos: 09:00 - 19:00 [Ubicación: https://maps.app.goo.gl/3iqTeuASZSEuF2ZM6].\n  - **TRUSTMOTOR FAE**: Av. Carlos Plaza Dañin y Elia Luit. Horario: Lunes a Viernes: 09:00 - 18:00 / Sábados: 10:00 - 14:00 [Ubicación: https://maps.app.goo.gl/6cS68RHyd38fGwQ66].\n\n* **IBARRA**\n  - **ASIAUTO IBARRA**: Av. Mariano Acosta 27176, sector la Florida. Horario: Lunes a Viernes: 09:00 - 18:00 / Sábados: 10:00 - 16:00 [Ubicación: https://maps.app.goo.gl/vkx3aMQrkGfj7cqC8].\n\n* **LATACUNGA**\n  - **ANDINAMOTORS LATACUNGA**: Av. Eloy Alfaro y Benjamín Terán esq.. Horario: Lunes a Viernes: 09:00 - 18:30 / Sábados: 09:30 - 13:30 [Ubicación: https://maps.app.goo.gl/fJJFtDjjfTvC57kJA].\n\n* **LOJA**\n  - **GOMOTORS LOJA**: AV 8 DE DICIEMBRE E ISIDRO AYORA, FRENTE AL TERMINAL. Horario: Lunes a Viernes: 09:00 - 18:30 / Sábados: 10:00 - 14:00 [Ubicación: https://maps.app.goo.gl/CUcD9hfVRdTbWxpi6].\n\n* **MACHALA**\n  - **TRUSTMOTOR MACHALA**: Av. 25 de Junio Km. 1 ½ Vía a Pasaje, Redondel del Bananero. Horario: Lunes a Viernes: 09:00 - 18:00 / Sábados: 10:00 - 14:00 [Ubicación: https://maps.app.goo.gl/JqJS6gCUo5Fa18AM7].\n\n* **MANTA**\n  - **TRUSTMOTOR MANTA**: AV CIRCUNVALACION TRAMO 1, BARRIO UMIÑA. Horario: Lunes a Viernes: 09:00 - 18:00 / Sábados: 10:00 - 14:00 [Ubicación: https://maps.app.goo.gl/jioscepX7GCP9B957].\n\n* **PORTOVIEJO**\n  - **TRUSTMOTOR PORTOVIEJO**: Av. Metropolitana y Callejón Mera (Esq). Horario: Lunes a Viernes: 09:00 - 18:00 / Sábados: 10:00 - 14:00 [Ubicación: https://maps.app.goo.gl/vTk6xpu8F1guzxaf8].\n\n* **QUEVEDO**\n  - **EMPROMOTOR QUEVEDO**: AV. WALTER ANDRADE Y CALLE 6TA ESQUINA. Horario: Lunes a Viernes: 8:30 - 18:00 / Sábados: 8:30 - 13:00 [Ubicación: https://maps.app.goo.gl/qKbtJmDkwWba1AJt5].\n\n* **QUITO**\n  - **HYUNDAI TRUSTMOTOR CUMBAYA** (VALLES): Av. María Angélica Idrovo y S/N, C.C. Paseo San Francisco Local 105. Horario: Lunes a Viernes: 10:00 - 20:00 / Sábados: 10:00 - 20:00 [Ubicación: https://maps.app.goo.gl/e7FG79q5zdDdJWEm7].\n  - **TRUSTMOTOR EL INCA** (NORTE): Av. 10 de Agosto OE1-06 y Av. El Inca. Horario: Lunes a Viernes: 09:00 - 18:00 / Sábados: 10:00 - 13:00 [Ubicación: https://maps.app.goo.gl/SBVoajG8FdYSrgndA].\n  - **TRUSTMOTOR QUITO SUR** (SUR): Av. Vicente Maldonado S3 y Taura.. Horario: Lunes a Viernes: 09:00 - 18:00 / Sábados: 10:00 - 14:00 [Ubicación: https://maps.app.goo.gl/pvayGaP4pNhjAuJo6].\n  - **ASIACAR LA Y** (CENTRO/NORTE): Av. 10 de Agosto 5990 y Gaspar de Villarroel. Horario: Lunes a Viernes: 08:30 a 19:00 / Sábados: 09:30 - 15:30 [Ubicación: https://maps.app.goo.gl/L9zb6navCGTzwRHe8].\n  - **TRUSTMOTOR/LA PRADERA** (CENTRO): Av. de la Républica y Av. Eloy Alfaro. Horario: Lunes a Viernes: 09:00 - 18:00 / Sábados: 10:00 - 14:00 [Ubicación: https://maps.app.goo.gl/4nY4hZtSJjfcWV5S6].\n  - **ASIAUTO MARIANA DE JESUS** (NORTE): Av. Mariana de Jesus E80 y Gaspar de Carvajal. Horario: Lunes a Viernes: 09:00 - 18:00 / Sábados: 10:00 - 16:00 [Ubicación: https://maps.app.goo.gl/2CZMd7aG7Beksx4m8].\n  - **TRUSTMOTOR CONDADO** (NORTE): Av. De la Prensa y Mariscal Sucre, Local 101. Horario: Lunes a Viernes: 10:00 - 20:30 / Sábados: 10:00 - 21:00 / Domingos: 10h00 - 20h00 [Ubicación: https://maps.app.goo.gl/Y95fEvcFJRe6nVLU7].\n  - **LANZOTY QUICENTRO SUR** (SUR): Av. Morán Valverde y Teniente Hugo Ortiz. Horario: Lunes a Viernes: 09:00 - 18:00 / Sábados: 10:00 a 14:00 [Ubicación: https://maps.app.goo.gl/q8iU1r2n4snYr2eCA].\n  - **TRUSTMOTOR LOS CHILLOS** (VALLES): Av. San Luis N59 y novena transversal. Horario: Lunes a Viernes: 09:00 - 18:30 / Sábados: 10:00 - 14:00 [Ubicación: https://maps.app.goo.gl/MahznxS8MZTr386h8].\n  - **TRUSTMOTOR 10 DE AGOSTO** (NORTE): Av Galo Plaza Lasso S/N y 6 de diciembre. Horario: Lunes a Viernes: 09:00 - 18:00 / Sábados: 10:00 a 14:00 [Ubicación: https://maps.app.goo.gl/TmD92yGNadwer1Qv7].\n  - **ASIAUTO OCCIDENTAL** (NORTE): Av. Occidental y Av. La Florida. Horario: Lunes a Viernes: 09:00 - 18:00 / Sábados: 10:00 - 16:00 [Ubicación: https://maps.app.goo.gl/uFADeCBj45j4aHEp6].\n\n* **RIOBAMBA**\n  - **ANDINAMOTOR RIOBAMBA**: Av. Lizarzaburu y rio Cutuchi. Horario: Lunes a Viernes: 09:00 - 18:30 / Sábados: 09:30 - 13:30 [Ubicación: https://maps.app.goo.gl/CH215yKUVEgqTdkT6].\n\n* **SANTO DOMINGO**\n  - **EMPROMOTOR SANTO DOMINGO**: VIA CHONE Y AV. BOMBOLÍ KM 2 Y 1/2. Horario: Lunes a Viernes: 08:30 - 18:00 / Sábados: 8:30 - 13:00 [Ubicación: https://maps.app.goo.gl/YARtP7ymqbXuTTWG8].\n  - **EMPROMOTOR BOMBOLÍ**: VÍA QUEVEDO Y AV BOMBOLÍ (ESQUINA). Horario: Lunes a Viernes: 08:30 - 18:00 / Sábados: 8:30 - 13:00 [Ubicación: https://maps.app.goo.gl/KGUdCPBHxFQvisJx5].\n\n* **TULCÁN**\n  - **ASIAUTO TULCÁN**: Av. Veintimilla y Calle Portugal esquina. Horario: Lunes a Viernes: 09:00 - 18:00 / Sábados: 10:00 - 16:00 [Ubicación: https://maps.app.goo.gl/nQZvdHXJHYhsAERh8].\n\n---\n\n## 💾 Memoria y Entidades\n* **Memoria (Datos Críticos):** Solicita y guarda si aún no tienes estos datos: **`nombre`, `email`, `phone`, `city`, `cedula`**, y **`preferencias_modelo`**. Estos campos se mapean a las `entities` y `lead` para el handover.\n\n---\n\n## ⚙️ Herramientas Disponibles (Tool Calling vía MCP)\n* Todas las herramientas se llaman mediante JSON estructurado estándar de n8n.\n* NUNCA escribas SQL, nunca inventes datos.\n* **`calculate_time`**: Convierte texto a ISO-8601 (America/Guayaquil).\n* **`check_day`**, **`check_hour`**: Verifica disponibilidad.\n* **`create_event`**, **`update_event`**, **`delete_event`**: Gestión de citas.\n    * *Regla crítica:* NUNCA llames a check/create/update/delete sin haber llamado primero a `calculate_time`.\n* **`db_execute`**: Ejecuta CRUD en tablas (leads, customer_profiles, recordatorios, reportes_ia).\n* **`rag_search`**: Consulta RAG_MEMORY (top-3 con reranker).\n* **`get_sheet`**: Lee Google Sheets (ej. \"Agencias Hyundai\").\n* **`calculate_distance`**: Distancia a concesionario.\n* **`pdf_buscar_fragmentos`**: Busca en PDF/Manuales.\n\n---\n\n## 🛑 Guardrails (PROHIBIDO)\n- No llames a MCP Calendar sin **`calculate_time`**.\n- No confirmes disponibilidad sin **`check_hour`**.\n- **PROHIBIDO:** Dar valores de pagos a plazo, cuotas o diferidos exactos, o **proporcionar números de contacto humanos** en el mensaje al cliente.\n- No inventes datos (stock, citas, modelos).\n- Teléfono de agencia: *solo **1800 HYUNDAI*** (para agencias, no para financiamiento).\n- **Máx. 3 intentos por tema**, si superas los 3 intentos → **deriva humano**.\n- Fuera de horario → mensaje diferido.\n\n---\n\n## 🖥️ Estructura de Salida Final (JSON)\n\n```json\n{\n  \"status\": \"ok | needs_info | error\",\n  \"message_to_user\": \"Texto final para el cliente con negritas y emojis.\",\n  \"options\": [\"Opción 1\", \"Opción 2\", \"Opción 3\"],\n\n  \"intent\": {\n    \"type\": \"consult_event | create_event | update_event | cancel_event | quote | info | support | profile_update | ventas | servicio | pqr | finanzas | comparativa | otro\",\n    \"sentiment\": {\n      \"emociones\": [\"array\"],\n      \"nivel\": \"string\",\n      \"resumen\": \"string\"\n    },\n    \"hot_bucket\": \"HOT_A | HOT_B | HOT_C | WARM | COLD | PQR\"\n  },\n\n  \"entities\": {\n    \"lead_id\": \"uuid | null\",\n    \"event_id\": \"string | null\",\n    \"when_iso\": \"timestamptz | null\",\n    \"location\": \"string | null\",\n    \"product\": \"string | null\",\n    \"vehicle\": {\n      \"placa\": \"string | null\",\n      \"modelo\": \"string | null\"\n    },\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"phone\": \"string\",\n    \"cedula\": \"string\"\n  },\n\n  \"db_ops\": [],\n  \"lead\": {},\n  \"media\": {},\n  \"scheduling\": {\n    \"action\": \"NONE | CREATE | UPDATE | DELETE | CHECK\",\n    \"calculate_time_input\": \"string\",\n    \"iso_slot_requested\": \"string\",\n    \"options\": [],\n    \"event\": {}\n  },\n  \"geo\": {\n    \"need_gps\": false,\n    \"customer_maps_link\": \"string\",\n    \"lat\": null,\n    \"lon\": null,\n    \"closest\": []\n  },\n  \"finance\": {\n    \"needs_human\": false,\n    \"reason\": \"string\"\n  },\n  \"actions\": {\n    \"save_lead\": true,\n    \"update_lead_status\": true,\n    \"calendar_call_required\": false,\n    \"handover_to_human\": false, \n    \"shutdown_bot_for_contact\": false,\n    \"labels\": [],\n    \"omnicem_custom_attributes\": {\n      \"Leo\": \"ON\",\n      \"atencion_por_un_agente\": false,\n      \"derivacion_a_un_humano\": false\n    }\n  },\n  \"sheets\": {},\n  \"route\": {\n    \"type\": \"text | image | audio | pdf | location\",\n    \"text\": \"Mensaje final de texto o caption de archivo.\",\n    \"fileId\": \"ID de Google Drive (opcional)\",\n    \"sheetLookup\": {\n      \"city\": \"Quito\",\n      \"branch\": \"Quito Sur\"\n    }\n  }\n}",
+          "enableStreaming": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        320,
+        -272
+      ],
+      "id": "8642e72d-78e9-41a5-8ce8-8e2185a541fc",
+      "name": "AI Agent1"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        16
+      ],
+      "id": "c74deb42-e54d-41ff-80db-f32722e01b62",
+      "name": "Google Gemini Chat Model1",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "5GscAtSxWlw1Avj8_hyundai",
+          "name": "Google Gemini(PaLM) Api account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cf5be06f-506b-4773-80e7-609a175fe2a6",
+              "leftValue": "={{ $json.actions.omnicem_custom_attributes.derivacion_a_un_humano }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "92402f06-8a8f-4237-9012-3f80a134e620",
+      "name": "¿Es derivación?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1472,
+        -816
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "ccaceres@codercase.com",
+        "toEmail": "opinilla@hyundai.com.ec",
+        "ccEmail": "luisadrian.w@aigentss.com, cristobalcaceres@hotmail.com, Anibal.molano@aigentss.com, cto@aigentss.com",
+        "subject": "=Derivación Omnicem -  {{ $json.intent.sentiment.resumen }}",
+        "text": "=Resumen: {{ $json.resumen }} \n\nAl cliente se le respondió con: {{ $json.message_to_user }}",
+        "html": "=",
+        "options": {}
+      },
+      "id": "63b82fdf-d74c-4ef0-94d3-d7bce5418b67",
+      "name": "Enviar correo (poste.io)",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 1,
+      "position": [
+        1904,
+        -816
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "smtp": {
+          "id": "lRtnFEKr9TAI82Mc",
+          "name": "SMTP NO REPLY CODERCASE"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "keys",
+        "keyPattern": "*",
+        "getValues": false
+      },
+      "id": "9ec1a530-930d-4db6-9fa9-1f78b85b412a",
+      "name": "Obtener todas las keys",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        -352,
+        -464
+      ],
+      "credentials": {
+        "redis": {
+          "id": "x8RYBH0qq0niMCK0_hyundai",
+          "name": "Redis Base #3_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "key": "={{ $json.keys }}"
+      },
+      "id": "b5e6e223-fa3c-4ff6-ae2a-c943e42a7eec",
+      "name": "Eliminar cada key",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        -144,
+        -464
+      ],
+      "credentials": {
+        "redis": {
+          "id": "x8RYBH0qq0niMCK0_hyundai",
+          "name": "Redis Base #3_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldsToAggregate": {
+          "fieldToAggregate": [
+            {
+              "fieldToAggregate": "content",
+              "renameField": true,
+              "outputFieldName": "messages"
+            },
+            {
+              "fieldToAggregate": "info_imagen",
+              "renameField": true,
+              "outputFieldName": "info_imagen"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        1152
+      ],
+      "id": "338776d9-1c96-4ea3-82ef-19fb925a4588",
+      "name": "Array Merge"
+    },
+    {
+      "parameters": {
+        "content": "## Por Correo SMTP",
+        "height": 224,
+        "width": 304,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1792,
+        -880
+      ],
+      "typeVersion": 1,
+      "id": "695dfe96-132d-4e4d-a1ae-72bc18533df7",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## Derivación",
+        "height": 224,
+        "width": 640,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1120,
+        -880
+      ],
+      "typeVersion": 1,
+      "id": "016cc8fd-0e18-44d0-a7b4-09eefd7e5f62",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "## Por Whatsapp\n\n** Mensajes de plantilla frente a mensajes sin plantilla\n\n** Oriana deberia escribir constantemente max 23 horas de diferentcia para activar el uso de plantillas",
+        "height": 240,
+        "width": 304,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1456,
+        -1152
+      ],
+      "typeVersion": 1,
+      "id": "77d67edc-013e-43ea-a3b8-0954a1dfb982",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = JSON.parse($json[\"output\"]);\nreturn data;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        -800
+      ],
+      "id": "04e57b20-e0ee-4951-a376-1ef5212a978b",
+      "name": "Parseo"
+    },
+    {
+      "parameters": {
+        "content": "## Integración SGC - Hyundai\n** Preparar un worflow para que todos los dias a las 2 am se ejecute, haga login en SGC y permita generar una carga a la memoria Vectorial del Agente, para mantenerlo actualizado",
+        "height": 192,
+        "width": 560
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2512,
+        -192
+      ],
+      "typeVersion": 1,
+      "id": "ac06166d-5bb9-4bbf-9916-21d63260bd14",
+      "name": "Sticky Note7"
+    },
+    {
+      "parameters": {
+        "content": "## Login SGC",
+        "height": 80,
+        "width": 560
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2512,
+        16
+      ],
+      "typeVersion": 1,
+      "id": "1362893a-baa1-4133-8c37-750b2ab1f8d0",
+      "name": "Sticky Note8"
+    },
+    {
+      "parameters": {
+        "content": "## Por OAuth Microsoft",
+        "height": 240,
+        "width": 304,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1792,
+        -1152
+      ],
+      "typeVersion": 1,
+      "id": "8a341c51-c886-4c41-bcb6-b4838c33a241",
+      "name": "Sticky Note9"
+    },
+    {
+      "parameters": {
+        "content": "## Actualizar etiqueta en Omnicem y Asignar Agente Derivado",
+        "height": 240,
+        "width": 304,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1120,
+        -1152
+      ],
+      "typeVersion": 1,
+      "id": "66635e30-dda6-48ca-aced-1404992c6fb1",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "content": "## GET Provincias",
+        "height": 80,
+        "width": 560
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2512,
+        112
+      ],
+      "typeVersion": 1,
+      "id": "da34ab53-7c16-42ff-94ad-56ebb179938a",
+      "name": "Sticky Note10"
+    },
+    {
+      "parameters": {
+        "content": "## GET Agencias Provincia",
+        "height": 80,
+        "width": 560
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2512,
+        208
+      ],
+      "typeVersion": 1,
+      "id": "61efa14e-e2c0-4eba-8f64-bb92dc606c2b",
+      "name": "Sticky Note11"
+    },
+    {
+      "parameters": {
+        "content": "## SET Lead WEB/FB/IG/WA  ??? \n** Que pasa en caso de Duplicados? Existentes?",
+        "height": 80,
+        "width": 560,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2512,
+        304
+      ],
+      "typeVersion": 1,
+      "id": "4d54ce9f-a5fb-4f1d-bcde-b186a020e2d0",
+      "name": "Sticky Note12"
+    },
+    {
+      "parameters": {
+        "content": "## Consulta de modelos vigentes",
+        "height": 80,
+        "width": 560
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2512,
+        400
+      ],
+      "typeVersion": 1,
+      "id": "9ead5626-9902-422c-b481-3c487efe9096",
+      "name": "Sticky Note13"
+    },
+    {
+      "parameters": {
+        "content": "## Consulta de modelos vigentes",
+        "height": 80,
+        "width": 560
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2512,
+        496
+      ],
+      "typeVersion": 1,
+      "id": "2c52d751-f736-4500-af42-595e58aaab80",
+      "name": "Sticky Note14"
+    },
+    {
+      "parameters": {
+        "content": "## Envio de Fichas  técnicas de vehículos en PDF"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1664,
+        432
+      ],
+      "typeVersion": 1,
+      "id": "b542203e-98e3-43d6-bd93-a06f50ab5d32",
+      "name": "Sticky Note16"
+    },
+    {
+      "parameters": {
+        "content": "## Calificación de LEADs\n** Pendiente de validar formulas o promts"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1664,
+        224
+      ],
+      "typeVersion": 1,
+      "id": "c8a29213-b90f-43b4-a7a9-c5d9840e736c",
+      "name": "Sticky Note17"
+    },
+    {
+      "parameters": {
+        "content": "## Agendamiento de Citas\n",
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1744,
+        -80
+      ],
+      "typeVersion": 1,
+      "id": "68ec862f-6e92-4160-ae3c-95b174dde683",
+      "name": "Sticky Note18"
+    },
+    {
+      "parameters": {
+        "description": "Usa esta Tool para calcular la distancia al concecionario mas cercano al cliente, para usar esta tool el agente debe solicitar al cliente su ubicacion GPS y el cliente ingresara un link de google maps que usaremos para obtener la Latitud y la Longitud del punto de ubicacion del cliente, con estos datos calcularemos la distancia a los concecionarios de la ciudad en la que se encuentra el cliente y se determinara la distancia mas cercana ubicando el menor valor obtenido. Una vez que esto este listo se le indicara al cliente cual es el concecionario que le queda mas cerca segun su ubicacion de google maps, si hubiera mas de una ubicacion que este relativamente cerca, (Menos a 1 Km) se debe enviar ambas ubicaciones de google Maps de ambos concecionarios, para ello se usara la Tool de google sheet del sheet \"Agencias hyundai\" ya que alli se encuentra el listado de concecionarios por ciudad y cada uno esta con su respectivo link de google maps. ",
+        "jsCode": "// === INPUT ESPERADO ===\n// items[0].json debe contener:\n// {\n//   \"cliente_url\": \"https://www.google.com/maps?q=-2.145927,-79.964529\",\n//   \"agencias\": [\n//     { \"nombre\": \"Hyundai Norte\", \"url\": \"https://www.google.com/maps?q=-2.120310,-79.909841\" },\n//     { \"nombre\": \"Hyundai Sur\", \"url\": \"https://www.google.com/maps?q=-2.195321,-79.888903\" }\n//   ]\n// ]\n\nfunction getLatLngFromUrl(url) {\n  const match = url.match(/@?(-?\\d+\\.\\d+),\\s*(-?\\d+\\.\\d+)/);\n  if (!match) throw new Error(\"No se pudo obtener lat/lon del link de Google Maps\");\n  return { lat: parseFloat(match[1]), lon: parseFloat(match[2]) };\n}\n\nfunction haversineDistance(coord1, coord2) {\n  const R = 6371; // Radio Tierra km\n  const dLat = (coord2.lat - coord1.lat) * Math.PI / 180;\n  const dLon = (coord2.lon - coord1.lon) * Math.PI / 180;\n  const a =\n    Math.sin(dLat / 2) ** 2 +\n    Math.cos(coord1.lat * Math.PI / 180) * Math.cos(coord2.lat * Math.PI / 180) *\n    Math.sin(dLon / 2) ** 2;\n  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));\n  return R * c;\n}\n\nconst input = items[0].json;\nconst cliente = getLatLngFromUrl(input.cliente_url);\n\nlet resultados = input.agencias.map(a => {\n  const agenciaCoord = getLatLngFromUrl(a.url);\n  const distancia = haversineDistance(cliente, agenciaCoord);\n  return { ...a, distancia_km: distancia };\n});\n\nresultados.sort((a, b) => a.distancia_km - b.distancia_km);\nconst masCercanas = resultados.filter(a => a.distancia_km - resultados[0].distancia_km < 1);\n\nreturn [\n  {\n    json: {\n      cliente,\n      resultado: masCercanas,\n      mensaje:\n        masCercanas.length === 1\n          ? `El concesionario más cercano es ${masCercanas[0].nombre}, a ${masCercanas[0].distancia_km.toFixed(2)} km.`\n          : `Los concesionarios más cercanos son:\\n${masCercanas.map(a => `- ${a.nombre} (${a.distancia_km.toFixed(2)} km)`).join(\"\\n\")}`\n    }\n  }\n];\n",
+        "specifyInputSchema": true,
+        "jsonSchemaExample": "{\n  \"resultado\": \"lista de concesionarios con distancias\",\n  \"mensaje\": \"texto listo para enviar por WhatsApp\"\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        32,
+        912
+      ],
+      "id": "ccc0b898-b2a9-4ea6-81ba-ba89cd4f88bb",
+      "name": "Distancia a concecionario",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+      "typeVersion": 1.2,
+      "position": [
+        -112,
+        912
+      ],
+      "id": "d82f3140-8083-41ed-8e5c-1c578f158f64",
+      "name": "MCP Database",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "content": "## Corregir agencias mas cercanas, cuando se recepte ubicación del cliente",
+        "height": 208
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2032,
+        -160
+      ],
+      "typeVersion": 1,
+      "id": "e6e862ad-8f40-49f1-b1b2-a4fe3f90801b",
+      "name": "Sticky Note19"
+    },
+    {
+      "parameters": {
+        "content": "## Manejo de etiquetas",
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1952,
+        224
+      ],
+      "typeVersion": 1,
+      "id": "4d415e88-2400-4542-b96d-17d672d403d4",
+      "name": "Sticky Note20"
+    },
+    {
+      "parameters": {
+        "content": "## Envio de ubicaciones solicitadas o mas cercanas",
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1952,
+        16
+      ],
+      "typeVersion": 1,
+      "id": "6b113930-229d-4b4e-987a-1d2490a8055d",
+      "name": "Sticky Note21"
+    },
+    {
+      "parameters": {
+        "content": "## Envio de Fotos de vehículos"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1952,
+        432
+      ],
+      "typeVersion": 1,
+      "id": "91fbe709-b553-4d6e-bcef-6b99c5528586",
+      "name": "Sticky Note22"
+    },
+    {
+      "parameters": {
+        "content": "## Chat conversacional de venta de servicios",
+        "width": 432,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1712,
+        -1056
+      ],
+      "typeVersion": 1,
+      "id": "4582bf0b-ca2d-499d-9ad0-6d2cfa357469",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Devolución de sucursales",
+        "width": 432,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -2176,
+        -1056
+      ],
+      "typeVersion": 1,
+      "id": "45109eb1-e913-458d-a114-de6da9bf7bf1",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Promociones vigentes",
+        "width": 432,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1248,
+        -1056
+      ],
+      "typeVersion": 1,
+      "id": "31125954-cd8f-4aae-aa42-b15f9c437f5a",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "98c64e10-ee06-4313-aa44-2c1620449751",
+              "name": "body.conversation",
+              "value": "={{ $json.body.conversation }}",
+              "type": "object"
+            },
+            {
+              "id": "f503cdf5-0b29-4303-ab95-a23dc0598074",
+              "name": "body.event",
+              "value": "={{ $json.body.event }}",
+              "type": "string"
+            },
+            {
+              "id": "846b8a87-ecf1-4f12-b48f-d8ec0fec45b0",
+              "name": "body.account",
+              "value": "={{ $json.body.account }}",
+              "type": "object"
+            },
+            {
+              "id": "6de4f8e0-ab79-429d-88ed-4f4d71c4daf6",
+              "name": "TOKEN",
+              "value": "GF8PNBhMEye4bm3wB1Kt1rSF",
+              "type": "string"
+            },
+            {
+              "id": "0af26e99-8bf0-4245-900e-888052112f36",
+              "name": "URL_OMNICEM",
+              "value": "chatwoot:3000",
+              "type": "string"
+            },
+            {
+              "id": "70105191-2309-4971-aa63-f5d69528daa3",
+              "name": "sessionId",
+              "value": "={{ $json.body.conversation.messages[0].conversation_id }}",
+              "type": "number"
+            },
+            {
+              "id": "ff0fb682-33d3-4fe6-ba3e-36a995882825",
+              "name": "content_type",
+              "value": "={{ $json.body.conversation.messages[0].content_type }}",
+              "type": "string"
+            },
+            {
+              "id": "b5cf09cb-d394-4b6b-bef7-3fe6f41a5846",
+              "name": "channel",
+              "value": "={{ $json.body.conversation.channel }}",
+              "type": "string"
+            },
+            {
+              "id": "438205ef-e52c-4c44-9310-cd0f4f7ae3ee",
+              "name": "body.date_time",
+              "value": "={{ $json.body.created_at }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1136,
+        -864
+      ],
+      "id": "9e8356f2-a678-4a21-9969-707c6f85b837",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "479c095b-bfcd-4b20-b566-0b62cc72c1ec",
+              "leftValue": "={{ $json.body.message_type }}",
+              "rightValue": "incoming",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "e079e7b1-5451-42d2-be81-9c01b2b8d687",
+              "leftValue": "",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1952,
+        -848
+      ],
+      "id": "b1adb6d4-fc65-4227-ad75-f04fe50f8a44",
+      "name": "incoming?"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "messages_created_test",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -2160,
+        -848
+      ],
+      "id": "c7c6ed06-e0f7-414a-99b7-cf1253dbcd0c",
+      "name": "Webhook",
+      "webhookId": "d03a3eb2-9cb7-43a2-85ea-3ae7c50ccd0d"
+    },
+    {
+      "parameters": {
+        "operation": "push",
+        "list": "={{ $('Edit Fields').item.json.sessionId }}_buffer",
+        "messageData": "={{ JSON.stringify({\n\"data\":$json.raw.body.content,\n\"sessionId\":$json.raw.sessionId,\n\"date_time\":$json.raw.body.date_time,\n\"content_type\":$json.type,\n\"content_text\":$json.content_text\n}) }}",
+        "tail": true
+      },
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        -2112,
+        336
+      ],
+      "id": "5b900c50-6a4e-4863-848f-59b8e17762f2",
+      "name": "Push_Buffer_Data",
+      "credentials": {
+        "redis": {
+          "id": "x8RYBH0qq0niMCK0_hyundai",
+          "name": "Redis Base #3_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "propertyName": "message",
+        "key": "={{ $('Edit Fields').item.json.sessionId }}_buffer",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        -1888,
+        336
+      ],
+      "id": "26c30bc7-43f3-4829-a215-533147db44f0",
+      "name": "Get_Buffer_Data",
+      "credentials": {
+        "redis": {
+          "id": "x8RYBH0qq0niMCK0_hyundai",
+          "name": "Redis Base #3_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d0ab8041-6a19-4895-869f-91f4661c8725",
+              "name": "concat_message",
+              "value": "={{ $json.message.map(item => JSON.parse(item).content_text).join(' ') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -928,
+        336
+      ],
+      "id": "d77868c7-f34c-4338-a17e-6abdaba9c6d9",
+      "name": "Concatenar Buffer"
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "key": "={{ $('Edit Fields').item.json.sessionId }}_buffer"
+      },
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        -1200,
+        208
+      ],
+      "id": "b132b057-2d2f-49a4-b4d2-4de377d30589",
+      "name": "Delete_Buffer_Data",
+      "credentials": {
+        "redis": {
+          "id": "x8RYBH0qq0niMCK0_hyundai",
+          "name": "Redis Base #3_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -1488,
+        208
+      ],
+      "id": "d7503bff-dd96-4177-a541-dd2f1b887e08",
+      "name": "Do nothing"
+    },
+    {
+      "parameters": {
+        "amount": 9
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -1200,
+        368
+      ],
+      "id": "bf5ed110-42be-4902-aed1-cdd9892b2808",
+      "name": "Waite 9 seconds",
+      "webhookId": "e40c4f2d-2359-4366-88cc-47f85a375713"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "91a23b67-3d4d-40eb-8a9c-58350855ffee",
+              "leftValue": "={{ new Date(JSON.parse($json.message?.last() || '{\"date_time\":null}').date_time).toISOString() }}",
+              "rightValue": "={{ new Date(Date.now() - 9000).toISOString() }}",
+              "operator": {
+                "type": "dateTime",
+                "operation": "before"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1488,
+        352
+      ],
+      "id": "284f1abc-4aeb-4ada-b13d-f0b3c08f81e1",
+      "name": "Is in last 9 Seconds?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "89471812-8931-4644-842a-fcae90474848",
+              "leftValue": "={{ $('Edit Fields').item.json.body.content }}",
+              "rightValue": "={{ JSON.parse($json.message?.last() || '{\"data\":null}')?.data }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1712,
+        336
+      ],
+      "id": "aa0c9a65-5197-4ff2-aad8-12cfe9a50e4b",
+      "name": "Is new message?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Obtener el mensaje principal\nconst message = items[0].json.body;\n\n// Texto del mensaje\nconst content = message.content || \"\";\n\n// Adjuntos\nconst attachments = message.attachments || [];\n\n// Regex → generar URL interna\nfunction makeInternal(url) {\n  if (!url) return url;\n\n  return url.replace(\n    /^https:\\/\\/([a-zA-Z0-9\\-]+)\\.ocm\\.aigentss\\.cloud/,\n    'http://$1.ocm.aigentss.cloud:3000'\n  );\n}\n\n// ------------------------------------\n// Procesar TODOS los attachments\n// ------------------------------------\nconst processedAttachments = attachments.map(att => ({\n  ...att,\n  data_url_external: att.data_url || null,\n  data_url_internal: makeInternal(att.data_url),\n  thumb_url_external: att.thumb_url || null,\n  thumb_url_internal: makeInternal(att.thumb_url)\n}));\n\n// ------------------------------------\n// Detectar tipos presentes en el mensaje\n// ------------------------------------\nlet type = \"unknown\";\n\n// Caso: solo texto\nif (attachments.length === 0 && content.trim() !== \"\") {\n  type = \"text\";\n\n// Caso: hay adjuntos\n} else if (attachments.length > 0) {\n\n  // Si TODOS son imágenes\n  if (attachments.every(a => a.file_type === \"image\")) {\n    type = content.trim() !== \"\" ? \"image_with_text\" : \"image\";\n  }\n\n  // Si TODOS son audios\n  else if (attachments.every(a => a.file_type === \"audio\")) {\n    type = \"audio\";\n\n  // Si TODOS son location\n  } else if (attachments.every(a => a.file_type === \"location\")) {\n    type = \"location\";\n\n  // Mezcla de adjuntos → híbrido\n  } else {\n    type = \"mixed\";\n  }\n}\n\nreturn [\n  {\n    json: {\n      type,\n      content_text: content,\n      attachments: processedAttachments,\n      raw: items[0].json\n    }\n  }\n];\n"
+      },
+      "id": "5246c210-c6a5-4ce9-a406-a1a65384cbb9",
+      "name": "Detect Type",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -2016,
+        -432
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.attachments[0].data_url_internal }}",
+        "options": {}
+      },
+      "id": "b4bebd33-50e1-4f35-8e6d-ccde21ddb456",
+      "name": "Download Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        -1488,
+        -464
+      ],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.attachments[0].data_url_internal }}",
+        "options": {}
+      },
+      "id": "7aa8bbf7-39c0-4333-a9ed-9af536189e62",
+      "name": "Download Audio",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        -1488,
+        -624
+      ],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\nfor (const item of $input.all()) {\n  item.json.myNewField = 1;\n}\n\nreturn $input.all();"
+      },
+      "id": "f8558b01-985c-4605-8497-168c24b4c643",
+      "name": "Format Location",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -1488,
+        -320
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const out = [];\n\nfor (const item of $input.all()) {\n  const type = item.json.type;\n\n  if (type === \"text\" || type === \"image_with_text\") {\n    out.push({\n      json: {\n        content: item.json.content_text,\n        type: \"text\"\n      }\n    });\n  } else {\n    out.push(item);\n  }\n}\n\nreturn out;\n"
+      },
+      "id": "d25554db-6f03-4fca-bdaa-992ce0065f48",
+      "name": "Format Text",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -1488,
+        -176
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const node = items[0].json;\nconst editFields = $('Edit Fields').item.json;\n\nlet result = {\n  type: node.type,\n  content_text: node.content,\n  raw: editFields\n  \n};\n\nreturn [{ json: result }];\n"
+      },
+      "id": "6d0aec05-9a7c-447e-8ac2-a895ba4057cb",
+      "name": "Normalize All",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -864,
+        -64
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "resource": "audio",
+        "operation": "transcribe",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        -1312,
+        -624
+      ],
+      "id": "ef8a7857-d66c-4b73-b25c-bfcd8df0db68",
+      "name": "Transcribe a recording",
+      "credentials": {
+        "openAiApi": {
+          "id": "owHroLazOkirAFA8_hyundai",
+          "name": "OpenAi account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "image",
+        "operation": "analyze",
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "text": "Describe this image in detail.",
+        "inputType": "base64",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        -1312,
+        -464
+      ],
+      "id": "02215ba7-9b73-43b7-b79f-51e6eaf6e9a1",
+      "name": "Analyze image",
+      "credentials": {
+        "openAiApi": {
+          "id": "owHroLazOkirAFA8_hyundai",
+          "name": "OpenAi account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ab0a980c-6737-4762-ba76-3414bc85ddb3",
+              "leftValue": "={{$json.type}}",
+              "rightValue": "image",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1824,
+        -448
+      ],
+      "id": "a394b26a-536a-4294-91c7-918cadfe25e3",
+      "name": "If Image"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ab0a980c-6737-4762-ba76-3414bc85ddb3",
+              "leftValue": "={{$json.type}}",
+              "rightValue": "text",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1824,
+        -160
+      ],
+      "id": "f817219d-242c-497b-98b4-40d2d7b913b9",
+      "name": "If Text"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ab0a980c-6737-4762-ba76-3414bc85ddb3",
+              "leftValue": "={{$json.type}}",
+              "rightValue": "audio",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1824,
+        -608
+      ],
+      "id": "de5a4cb5-6366-4a62-91bc-f89ed5abb7e2",
+      "name": "If Audio"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ab0a980c-6737-4762-ba76-3414bc85ddb3",
+              "leftValue": "={{$json.type}}",
+              "rightValue": "location",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1824,
+        -304
+      ],
+      "id": "882549fa-6572-4f55-a1f7-b4849fce36bc",
+      "name": "If Location"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -1488,
+        -16
+      ],
+      "id": "6fe44733-9e1b-4706-926e-672df22bbaa2",
+      "name": "No Operation, do nothing"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e0e3e316-11b1-429c-b38a-697a222af5f7",
+              "name": "type",
+              "value": "audio",
+              "type": "string"
+            },
+            {
+              "id": "47775a8f-a7bf-4c55-9792-744f32de8546",
+              "name": "content",
+              "value": "={{ $json.text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1136,
+        -624
+      ],
+      "id": "e2b93878-9985-454f-b1a7-cc8a56b71575",
+      "name": "Extra Fields Audio"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1dca58d1-1dbe-488c-a504-e9df47db26da",
+              "name": "type",
+              "value": "image",
+              "type": "string"
+            },
+            {
+              "id": "f80b24a9-c9a2-4f51-8dff-e9c0ede32b0a",
+              "name": "content",
+              "value": "={{ $json.content }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1136,
+        -464
+      ],
+      "id": "0f311907-5615-469b-9069-2a0f1540da40",
+      "name": "Extra Fields Image"
+    },
+    {
+      "parameters": {
+        "content": "##    Buffer de mensajes de la conversación del lado del cliente\n",
+        "height": 480,
+        "width": 1392,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -2176,
+        144
+      ],
+      "typeVersion": 1,
+      "id": "eb08dba0-ed66-4c8a-a295-da26e0dc316e",
+      "name": "Sticky Note15"
+    }
+  ],
+  "connections": {
+    "Embeddings": {
+      "ai_embedding": [
+        [
+          {
+            "node": "RAG_MEMORY",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reranker Cohere": {
+      "ai_reranker": [
+        [
+          {
+            "node": "RAG_MEMORY",
+            "type": "ai_reranker",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RAG_MEMORY": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer questions with a vector store": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase Vector Store": {
+      "ai_vectorStore": [
+        [
+          {
+            "node": "Answer questions with a vector store",
+            "type": "ai_vectorStore",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Base de Datos": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings Google Gemini2": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Conocimiento",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conocimiento": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MCP Calendar": {
+      "ai_tool": [
+        []
+      ]
+    },
+    "Reranker Cohere1": {
+      "ai_reranker": [
+        [
+          {
+            "node": "Conocimiento",
+            "type": "ai_reranker",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model7": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Answer questions with a vector store",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update leads": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update clientes": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings 3-small": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Supabase Vector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "INDICE FOTOS": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get conversations1": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat_History": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AGENCIAS_HYUNDAI": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "INDICE_FICHAS_TECNICAS": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CalculateTime": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Modelos_precios": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Think1": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculadora1": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GPT Sch1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent1": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Parseo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_languageModel",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "¿Es derivación?": {
+      "main": [
+        [
+          {
+            "node": "Enviar correo (poste.io)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar correo (poste.io)": {
+      "main": [
+        []
+      ]
+    },
+    "Obtener todas las keys": {
+      "main": [
+        [
+          {
+            "node": "Eliminar cada key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Array Merge": {
+      "main": [
+        []
+      ]
+    },
+    "Parseo": {
+      "main": [
+        [
+          {
+            "node": "¿Es derivación?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Distancia a concecionario": {
+      "ai_tool": [
+        []
+      ]
+    },
+    "MCP Database": {
+      "ai_tool": [
+        []
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Detect Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "incoming?": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "incoming?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Push_Buffer_Data": {
+      "main": [
+        [
+          {
+            "node": "Get_Buffer_Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get_Buffer_Data": {
+      "main": [
+        [
+          {
+            "node": "Is new message?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete_Buffer_Data": {
+      "main": [
+        [
+          {
+            "node": "Concatenar Buffer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Waite 9 seconds": {
+      "main": [
+        [
+          {
+            "node": "Get_Buffer_Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is in last 9 Seconds?": {
+      "main": [
+        [
+          {
+            "node": "Delete_Buffer_Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Waite 9 seconds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is new message?": {
+      "main": [
+        [
+          {
+            "node": "Do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is in last 9 Seconds?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect Type": {
+      "main": [
+        [
+          {
+            "node": "If Text",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "If Image",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "If Audio",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "If Location",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Image": {
+      "main": [
+        [
+          {
+            "node": "Analyze image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Audio": {
+      "main": [
+        [
+          {
+            "node": "Transcribe a recording",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Text": {
+      "main": [
+        [
+          {
+            "node": "Normalize All",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize All": {
+      "main": [
+        [
+          {
+            "node": "Push_Buffer_Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcribe a recording": {
+      "main": [
+        [
+          {
+            "node": "Extra Fields Audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze image": {
+      "main": [
+        [
+          {
+            "node": "Extra Fields Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Image": {
+      "main": [
+        [
+          {
+            "node": "Download Image",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Text": {
+      "main": [
+        [
+          {
+            "node": "Format Text",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Audio": {
+      "main": [
+        [
+          {
+            "node": "Download Audio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Location": {
+      "main": [
+        [
+          {
+            "node": "Format Location",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extra Fields Audio": {
+      "main": [
+        []
+      ]
+    },
+    "Extra Fields Image": {
+      "main": [
+        []
+      ]
+    },
+    "Concatenar Buffer": {
+      "main": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "1445e409-0f80-5d6f-8713-8a668e54630d",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

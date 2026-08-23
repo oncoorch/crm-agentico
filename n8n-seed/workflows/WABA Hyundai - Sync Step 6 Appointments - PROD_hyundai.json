@@ -1,0 +1,184 @@
+{
+  "id": "bmWzqQzyzSUdrDxX_hyundai",
+  "name": "WABA Hyundai - Sync Step 6 Appointments - PROD_hyundai",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a0d757b8-056c-4439-b3f1-303cab705bc5",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -560,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "* * * * *"
+            }
+          ]
+        }
+      },
+      "id": "409bb1be-633e-4e06-a6e2-e687feda21df",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -560,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "path": "waba-step6-sync-run",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "7bf46001-fc7b-43c3-b621-f9a7a9d5ea7b",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -560,
+        240
+      ],
+      "webhookId": "65fea727-815f-4fcd-ae17-6912573f9b56"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "6101f03c-8eaf-4ad9-97a1-d243ff53fbc5",
+              "name": "URL_MCP",
+              "value": "http://mcp_server_prod:8000",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "c5f7be5d-8062-4d96-918c-1b5acc3e98c3",
+      "name": "Set MCP URL",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -304,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.URL_MCP + '/api/appointments/sync-next' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({}) }}",
+        "options": {}
+      },
+      "id": "d34de63d-02f1-4a52-b589-5ace0cd4ff89",
+      "name": "HTTP Appointment Sync Next",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -16,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $json || {};\nreturn [{ json: {\n  ok: Boolean(result.ok),\n  skipped: Boolean(result.skipped),\n  appointment_id: result.appointment_id || null,\n  sgc_sync_status: result.sgc_sync_status || null,\n  sgc_lead_id: result.sgc_lead_id || null,\n  sgc_result: result.sgc_result || null,\n  message: result.message || result.error || null,\n  raw: result,\n} }];"
+      },
+      "id": "60693b30-1ccd-4500-88dd-52187966cdef",
+      "name": "Format Sync Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        80
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set MCP URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set MCP URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set MCP URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set MCP URL": {
+      "main": [
+        [
+          {
+            "node": "HTTP Appointment Sync Next",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Appointment Sync Next": {
+      "main": [
+        [
+          {
+            "node": "Format Sync Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "f974a1cc-4b77-5405-afae-6bc62ad306c2",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

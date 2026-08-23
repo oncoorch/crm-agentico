@@ -78,6 +78,7 @@ Este repositorio incluye scripts para operar VPS nuevos con la misma base madura
 - `scripts/chatwoot_branding_assets.sh`: aplica imagenes e iconos autorizados desde `branding/chatwoot/public`.
 - `scripts/install_maintenance_cron.sh`: instala las tareas periodicas en el servidor.
 - `scripts/n8n_export_backup.sh`: exporta workflows y credenciales de n8n a `private/n8n-backups`.
+- `scripts/n8n_seed_import.sh`: importa automaticamente workflows y credenciales semilla en n8n durante el despliegue.
 
 Para instalar las tareas periodicas en un VPS ya desplegado:
 
@@ -97,6 +98,7 @@ Los respaldos y secretos reales deben quedar bajo `private/`, que esta excluida 
 
 - `docs/dokploy-runbook.md`: despliegue en Dokploy.
 - `docs/mcp-connector.md`: uso e implementacion del conector MCP Agentico.
+- `docs/n8n-seed.md`: importacion reproducible de workflows y credenciales n8n desde GitHub/Dokploy.
 - `docs/source-vps-inventory.md`: VPS usados como referencia de arquitectura.
 - `CONTEXTO_GPT.md`: resumen para continuar el trabajo en futuras conversaciones.
 

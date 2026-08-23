@@ -1,0 +1,154 @@
+{
+  "id": "4mWsCwmQlWRmMAER_quicklink",
+  "name": "QA-01 — Master Shadow_quicklink",
+  "nodes": [
+    {
+      "id": "qa-shadow-webhook-001",
+      "name": "Webhook Shadow Master",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        120,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cris-qa-shadow-master",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "0hYeKlozui5dMRDE_quicklink",
+          "name": "QL Sync Manual Webhook Token_QUICKLINK"
+        }
+      },
+      "webhookId": "cris-qa-shadow-master-permanent"
+    },
+    {
+      "id": "qa-shadow-normalize-001",
+      "name": "Code - Normalize Shadow Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const body = $json.body || $json || {};\nconst payload = body.payload || body;\nconst phone = body.phone || payload.phone || payload.from || payload.contact?.phone_number || payload.body?.phone || '';\nif (phone && !/^\\+?[0-9][0-9\\s().-]{6,}$/.test(String(phone))) throw new Error('invalid phone for CRIS QA shadow');\nconst runKey = String(body.run_key || body.run_id || `cris-qa-shadow-${Date.now()}`);\nreturn [{ json: { run_id: body.run_id || null, run_key: runKey, case_id: body.case_id || null, phone, conversation_id: body.conversation_id || payload.conversation_id || null, message_type: body.message_type || payload.kind || payload.event || 'shadow_payload', payload } }];"
+      }
+    },
+    {
+      "id": "qa-shadow-ensure-run-001",
+      "name": "PG - Ensure Shadow Run",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        760,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH input AS (SELECT NULLIF($1, '')::uuid AS requested_run_id, $2::text AS run_key), existing AS (SELECT r.id FROM cris_test_runs r, input i WHERE r.id = i.requested_run_id), inserted AS (INSERT INTO cris_test_runs (run_key, delivery_mode, allow_public_messages, requested_windows, scenario_groups, input, created_by) SELECT input.run_key, 'shadow', false, ARRAY['3m']::text[], ARRAY['shadow']::text[], jsonb_build_object('source', 'cris-qa-shadow-master'), 'n8n-cris-qa-shadow' FROM input WHERE NOT EXISTS (SELECT 1 FROM existing) ON CONFLICT (run_key) DO UPDATE SET updated_at = now() RETURNING id) SELECT coalesce((SELECT id FROM existing), (SELECT id FROM inserted)) AS run_id;",
+        "options": {
+          "queryReplacement": "={{ [ $json.run_id || '', $json.run_key ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "qa-shadow-record-outbox-001",
+      "name": "PG - Record Shadow Outbox",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1080,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nINSERT INTO cris_test_outbox (run_id, case_id, delivery_mode, channel, target_phone, target_conversation_id, message_type, would_send_payload, sent, external_status, external_response) VALUES ($1::uuid, NULLIF($2, '')::uuid, 'shadow', 'whatsapp', NULLIF($3, ''), NULLIF($4, '')::uuid, $5, $6::jsonb, false, 'shadow_recorded', jsonb_build_object('source', 'cris-qa-shadow-master')) RETURNING id AS outbox_id, run_id, case_id, target_phone, message_type, sent, created_at;",
+        "options": {
+          "queryReplacement": "={{ [ $('PG - Ensure Shadow Run').first().json.run_id, $('Code - Normalize Shadow Payload').first().json.case_id || '', $('Code - Normalize Shadow Payload').first().json.phone || '', $('Code - Normalize Shadow Payload').first().json.conversation_id || '', $('Code - Normalize Shadow Payload').first().json.message_type, JSON.stringify($('Code - Normalize Shadow Payload').first().json.payload || {}) ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "qa-shadow-note-001",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        120,
+        -60
+      ],
+      "parameters": {
+        "content": "## CRIS QA - Master Shadow\n\nWebhook: POST /cris-qa-shadow-master\n\nRecords would-send payloads into cris_test_outbox.\nNo WhatsApp, Meta or Chatwoot send happens here.\n\nRequires migration V91.",
+        "height": 240,
+        "width": 420
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Shadow Master": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalize Shadow Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Normalize Shadow Payload": {
+      "main": [
+        [
+          {
+            "node": "PG - Ensure Shadow Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Ensure Shadow Run": {
+      "main": [
+        [
+          {
+            "node": "PG - Record Shadow Outbox",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "3d9a3afb-9c8f-5b2d-b21c-a8720f72907b",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

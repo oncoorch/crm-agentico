@@ -1,0 +1,213 @@
+{
+  "id": "MC3Zgng7uZkv4Nvz_quicklink",
+  "name": "QA-10 — QA Janitor_quicklink",
+  "nodes": [
+    {
+      "id": "qa10-cron",
+      "name": "Schedule - cada 15 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        220,
+        200
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/15 * * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "qa10-hook",
+      "name": "Webhook - Barrer ahora",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        220,
+        420
+      ],
+      "webhookId": "cris-qa-janitor-permanent",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cris-qa-janitor",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "0hYeKlozui5dMRDE_quicklink",
+          "name": "QL Sync Manual Webhook Token_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "qa10-code",
+      "name": "Code - Janitor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        300
+      ],
+      "parameters": {
+        "jsCode": "async function __salesProdHttpRequest(opts) {\n  if (opts && String(opts.url || '').includes('/rest/v1/')) {\n    opts = {\n      ...opts,\n      headers: {\n        ...(opts.headers || {}),\n        'Accept-Profile': 'sales_prod',\n        'Content-Profile': 'sales_prod',\n      },\n    };\n  }\n  return this.helpers.httpRequest(opts);\n}\n\n// QA-10 — Janitor de QA. Arregla el problema de fondo: la limpieza de datos\n// sintéticos ya NO depende de que el runner sobreviva hasta el final.\n//\n// Si un runner muere a media corrida (timeout de 300s, reinicio, despliegue),\n// deja leads/conversaciones falsos en producción y un run atascado en RUNNING.\n// Este workflow, con horario propio, los barre solos y avisa si tuvo que hacerlo\n// (porque significa que algo se murió y quieres enterarte).\n//\n// SEGURIDAD: los filtros exigen SIEMPRE las dos condiciones que identifican un\n// dato sintético sin ambigüedad -- quicklink_id >= 990000000 Y el teléfono de QA.\n// Nunca puede tocar un lead real. Además solo borra filas con más de AGE_MIN\n// minutos, muy por encima de lo que dura cualquier corrida legítima.\nconst SB_URL = 'https://quicklink.spb.aigentss.cloud';\nconst SRK = '${REDACTED_JWT}';\nconst H = { apikey: SRK, Authorization: 'Bearer ' + SRK, 'Content-Type': 'application/json' };\nconst AGE_MIN = 45;\nconst QA_PHONE = 'like.*998299109*';\nconst helpers = this.helpers;\nconst nowIso = () => new Date().toISOString();\n\nasync function sb(method, path, payload, prefer) {\n  const headers = Object.assign({}, H);\n  if (prefer) headers.Prefer = prefer;\n  const opt = { method, url: SB_URL + '/rest/v1/' + path, headers, json: true,\n                returnFullResponse: true, ignoreHttpStatusErrors: true, timeout: 25000 };\n  if (payload !== undefined) opt.body = payload;\n  const r = await __salesProdHttpRequest.call(this, opt);\n  if (r.statusCode < 200 || r.statusCode >= 300) {\n    throw new Error(method + ' ' + path + ' -> ' + r.statusCode + ' ' + JSON.stringify(r.body).slice(0, 160));\n  }\n  return r.body;\n}\n\nconst cutoff = new Date(Date.now() - AGE_MIN * 60000).toISOString();\nconst report = { cutoff, stuck_runs: 0, deleted_convs: 0, deleted_leads: 0, errors: [] };\n\n// 1) Runs atascados en RUNNING: el proceso murió sin finalizarlos.\ntry {\n  const stuck = await sb('GET', 'cris_test_runs?status=eq.RUNNING&started_at=lt.' + cutoff + '&select=id,run_key') || [];\n  for (const r of stuck) {\n    await sb('PATCH', 'cris_test_runs?id=eq.' + r.id, {\n      status: 'FAILED', finished_at: nowIso(),\n      summary: { error: 'abortado: la corrida nunca finalizó (barrida por QA-10 janitor)' },\n    }, 'return=minimal');\n  }\n  report.stuck_runs = stuck.length;\n} catch (e) { report.errors.push('runs: ' + String(e.message || e).slice(0, 160)); }\n\n// 2) Filas sintéticas huérfanas.\nlet convs = [], leads = [];\ntry {\n  convs = await sb('GET', 'conversaciones?quicklink_id=gte.990000000&telefono=' + QA_PHONE +\n                   '&updated_at=lt.' + cutoff + '&select=id,lead_id') || [];\n  leads = await sb('GET', 'leads_quicklink?quicklink_id=gte.990000000&telefono_1=' + QA_PHONE +\n                   '&updated_at=lt.' + cutoff + '&select=id') || [];\n} catch (e) { report.errors.push('scan: ' + String(e.message || e).slice(0, 160)); }\n\nconst cids = convs.map(c => c.id);\nconst lids = Array.from(new Set(convs.map(c => c.lead_id).filter(Boolean).concat(leads.map(l => l.id))));\n\nif (cids.length) {\n  const ci = cids.join(',');\n  // La memoria puede apuntar a una conversación que vamos a borrar.\n  try {\n    const mem = await sb('GET', 'lead_memory?phone=' + QA_PHONE + '&select=conversation_id&limit=1') || [];\n    if (mem[0] && cids.indexOf(mem[0].conversation_id) >= 0) {\n      await sb('PATCH', 'lead_memory?phone=' + QA_PHONE, { conversation_id: null }, 'return=minimal');\n    }\n  } catch (e) { report.errors.push('mem: ' + String(e.message || e).slice(0, 120)); }\n  const dep = [['scheduled_followups', 'conversation_id'], ['eventos_conversacion', 'conversacion_id'],\n    ['eventos_conversacion', 'conversation_id'], ['transferencias_humano', 'conversacion_id'],\n    ['datos_calificacion', 'conversation_id'], ['conversation_memory', 'conversation_id'],\n    ['agent_decisions', 'conversation_id'], ['sync_queue', 'conversation_id'],\n    ['intentos_contacto', 'conversacion_id'], ['whatsapp_interaction_events', 'conversation_id']];\n  for (const d of dep) {\n    try { await sb('DELETE', d[0] + '?' + d[1] + '=in.(' + ci + ')', undefined, 'return=minimal'); } catch (e) {}\n  }\n  try {\n    await sb('DELETE', 'conversaciones?id=in.(' + ci + ')&quicklink_id=gte.990000000', undefined, 'return=minimal');\n    report.deleted_convs = cids.length;\n  } catch (e) { report.errors.push('conv: ' + String(e.message || e).slice(0, 160)); }\n}\n\nif (lids.length) {\n  try {\n    await sb('DELETE', 'leads_quicklink?id=in.(' + lids.join(',') + ')&quicklink_id=gte.990000000',\n             undefined, 'return=minimal');\n    report.deleted_leads = lids.length;\n  } catch (e) { report.errors.push('leads: ' + String(e.message || e).slice(0, 160)); }\n}\n\n// Solo alerta si hubo que barrer algo (o si el propio janitor falló):\n// que limpie es la señal de que una corrida se murió a medias.\nconst dirty = report.stuck_runs + report.deleted_convs + report.deleted_leads;\nconst alert = dirty > 0 || report.errors.length > 0;\nlet meta_payload = null;\nif (alert) {\n  const lines = ['CRIS QA — Janitor barrió residuos', ''];\n  if (report.stuck_runs) lines.push('runs atascados cerrados: ' + report.stuck_runs);\n  if (report.deleted_convs) lines.push('conversaciones sintéticas borradas: ' + report.deleted_convs);\n  if (report.deleted_leads) lines.push('leads sintéticos borrados: ' + report.deleted_leads);\n  if (report.errors.length) lines.push('errores: ' + report.errors.join(' | ').slice(0, 400));\n  lines.push('');\n  lines.push('Significa que una corrida de QA murió sin limpiar (timeout/reinicio).');\n  meta_payload = { messaging_product: 'whatsapp', recipient_type: 'individual', to: '5521999910781',\n    type: 'text', text: { preview_url: false, body: lines.join('\\n').slice(0, 3900) } };\n}\nreturn [{ json: Object.assign({ send_alert: alert, meta_payload }, report) }];\n"
+      }
+    },
+    {
+      "id": "qa10-if",
+      "name": "IF - Hubo residuos",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        800,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "j1",
+              "leftValue": "={{ $json.send_alert === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "qa10-send",
+      "name": "HTTP - Avisar por WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1080,
+        200
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v23.0/1114673978398967/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer ${REDACTED_TOKEN}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Code - Janitor').first().json.meta_payload) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "qa10-noop",
+      "name": "Todo limpio",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1080,
+        420
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Schedule - cada 15 min": {
+      "main": [
+        [
+          {
+            "node": "Code - Janitor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Barrer ahora": {
+      "main": [
+        [
+          {
+            "node": "Code - Janitor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Janitor": {
+      "main": [
+        [
+          {
+            "node": "IF - Hubo residuos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Hubo residuos": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Avisar por WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Todo limpio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "callerPolicy": "workflowsFromSameOwner",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "9cffa7c2-f3d8-598f-9de6-a19e45355097",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

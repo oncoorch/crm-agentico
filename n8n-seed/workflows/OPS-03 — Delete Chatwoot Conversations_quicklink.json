@@ -1,0 +1,249 @@
+{
+  "id": "m3V8ZWvEeyxlxWHy_quicklink",
+  "name": "OPS-03 — Delete Chatwoot Conversations_quicklink",
+  "nodes": [
+    {
+      "id": "delete-chatwoot-webhook-001",
+      "name": "Webhook Delete Chatwoot Conversations",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        120,
+        260
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cris-ops-delete-chatwoot-conversations",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "0hYeKlozui5dMRDE_quicklink",
+          "name": "QL Sync Manual Webhook Token_QUICKLINK"
+        }
+      },
+      "webhookId": "cris-ops-delete-chatwoot-conversations"
+    },
+    {
+      "id": "delete-chatwoot-normalize-001",
+      "name": "Code - Normalize Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        430,
+        260
+      ],
+      "parameters": {
+        "jsCode": "const src = $json.body || $json || {};\nconst ids = Array.isArray(src.chatwoot_conv_ids) ? src.chatwoot_conv_ids.map(Number).filter(Boolean) : [];\nconst dryRun = src.dry_run !== false && String(src.dry_run ?? 'true').toLowerCase() !== 'false';\nconst confirm = String(src.confirm || '');\nif (!ids.length) throw new Error('chatwoot_conv_ids is required');\nif (!dryRun && confirm !== 'DELETE_CHATWOOT_CONVERSATIONS') throw new Error('Real delete requires confirm=DELETE_CHATWOOT_CONVERSATIONS');\nconst accountId = Number(src.account_id || 2);\nconst baseUrl = String(src.base_url || 'http://chatwoot:3000').replace(/\\/$/, '');\nreturn ids.map(id => ({ json: { id, dry_run: dryRun, account_id: accountId, base_url: baseUrl } }));"
+      }
+    },
+    {
+      "id": "delete-chatwoot-if-001",
+      "name": "IF - Dry Run",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        730,
+        260
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "dry-run-cond",
+              "leftValue": "={{ $json.dry_run }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "delete-chatwoot-get-001",
+      "name": "HTTP - Verify Conversation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1040,
+        120
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.base_url + '/api/v1/accounts/' + $json.account_id + '/conversations/' + $json.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "delete-chatwoot-delete-001",
+      "name": "HTTP - Delete Conversation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1040,
+        400
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "DELETE",
+        "url": "={{ $json.base_url + '/api/v1/accounts/' + $json.account_id + '/conversations/' + $json.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "delete-chatwoot-pass-001",
+      "name": "Code - Normalize HTTP Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        260
+      ],
+      "parameters": {
+        "jsCode": "const requested = $('Code - Normalize Request').all().map(item => item.json || {});\nreturn $input.all().map((item, index) => {\n  const row = item.json || {};\n  const req = requested[index] || {};\n  const statusCode = Number(row.statusCode || row.status || row.responseCode || row.status_code || 0);\n  const parseOnlyError = !req.dry_run && /Invalid JSON in response body/i.test(String(row.error || ''));\n  const okStatus = statusCode >= 200 && statusCode < 300 || statusCode === 404;\n  const httpOk = parseOnlyError || (!row.error && (statusCode ? okStatus : true));\n  return {\n    json: {\n      ...row,\n      id: row.id || req.id || null,\n      dry_run: req.dry_run === true,\n      http_ok: httpOk,\n      statusCode: statusCode || (parseOnlyError ? 200 : (row.error ? 0 : 200)),\n      error: httpOk ? null : row.error,\n    },\n  };\n});"
+      }
+    },
+    {
+      "id": "delete-chatwoot-summary-001",
+      "name": "Code - Summarize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1640,
+        260
+      ],
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst results = items.map(item => {\n  const row = item.json || {};\n  return {\n    id: row.id,\n    action: row.dry_run ? 'dry_run_get' : 'delete',\n    statusCode: row.statusCode || 0,\n    ok: row.http_ok !== false && !row.error,\n    error: row.error?.message || row.message || null,\n  };\n});\nconst summary = results.reduce((acc, row) => {\n  const key = String(row.statusCode || 'error');\n  acc[key] = (acc[key] || 0) + 1;\n  return acc;\n}, {});\nreturn [{ json: { targeted: results.length, summary, results } }];"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Delete Chatwoot Conversations": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalize Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Normalize Request": {
+      "main": [
+        [
+          {
+            "node": "IF - Dry Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Dry Run": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Verify Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP - Delete Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Verify Conversation": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalize HTTP Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Delete Conversation": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalize HTTP Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Normalize HTTP Result": {
+      "main": [
+        [
+          {
+            "node": "Code - Summarize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "9c7cd432-ffb4-567d-ae58-66415c7e66ba",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

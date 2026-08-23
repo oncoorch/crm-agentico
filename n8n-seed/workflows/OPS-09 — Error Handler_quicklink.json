@@ -1,0 +1,234 @@
+{
+  "id": "ul6znWvLcjirzGfR_quicklink",
+  "name": "OPS-09 — Error Handler_quicklink",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "ops09-error-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $json || {};\nconst wf = data.workflow || {};\nconst exec = data.execution || {};\nconst err = exec.error || (data.trigger && data.trigger.error) || data.error || {};\nconst clip = (v, n) => String(v == null ? '' : v).slice(0, n);\nconst nodeName = clip(err.node && err.node.name || exec.lastNodeExecuted || '', 200);\nconst message = clip(err.message || err.description || 'unknown error', 900);\nconst wfId = clip(wf.id || '', 60);\nconst wfName = clip(wf.name || '', 200);\nconst execId = clip(exec.id || '', 60);\nconst execUrl = clip(exec.url || (wfId && execId ? 'https://quicklink.bkn.aigentss.cloud/workflow/' + wfId + '/executions/' + execId : ''), 300);\nconst alertText = [\n  'CRIS OPS-09 — ERROR DE WORKFLOW',\n  'Workflow: ' + (wfName || wfId || 'desconocido'),\n  'Nodo: ' + (nodeName || '-'),\n  'Error: ' + message,\n  execUrl ? 'Ejecucion: ' + execUrl : null,\n  'Hora: ' + new Date().toISOString(),\n].filter(Boolean).join('\\n');\nreturn [{ json: {\n  workflow_id: wfId || 'unknown',\n  workflow_name: wfName,\n  execution_id: execId,\n  node_name: nodeName,\n  error_message: message,\n  error_stack: clip(err.stack || '', 2000),\n  execution_url: execUrl,\n  meta_payload: {\n    messaging_product: 'whatsapp',\n    recipient_type: 'individual',\n    to: '5521999910781',\n    type: 'text',\n    text: { preview_url: false, body: alertText },\n  },\n} }];"
+      },
+      "id": "ops09-normalize",
+      "name": "Code - Normalize Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH ins AS (\n  INSERT INTO workflow_errors (workflow_id, workflow_name, execution_id, node_name, error_message, error_stack, execution_url)\n  VALUES ($1, $2, $3, $4, $5, $6, $7)\n  RETURNING id, workflow_id\n)\nSELECT ins.id AS error_id,\n  (SELECT count(*)::int FROM workflow_errors we\n     WHERE we.workflow_id = ins.workflow_id\n       AND we.alerted = true\n       AND we.occurred_at > now() - interval '30 minutes'\n       AND we.id <> ins.id) AS recent_alerts\nFROM ins;",
+        "options": {
+          "queryReplacement": "={{ [$json.workflow_id, $json.workflow_name, $json.execution_id, $json.node_name, $json.error_message, $json.error_stack, $json.execution_url] }}"
+        }
+      },
+      "id": "ops09-pg-log",
+      "name": "PG - Log Error",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        700,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ Number($json.recent_alerts) }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ops09-if-alert",
+      "name": "IF - Should Alert",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        940,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v23.0/1114673978398967/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer ${REDACTED_TOKEN}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Code - Normalize Error').first().json.meta_payload) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "ops09-http-alert",
+      "name": "HTTP - Send WhatsApp Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1180,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nUPDATE workflow_errors SET alerted = true WHERE id = $1 RETURNING id;",
+        "options": {
+          "queryReplacement": "={{ [$('PG - Log Error').first().json.error_id] }}"
+        }
+      },
+      "id": "ops09-pg-mark",
+      "name": "PG - Mark Alerted",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1420,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "ops09-noop",
+      "name": "No Alert (throttled)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1180,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalize Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Normalize Error": {
+      "main": [
+        [
+          {
+            "node": "PG - Log Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Log Error": {
+      "main": [
+        [
+          {
+            "node": "IF - Should Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Should Alert": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Send WhatsApp Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Alert (throttled)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Send WhatsApp Alert": {
+      "main": [
+        [
+          {
+            "node": "PG - Mark Alerted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "8134fdf0-da5d-5567-b5b8-a04e810790bb",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

@@ -1,0 +1,291 @@
+{
+  "id": "rrFwagf41i6z0hig_quitomotors",
+  "name": "QUITOMOTORS PRO - Retomas Personalizadas [3h,12h]_quitomotors",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger-retoma-remarketing",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -560,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/3 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger-retoma-remarketing",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -560,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "path": "quitomotors-retoma-remarketing-run",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-trigger-retoma-remarketing",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -560,
+        240
+      ],
+      "webhookId": "0820c2b9-d7ec-4063-9ad8-63d719496b5f",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "set-url-mcp-retoma",
+              "name": "URL_MCP",
+              "value": "http://mcp_server:8000",
+              "type": "string"
+            },
+            {
+              "id": "set-account-id-retoma",
+              "name": "account_id",
+              "value": 2,
+              "type": "number"
+            },
+            {
+              "id": "set-inbox-id-retoma",
+              "name": "inbox_id",
+              "value": 2,
+              "type": "number"
+            },
+            {
+              "id": "set-dry-run-retoma",
+              "name": "dry_run",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "set-max-items-retoma",
+              "name": "max_items",
+              "value": 1,
+              "type": "number"
+            },
+            {
+              "id": "set-first-after-minutes-retoma",
+              "name": "first_after_minutes",
+              "value": 180,
+              "type": "number"
+            },
+            {
+              "id": "set-second-after-minutes-retoma",
+              "name": "second_after_minutes",
+              "value": 720,
+              "type": "number"
+            },
+            {
+              "id": "set-lookback-hours-retoma",
+              "name": "lookback_hours",
+              "value": 24,
+              "type": "number"
+            },
+            {
+              "id": "set-min-gap-minutes-retoma",
+              "name": "min_gap_minutes",
+              "value": 360,
+              "type": "number"
+            },
+            {
+              "id": "set-start-time-retoma",
+              "name": "start_time",
+              "value": "08:00",
+              "type": "string"
+            },
+            {
+              "id": "set-end-time-retoma",
+              "name": "end_time",
+              "value": "21:00",
+              "type": "string"
+            },
+            {
+              "id": "set-remarketing-schedule-minutes-retoma",
+              "name": "remarketing_schedule_minutes",
+              "value": "[180,720]",
+              "type": "string"
+            },
+            {
+              "id": "set-max-attempts-retoma",
+              "name": "max_attempts",
+              "value": 2,
+              "type": "number"
+            },
+            {
+              "id": "set-max-age-minutes-retoma",
+              "name": "max_age_minutes",
+              "value": 1439,
+              "type": "number"
+            },
+            {
+              "id": "set-opt-out-labels-retoma",
+              "name": "opt_out_labels",
+              "value": "[\"no_contactar\",\"retoma_opt_out\"]",
+              "type": "string"
+            },
+            {
+              "id": "set-include-result-details-retoma",
+              "name": "include_result_details",
+              "value": false,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-mcp-url-retoma-remarketing",
+      "name": "Set MCP URL",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -304,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.URL_MCP + '/api/reminders/stale-bookings/process' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({\n  account_id: Number($json.account_id ?? 2),\n  inbox_id: Number($json.inbox_id ?? 2),\n  dry_run: $json.dry_run === true || String($json.dry_run ?? false).toLowerCase() === 'true',\n  max_items: Number($json.max_items ?? 10),\n  first_after_minutes: Number($json.first_after_minutes ?? 180),\n  second_after_minutes: Number($json.second_after_minutes ?? 720),\n  windows_minutes: [\n    Number($json.first_after_minutes ?? 180),\n    Number($json.second_after_minutes ?? 720),\n  ],\n  remarketing_schedule_minutes: $json.remarketing_schedule_minutes || '[180,720]',\n  lookback_hours: Number($json.lookback_hours ?? 24),\n  max_attempts: Number($json.max_attempts ?? 2),\n  max_age_minutes: Number($json.max_age_minutes ?? 1439),\n  min_gap_minutes: Number($json.min_gap_minutes ?? 360),\n  start_time: String($json.start_time || '08:00'),\n  end_time: String($json.end_time || '21:00'),\n  opt_out_labels: $json.opt_out_labels || '[\"no_contactar\",\"retoma_opt_out\"]',\n  include_result_details: $json.include_result_details === true || String($json.include_result_details ?? false).toLowerCase() === 'true',\n}) }}",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "http-retoma-remarketing-process",
+      "name": "HTTP Retoma Remarketing Process",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -16,
+        80
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Oa7zF2Eh6ZSRgv42_quitomotors",
+          "name": "MCP Internal Token_QUITOMOTORS"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $input.first()?.json ?? {};\nconst rows = Array.isArray(result.results) ? result.results : [];\nconst summary = result.result_summary && typeof result.result_summary === 'object'\n  ? result.result_summary\n  : {};\nconst stages = summary.stages ?? rows.reduce((counts, item) => {\n  if (item?.stage && (item.action === 'would_send' || item.action === 'sent')) {\n    counts[item.stage] = (counts[item.stage] ?? 0) + 1;\n  }\n  return counts;\n}, {});\nconst skippedReasons = summary.skipped_reasons ?? rows.reduce((counts, item) => {\n  if (item?.skipped_reason) {\n    counts[item.skipped_reason] = (counts[item.skipped_reason] ?? 0) + 1;\n  }\n  return counts;\n}, {});\nconst wouldSend = Number(summary.would_send ?? rows.filter((item) => item?.action === 'would_send').length);\n\nreturn [{\n  json: {\n    ok: Boolean(result.ok),\n    dry_run: Boolean(result.dry_run),\n    account_id: result.account_id ?? null,\n    inbox_id: result.inbox_id ?? null,\n    processed: Number(result.processed ?? 0),\n    sent: Number(result.sent ?? 0),\n    skipped: Number(result.skipped ?? 0),\n    would_send: wouldSend,\n    stages,\n    skipped_reasons: skippedReasons,\n    windows_minutes: result.windows_minutes ?? [],\n    min_gap_minutes: result.min_gap_minutes ?? null,\n    lookback_hours: result.lookback_hours ?? null,\n    max_attempts: result.max_attempts ?? null,\n    max_age_minutes: result.max_age_minutes ?? null,\n    business_window: result.business_window ?? null,\n    reason: result.reason ?? null,\n    error: result.error ?? null,\n  },\n}];"
+      },
+      "id": "format-retoma-remarketing-result",
+      "name": "Format Retoma Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        80
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set MCP URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set MCP URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set MCP URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set MCP URL": {
+      "main": [
+        [
+          {
+            "node": "HTTP Retoma Remarketing Process",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Retoma Remarketing Process": {
+      "main": [
+        [
+          {
+            "node": "Format Retoma Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "timezone": "America/Guayaquil"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "91bb43b3-15a5-50c4-9b25-ab37bb19b3d4",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

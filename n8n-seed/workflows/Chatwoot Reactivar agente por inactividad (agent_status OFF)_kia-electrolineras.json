@@ -1,0 +1,371 @@
+{
+  "id": "4XoAgdukhOwrdNDR_kia-electrolineras",
+  "name": "Chatwoot Reactivar agente por inactividad (agent_status OFF)_kia-electrolineras",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "a0896b20-123b-40e2-b459-0b40fd87ea7f",
+      "name": "Cada 1 minuto",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -224,
+        -512
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "38a5ff29-c317-46f6-8992-ea443b74b325",
+              "name": "CHATWOOT_BASE_URL",
+              "value": "http://chatwoot:3000",
+              "type": "string"
+            },
+            {
+              "id": "7adb51c0-13a2-42e7-bc3a-b06e666a40a5",
+              "name": "ACCOUNT_ID",
+              "value": 2,
+              "type": "number"
+            },
+            {
+              "id": "704eb8cf-34ae-4099-b61d-8017f7b1894a",
+              "name": "IDLE_MINUTES",
+              "value": 10,
+              "type": "number"
+            },
+            {
+              "id": "283848f5-5c1f-45f9-8639-2fefa668e6c4",
+              "name": "MAX_PAGES",
+              "value": 3,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fe52115b-3b50-47b5-95f3-d76f0f05da9f",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        16,
+        -512
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = items[0].json;\nconst maxPages = Number(cfg.MAX_PAGES || 20);\nconst out = [];\nfor (let page = 1; page <= maxPages; page++) {\n  out.push({ json: { ...cfg, page } });\n}\nreturn out;"
+      },
+      "id": "0eb03b19-9221-4f8a-a3e4-389a057ee06c",
+      "name": "Generar páginas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        256,
+        -512
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.CHATWOOT_BASE_URL + \"/api/v1/accounts/\" + $json.ACCOUNT_ID + \"/conversations\" }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "status",
+              "value": "all"
+            },
+            {
+              "name": "page",
+              "value": "={{ $json.page }}"
+            },
+            {
+              "name": "labels",
+              "value": "human_support, agente_off, electrical_emergency"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f78b7ab8-7a8a-4276-928a-c97a46646c15",
+      "name": "Listar conversaciones",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        528,
+        -512
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "QqrhAYRqgc1DLDqt_kia-electrolineras",
+          "name": "Chatwoot Update Admin_KIA ELECTROLINERAS"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const src = $json;\nconst rows = src.data?.payload ?? [];\nconst cfg = $('Config').first().json;\n\nconst nowMs = Date.now();\nconst idleMinutes = Number(cfg.IDLE_MINUTES || 5);\nconst idleMsRequired = idleMinutes * 60 * 1000;\n\nconst out = [];\n\nfor (const conv of rows) {\n  const labels = Array.isArray(conv.labels) ? conv.labels : [];\n  const custom = conv.custom_attributes || {};\n  const status = String(custom.agent_status || '').toUpperCase();\n\n  const lastActivityAtSec = Number(conv.last_activity_at || 0);\n  const lastActivityMs = lastActivityAtSec > 0 ? lastActivityAtSec * 1000 : 0;\n  const idleMs = lastActivityMs > 0 ? (nowMs - lastActivityMs) : 0;\n\n  //if (status !== 'OFF') continue;\n  if (lastActivityMs === 0) continue;\n  if (idleMs < idleMsRequired) continue;\n\n  out.push({\n    json: {\n      CHATWOOT_BASE_URL: cfg.CHATWOOT_BASE_URL,\n      ACCOUNT_ID: cfg.ACCOUNT_ID,\n      API_TOKEN: cfg.API_TOKEN,\n      IDLE_MINUTES: idleMinutes,\n      conversation_id: conv.id,\n      display_id: conv.display_id ?? null,\n      labels_before: labels,\n      labels_after: labels.filter(lb => lb !== 'agente_off'),\n      had_agente_off: labels.includes('agente_off'),\n      last_activity_at: conv.last_activity_at,\n      idle_minutes_current: Math.floor(idleMs / 60000),\n      custom_attributes_before: custom\n    }\n  });\n}\n\nreturn out;"
+      },
+      "id": "10804e8c-df49-47b3-ac0b-7c3372cde6c4",
+      "name": "Filtrar elegibles para reactivar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        -512
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.CHATWOOT_BASE_URL + \"/api/v1/accounts/\" + $('Config').first().json.ACCOUNT_ID + \"/conversations/\" + $json.conversation_id + \"/custom_attributes\" }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"custom_attributes\": { \"agent_status\": \"ON\" } } }}",
+        "options": {}
+      },
+      "id": "76b1603e-62fe-44a9-9649-8177e78992ad",
+      "name": "Encender agente (agent_status=ON)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1088,
+        -512
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "QqrhAYRqgc1DLDqt_kia-electrolineras",
+          "name": "Chatwoot Update Admin_KIA ELECTROLINERAS"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map((item, index) => {\n  const original = $('Filtrar elegibles para reactivar').all()[index].json;\n\n  return {\n    json: {\n      conversation_id: original.conversation_id,\n      display_id: original.display_id ?? null,\n      had_agente_off: original.had_agente_off ?? false,\n      labels_before: original.labels_before ?? [],\n      labels_after: original.labels_after ?? [],\n      idle_minutes_current: original.idle_minutes_current ?? null,\n      custom_attributes: {\n        agent_status: 'ON'\n      }\n    }\n  };\n});"
+      },
+      "id": "05ea5447-8477-41a6-85fa-1f50f60767d6",
+      "name": "Preparar labels finales (quitar agente_off si existe)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        -512
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.CHATWOOT_BASE_URL + \"/api/v1/accounts/\" + $('Config').first().json.ACCOUNT_ID + \"/conversations/\" + $json.conversation_id + \"/labels\" }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"labels\": $json.labels_after } }}",
+        "options": {}
+      },
+      "id": "101afdc9-5481-43fc-8d2a-a5318cc03bb1",
+      "name": "Quitar agente_off si existe",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1632,
+        -512
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "QqrhAYRqgc1DLDqt_kia-electrolineras",
+          "name": "Chatwoot Update Admin_KIA ELECTROLINERAS"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [\n  {\n    json: {\n      processed: items.length,\n      reactivated_conversations: items.map(item => ({\n        conversation_id: item.json.conversation_id,\n        display_id: item.json.display_id ?? null,\n        idle_minutes_current: item.json.idle_minutes_current,\n        had_agente_off: item.json.had_agente_off ?? false,\n        labels_before: item.json.labels_before ?? [],\n        labels_after: item.json.labels_payload ?? item.json.labels_after ?? []\n      }))\n    }\n  }\n];"
+      },
+      "id": "2d3fb0f5-41e4-48bb-a1a2-1d5571c91a03",
+      "name": "Resumen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1888,
+        -512
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=={{ $('Config').first().json.CHATWOOT_BASE_URL + \"/api/v1/accounts/\" + $('Config').first().json.ACCOUNT_ID + \"/conversations/\" + $json.conversation_id + \"/messages\" }}\n",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"content\": \"={{ 'Hola ' + ($json.contact_name || 'de nuevo') + ', ya quedaste en buenas manos con nuestro equipo 🚗. Si necesitas algo más con tu punto de carga o electrolinera, aquí estoy para ayudarte ⚡' }}\",\n  \"message_type\": \"outgoing\",\n  \"private\": false\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1216,
+        -848
+      ],
+      "id": "f9507eed-021b-4d5e-a288-d7e3ae8d03be",
+      "name": "HTTP Request",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "QqrhAYRqgc1DLDqt_kia-electrolineras",
+          "name": "Chatwoot Update Admin_KIA ELECTROLINERAS"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cada 1 minuto": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Generar páginas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generar páginas": {
+      "main": [
+        [
+          {
+            "node": "Listar conversaciones",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar elegibles para reactivar": {
+      "main": [
+        [
+          {
+            "node": "Encender agente (agent_status=ON)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Encender agente (agent_status=ON)": {
+      "main": [
+        [
+          {
+            "node": "Preparar labels finales (quitar agente_off si existe)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Listar conversaciones": {
+      "main": [
+        [
+          {
+            "node": "Filtrar elegibles para reactivar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar labels finales (quitar agente_off si existe)": {
+      "main": [
+        [
+          {
+            "node": "Quitar agente_off si existe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quitar agente_off si existe": {
+      "main": [
+        [
+          {
+            "node": "Resumen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "60122fde-bca1-5c6c-a496-fc1d7e6d4277",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

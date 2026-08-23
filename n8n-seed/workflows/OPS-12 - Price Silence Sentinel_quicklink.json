@@ -1,0 +1,537 @@
+{
+  "id": "ygetLakQtpzuAWtk_quicklink",
+  "name": "OPS-12 - Price Silence Sentinel_quicklink",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0,30 9-19 * * *"
+            },
+            {
+              "field": "cronExpression",
+              "expression": "0 20 * * *"
+            }
+          ]
+        }
+      },
+      "id": "ops12-schedule-30m",
+      "name": "Schedule - 09:00-20:00 Every 30 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        220,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ops-price-silence-sentinel-now",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "ops12-webhook-run-now",
+      "name": "Webhook - Run Sentinel Now",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        220,
+        420
+      ],
+      "webhookId": "ops-price-silence-sentinel-now",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "0hYeKlozui5dMRDE_quicklink",
+          "name": "QL Sync Manual Webhook Token_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const src = $json.body || $json || {};\nconst query = $json.query || {};\nconst isWebhook = Boolean($json.body || $json.query || $json.headers);\nconst TIME_ZONE = 'America/Guayaquil';\nconst WINDOW_START_MINUTES = 9 * 60;\nconst WINDOW_END_MINUTES = 20 * 60;\nfunction flag(name) {\n  const value = src[name] ?? query[name];\n  return value === true || String(value || '').toLowerCase() === 'true' || String(value || '') === '1';\n}\nfunction intValue(name, fallback, min, max) {\n  const raw = src[name] ?? query[name];\n  const parsed = Number.parseInt(raw, 10);\n  if (!Number.isInteger(parsed)) return fallback;\n  return Math.min(Math.max(parsed, min), max);\n}\nfunction ecuadorParts() {\n  const parts = new Intl.DateTimeFormat('en-US', {\n    timeZone: TIME_ZONE,\n    hour12: false,\n    year: 'numeric',\n    month: '2-digit',\n    day: '2-digit',\n    hour: '2-digit',\n    minute: '2-digit',\n    second: '2-digit',\n  }).formatToParts(new Date());\n  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));\n  const hour = Number(values.hour === '24' ? '0' : values.hour);\n  const minute = Number(values.minute || '0');\n  return { values, hour, minute, minutes: hour * 60 + minute };\n}\nconst local = ecuadorParts();\nconst insideWindow = local.minutes >= WINDOW_START_MINUTES && local.minutes <= WINDOW_END_MINUTES;\nconst force = isWebhook && flag('force');\nreturn [{ json: {\n  run_allowed: insideWindow || force,\n  inside_window: insideWindow,\n  forced: force,\n  force_alert: isWebhook && flag('force_alert'),\n  reset_dedupe: isWebhook && flag('reset_dedupe'),\n  source: isWebhook ? 'webhook' : 'schedule',\n  checked_at: new Date().toISOString(),\n  local_time: local.values.year + '-' + local.values.month + '-' + local.values.day + ' ' + local.values.hour + ':' + local.values.minute + ':' + local.values.second,\n  time_zone: TIME_ZONE,\n  window_label: '09:00-20:00 America/Guayaquil',\n  scan_limit: intValue('limit', 100, 1, 2000),\n  min_age_minutes: intValue('min_age_minutes', 5, 0, 1440),\n} }];"
+      },
+      "id": "ops12-gate-run",
+      "name": "Code - Gate Run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ops12-if-run-allowed",
+              "leftValue": "={{ $json.run_allowed === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ops12-if-run-allowed",
+      "name": "IF - Run Allowed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        780,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH params AS (\n  SELECT LEAST(GREATEST(COALESCE(NULLIF($1::text, '')::integer, 100), 1), 2000) AS scan_limit\n), rows AS (\n  SELECT\n    c.id::text AS db_conversation_id,\n    c.lead_id::text AS lead_id,\n    c.chatwoot_conv_id,\n    c.nombre,\n    c.telefono,\n    c.marca,\n    c.modelo,\n    c.quicklink_id::text AS quicklink_id,\n    c.estado::text AS estado,\n    c.active_interaction_id,\n    c.active_interaction_type,\n    c.expected_action,\n    c.interaction_consumed,\n    c.human_handoff,\n    c.automation_enabled,\n    c.updated_at::text AS updated_at,\n    c.created_at::text AS created_at\n  FROM conversaciones c\n  WHERE c.chatwoot_conv_id IS NOT NULL\n    AND UPPER(COALESCE(c.estado::text, '')) NOT IN ('WON', 'LOST', 'NOT_CONTACTABLE', 'DISCARDED', 'HANDOFF_HUMAN', 'CONTACTAR')\n    AND COALESCE(c.human_handoff, false) = false\n    AND COALESCE(c.automation_enabled, true) = true\n  ORDER BY c.updated_at DESC NULLS LAST, c.created_at DESC NULLS LAST\n  LIMIT (SELECT scan_limit FROM params)\n)\nSELECT\n  now()::text AS checked_at,\n  (SELECT scan_limit FROM params)::integer AS scan_limit,\n  COALESCE(jsonb_agg(to_jsonb(rows) ORDER BY updated_at DESC), '[]'::jsonb) AS rows\nFROM rows;",
+        "options": {
+          "queryReplacement": "={{ [ $json.scan_limit || 100 ] }}"
+        }
+      },
+      "id": "ops12-pg-fetch-candidates",
+      "name": "PG - Fetch Candidate Conversations",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1060,
+        220
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const gate = $('Code - Gate Run').first().json || {};\nreturn [{ json: {\n  send_alert: false,\n  status: 'outside_ops12_window',\n  checked_at: gate.checked_at || new Date().toISOString(),\n  local_time: gate.local_time || null,\n  window_label: gate.window_label || '09:00-20:00 America/Guayaquil',\n  source: gate.source || null,\n} }];"
+      },
+      "id": "ops12-window-closed-response",
+      "name": "Code - Window Closed Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1060,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const gate = $('Code - Gate Run').first().json || {};\nconst row = $input.first().json || {};\nconst rows = Array.isArray(row.rows) ? row.rows : [];\nif (!rows.length) {\n  return [{ json: {\n    has_rows: false,\n    send_alert: false,\n    status: 'no_candidate_conversations',\n    checked_at: row.checked_at || gate.checked_at || new Date().toISOString(),\n    local_time: gate.local_time || null,\n    scan_limit: Number(row.scan_limit || gate.scan_limit || 0),\n    scanned_db_rows: 0,\n    evaluated_count: 0,\n    candidate_count: 0,\n    skipped: {},\n    errors: [],\n  } }];\n}\nreturn rows.map((candidate, index) => ({ json: {\n  ...candidate,\n  has_rows: true,\n  row_index: index,\n  checked_at: row.checked_at || gate.checked_at || new Date().toISOString(),\n  scan_limit: Number(row.scan_limit || gate.scan_limit || rows.length || 0),\n  min_age_minutes: Number(gate.min_age_minutes ?? 5),\n} }));"
+      },
+      "id": "ops12-expand-candidate-conversations",
+      "name": "Code - Expand Candidate Conversations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ops12-if-has-rows",
+              "leftValue": "={{ $json.has_rows === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ops12-if-has-rows",
+      "name": "IF - Has Candidate Rows",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1620,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 10,
+        "options": {}
+      },
+      "id": "ops12-loop-chatwoot-reads",
+      "name": "Loop - Chatwoot Message Reads",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1900,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'http://chatwoot:3000/api/v1/accounts/2/conversations/' + $json.chatwoot_conv_id + '/messages' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "ops12-http-chatwoot-messages",
+      "name": "HTTP - Get Chatwoot Messages",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2180,
+        260
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const gate = $('Code - Gate Run').first().json || {};\nconst requests = $('Code - Expand Candidate Conversations').all()\n  .map(item => item.json || {})\n  .filter(item => item.has_rows === true);\nlet responses = [];\ntry {\n  responses = $('HTTP - Get Chatwoot Messages').all().map(item => item.json || {});\n} catch (error) {\n  responses = $input.all().map(item => item.json || {});\n}\nconst staticData = $getWorkflowStaticData('global');\nstaticData.alerted = staticData.alerted || {};\nif (gate.reset_dedupe === true) staticData.alerted = {};\nconst now = new Date();\nconst cutoffMs = now.getTime() - 24 * 60 * 60 * 1000;\nfor (const [key, value] of Object.entries(staticData.alerted)) {\n  if (!value || new Date(value).getTime() < cutoffMs) delete staticData.alerted[key];\n}\nconst MIN_AGE_MINUTES = Number(gate.min_age_minutes ?? 5);\nfunction parseMaybeJson(value) {\n  if (typeof value !== 'string') return value;\n  try { return JSON.parse(value); } catch (error) { return value; }\n}\nfunction responsePayload(response) {\n  const body = parseMaybeJson(response && response.body);\n  if (Array.isArray(body && body.payload)) return body.payload;\n  if (Array.isArray(body && body.data && body.data.payload)) return body.data.payload;\n  if (Array.isArray(body)) return body;\n  if (Array.isArray(response && response.payload)) return response.payload;\n  if (Array.isArray(response && response.data && response.data.payload)) return response.data.payload;\n  return [];\n}\nfunction httpStatus(response) {\n  const body = response && response.body && typeof response.body === 'object' ? response.body : {};\n  return Number((response && (response.statusCode || response.status)) || body.statusCode || body.status || 0);\n}\nfunction errorText(value) {\n  if (!value) return '';\n  if (typeof value === 'string') return value;\n  if (value.message) return String(value.message);\n  try { return JSON.stringify(value); } catch (error) { return String(value); }\n}\nfunction messageTs(message) {\n  const raw = message && (message.created_at || message.timestamp || 0);\n  if (typeof raw === 'number') return raw > 100000000000 ? Math.floor(raw / 1000) : raw;\n  const parsed = Date.parse(raw);\n  return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : 0;\n}\nfunction messageType(message) {\n  const type = String((message && message.message_type) ?? '').toLowerCase();\n  if (type === '0') return 'incoming';\n  if (type === '1') return 'outgoing';\n  if (type === '2') return 'activity';\n  return type;\n}\nfunction isPrivate(message) { return message && message.private === true; }\nfunction senderType(message) { return String((message && (message.sender_type || (message.sender && message.sender.type))) || '').toLowerCase(); }\nfunction isPublicInbound(message) {\n  if (!message || isPrivate(message)) return false;\n  const type = messageType(message);\n  if (type === 'activity') return false;\n  return type === 'incoming' || (type !== 'outgoing' && senderType(message) === 'contact');\n}\nfunction isPublicOutgoing(message) {\n  if (!message || isPrivate(message)) return false;\n  const type = messageType(message);\n  if (type === 'activity') return false;\n  return type === 'outgoing' || ['user', 'agent', 'bot', 'agent_bot'].includes(senderType(message));\n}\nfunction content(message) { return String((message && message.content) || ''); }\nfunction normalizeText(value) {\n  return String(value || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();\n}\nfunction isPriceRequest(text) {\n  const normalized = normalizeText(text);\n  const asksPrice = /(precio|valor(?:es)?|costo|cuanto\\s+(?:vale|cuesta|es)|cotiz|planes?|mensualidad|pago|cuota|tarifa)/.test(normalized);\n  const clearNegative = /(no\\s+(?:me interesa|gracias|por el momento)|muy caro|demasiado caro|sin presupuesto|no tengo presupuesto)/.test(normalized);\n  return asksPrice && !clearNegative;\n}\nfunction isPrivatePricingResolution(message) {\n  if (!isPrivate(message)) return false;\n  const text = normalizeText(content(message));\n  return /(rescate manual|rescate operativo|manual_sales_rescue|meta status:\\s*sent|canal:\\s*whatsapp meta api|cotizacion interactiva enviada por whatsapp|cotizacion fallback texto enviada por whatsapp|planes_precios_enviados|plan_selected)/i.test(text);\n}\nfunction phoneTail(value) {\n  const digits = String(value || '').replace(/\\D/g, '');\n  return digits ? '***' + digits.slice(-4) : '-';\n}\nfunction clip(value, max) {\n  const text = String(value == null ? '' : value).replace(/\\s+/g, ' ').trim();\n  return text.length > max ? text.slice(0, max - 3) + '...' : (text || '-');\n}\nfunction summarizeAfter(messages, inboundTs) {\n  return messages\n    .filter(message => messageTs(message) > inboundTs)\n    .map(message => ({\n      id: message.id || null,\n      type: messageType(message),\n      private: isPrivate(message),\n      created_at: new Date(messageTs(message) * 1000).toISOString(),\n      content: content(message).slice(0, 180),\n    }));\n}\nfunction evaluateWithMessages(dbRow, messages) {\n  const conversationId = Number(dbRow.chatwoot_conv_id || 0);\n  const sorted = messages.slice().sort((a, b) => messageTs(a) - messageTs(b));\n  const priceMessages = sorted.filter(message => isPublicInbound(message) && isPriceRequest(content(message)));\n  if (!priceMessages.length) return { skipped: 'no_price_request' };\n  const latestPrice = priceMessages[priceMessages.length - 1];\n  const latestPriceTs = messageTs(latestPrice);\n  const ageSeconds = Math.floor(Date.now() / 1000) - latestPriceTs;\n  if (ageSeconds < MIN_AGE_MINUTES * 60) return { skipped: 'too_recent', latestPrice, latestPriceTs };\n  const publicReplyAfter = sorted.find(message => isPublicOutgoing(message) && messageTs(message) >= latestPriceTs);\n  if (publicReplyAfter) return { skipped: 'public_reply_after_price', latestPrice, latestPriceTs };\n  const privateResolutionAfter = sorted.find(message => messageTs(message) >= latestPriceTs && isPrivatePricingResolution(message));\n  if (privateResolutionAfter) return { skipped: 'private_pricing_resolution_after_price', latestPrice, latestPriceTs };\n  return { candidate: {\n    conversation_id: conversationId,\n    db_conversation_id: dbRow.db_conversation_id || null,\n    lead_id: dbRow.lead_id || null,\n    quicklink_id: dbRow.quicklink_id || null,\n    name: dbRow.nombre || null,\n    phone_tail: phoneTail(dbRow.telefono),\n    brand: dbRow.marca || null,\n    model: dbRow.modelo || null,\n    state: dbRow.estado || null,\n    active_interaction_type: dbRow.active_interaction_type || null,\n    expected_action: dbRow.expected_action || null,\n    updated_at: dbRow.updated_at || null,\n    latest_price_message_id: latestPrice.id || null,\n    latest_price_at: new Date(latestPriceTs * 1000).toISOString(),\n    latest_price_text: content(latestPrice).slice(0, 240),\n    minutes_since_price: Math.round(ageSeconds / 60),\n    messages_after_price: summarizeAfter(sorted, latestPriceTs),\n  } };\n}\nconst candidates = [];\nconst skipped = {};\nconst errors = [];\nfor (let index = 0; index < requests.length; index += 1) {\n  const request = requests[index] || {};\n  const response = responses[index] || {};\n  const statusCode = httpStatus(response);\n  if (response.error || (statusCode && (statusCode < 200 || statusCode >= 300))) {\n    errors.push({ conversation_id: Number(request.chatwoot_conv_id || 0) || null, error: errorText(response.error || response.message || ('http_status_' + statusCode)).slice(0, 300) });\n    continue;\n  }\n  const messages = responsePayload(response);\n  const result = evaluateWithMessages(request, messages);\n  if (result && result.candidate) candidates.push(result.candidate);\n  else if (result && result.skipped) skipped[result.skipped] = (skipped[result.skipped] || 0) + 1;\n}\nif (requests.length > 0 && errors.length === requests.length) {\n  throw new Error('OPS-12 Chatwoot read failed for all ' + requests.length + ' conversations: ' + errors[0].error);\n}\ncandidates.sort((a, b) => a.latest_price_at.localeCompare(b.latest_price_at));\nconst fresh = [];\nconst deduped = [];\nfor (const candidate of candidates) {\n  const dedupeKey = 'price-silence:' + candidate.conversation_id + ':' + (candidate.latest_price_message_id || candidate.latest_price_at);\n  if (staticData.alerted[dedupeKey] && gate.force_alert !== true) {\n    deduped.push({ ...candidate, dedupe_key: dedupeKey });\n    continue;\n  }\n  fresh.push({ ...candidate, dedupe_key: dedupeKey });\n}\nif (!fresh.length) {\n  return [{ json: {\n    send_alert: false,\n    status: candidates.length ? 'price_silence_already_alerted' : 'no_unanswered_price_requests',\n    checked_at: requests[0]?.checked_at || gate.checked_at || new Date().toISOString(),\n    local_time: gate.local_time || null,\n    scan_limit: Number(requests[0]?.scan_limit || gate.scan_limit || requests.length || 0),\n    scanned_db_rows: requests.length,\n    evaluated_count: requests.length - errors.length,\n    candidate_count: candidates.length,\n    deduped_count: deduped.length,\n    skipped,\n    errors,\n  } }];\n}\nconst lines = [\n  'CRIS OPS-12 - Price silence sentinel',\n  'Solicitudes de precio sin respuesta: ' + fresh.length,\n  'Ventana: >' + MIN_AGE_MINUTES + ' min | scan=' + requests.length + ' | ' + (gate.window_label || '09:00-20:00 America/Guayaquil'),\n  '',\n];\nfor (const c of fresh.slice(0, 10)) {\n  lines.push([\n    '- cw=' + clip(c.conversation_id, 16),\n    'ql=' + clip(c.quicklink_id, 16),\n    'phone=' + clip(c.phone_tail, 12),\n    'state=' + clip(c.state, 24),\n    'price_at=' + clip(c.latest_price_at, 19),\n    'msg=' + clip(c.latest_price_message_id, 20),\n  ].join(' | '));\n  lines.push('  \"' + clip(c.latest_price_text, 150) + '\"');\n}\nif (fresh.length > 10) lines.push('... +' + (fresh.length - 10) + ' mas');\nlines.push('');\nlines.push('Accion: revisar y rescatar manualmente. OPS-12 solo alerta; no envia WhatsApp al cliente ni modifica DB.');\nreturn [{ json: {\n  send_alert: true,\n  status: 'price_silence_alert_pending',\n  checked_at: requests[0]?.checked_at || gate.checked_at || new Date().toISOString(),\n  local_time: gate.local_time || null,\n  scan_limit: Number(requests[0]?.scan_limit || gate.scan_limit || requests.length || 0),\n  scanned_db_rows: requests.length,\n  evaluated_count: requests.length - errors.length,\n  candidate_count: candidates.length,\n  alert_count: fresh.length,\n  deduped_count: deduped.length,\n  dedupe_keys: fresh.map(candidate => candidate.dedupe_key),\n  candidates: fresh,\n  skipped,\n  errors,\n  meta_payload: {\n    messaging_product: 'whatsapp',\n    recipient_type: 'individual',\n    to: '5521999910781',\n    type: 'text',\n    text: { preview_url: false, body: lines.join('\\n').slice(0, 3900) },\n  },\n} }];"
+      },
+      "id": "ops12-detect-price-silence",
+      "name": "Code - Detect Price Silence",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2180,
+        20
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: $input.first().json }];"
+      },
+      "id": "ops12-no-candidate-rows-response",
+      "name": "Code - No Candidate Rows Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1900,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ops12-if-alert",
+              "leftValue": "={{ $json.send_alert === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ops12-if-alert",
+      "name": "IF - Should Alert",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2460,
+        20
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v23.0/1114673978398967/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer ${REDACTED_TOKEN}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Code - Detect Price Silence').first().json.meta_payload) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "ops12-http-alert",
+      "name": "HTTP - Send WhatsApp Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2740,
+        -80
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const build = $('Code - Detect Price Silence').first().json || {};\nconst staticData = $getWorkflowStaticData('global');\nstaticData.alerted = staticData.alerted || {};\nconst response = $json || {};\nconst body = response.body && typeof response.body === 'object' ? response.body : {};\nconst statusCode = Number(response.statusCode || response.status || body.statusCode || body.status || 0);\nconst ok = statusCode >= 200 && statusCode < 300;\nif (ok) {\n  for (const key of build.dedupe_keys || []) staticData.alerted[key] = new Date().toISOString();\n}\nreturn [{ json: {\n  status: ok ? 'alert_sent' : 'alert_failed',\n  http_status: statusCode || null,\n  alert_count: build.alert_count || 0,\n  candidate_count: build.candidate_count || 0,\n  marked_count: ok ? (build.dedupe_keys || []).length : 0,\n} }];"
+      },
+      "id": "ops12-mark-alerted",
+      "name": "Code - Mark Alerted",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3020,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: $input.first().json }];"
+      },
+      "id": "ops12-no-alert-response",
+      "name": "Code - No Alert Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2740,
+        140
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule - 09:00-20:00 Every 30 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Code - Gate Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Run Sentinel Now": {
+      "main": [
+        [
+          {
+            "node": "Code - Gate Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Gate Run": {
+      "main": [
+        [
+          {
+            "node": "IF - Run Allowed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Run Allowed": {
+      "main": [
+        [
+          {
+            "node": "PG - Fetch Candidate Conversations",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Window Closed Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Fetch Candidate Conversations": {
+      "main": [
+        [
+          {
+            "node": "Code - Expand Candidate Conversations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Expand Candidate Conversations": {
+      "main": [
+        [
+          {
+            "node": "IF - Has Candidate Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Has Candidate Rows": {
+      "main": [
+        [
+          {
+            "node": "Loop - Chatwoot Message Reads",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - No Candidate Rows Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop - Chatwoot Message Reads": {
+      "main": [
+        [
+          {
+            "node": "Code - Detect Price Silence",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP - Get Chatwoot Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Get Chatwoot Messages": {
+      "main": [
+        [
+          {
+            "node": "Loop - Chatwoot Message Reads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Detect Price Silence": {
+      "main": [
+        [
+          {
+            "node": "IF - Should Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Should Alert": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Send WhatsApp Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - No Alert Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Send WhatsApp Alert": {
+      "main": [
+        [
+          {
+            "node": "Code - Mark Alerted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "c0878af2-2540-54a5-852e-39372adac696",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

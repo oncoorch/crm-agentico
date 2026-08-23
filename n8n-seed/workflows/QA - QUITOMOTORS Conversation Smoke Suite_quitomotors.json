@@ -1,0 +1,160 @@
+{
+  "id": "0zcRTCypP9NugHM3_quitomotors",
+  "name": "QA - QUITOMOTORS Conversation Smoke Suite_quitomotors",
+  "nodes": [
+    {
+      "id": "qa-manual-trigger",
+      "name": "Run Manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -120
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "qa-smoke-webhook",
+      "name": "QA Smoke Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        120
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "qa-quitomotors-conversation-smoke-v1-20260720",
+        "responseMode": "lastNode",
+        "responseData": "firstEntryJson"
+      },
+      "webhookId": "536f8135-e859-4923-8ed2-eda2871a7a8b"
+    },
+    {
+      "id": "qa-smoke-options",
+      "name": "Prepare Smoke Options",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const input = $input.first().json || {};\nconst body = input.body && typeof input.body === 'object' ? input.body : {};\nconst toBool = (value, fallback) => {\n  if (value === undefined || value === null || value === '') return fallback;\n  if (typeof value === 'boolean') return value;\n  return !['0', 'false', 'no', 'off'].includes(String(value).trim().toLowerCase());\n};\nreturn [{\n  json: {\n    include_appointments: toBool(body.include_appointments, true),\n    include_known_gaps: toBool(body.include_known_gaps, true),\n  },\n}];"
+      }
+    },
+    {
+      "id": "qa-run-mcp-smoke",
+      "name": "Run MCP Conversation Smoke",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        520,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://mcp_server:8000/api/qa/conversation-smoke",
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-qa-smoke-token",
+              "value": "={{ $env.QA_SMOKE_TOKEN || '' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ include_appointments: Boolean($json.include_appointments), include_known_gaps: Boolean($json.include_known_gaps) }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 120000
+        }
+      }
+    },
+    {
+      "id": "qa-format-summary",
+      "name": "Format Smoke Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const report = $input.first().json || {};\nconst summary = report.summary && typeof report.summary === 'object' ? report.summary : {};\nconst endpointReachable = Boolean(report.version && report.summary);\nconst failures = Array.isArray(report.failures) ? report.failures : [];\nreturn [{\n  json: {\n    ok: endpointReachable && report.ok === true,\n    endpoint_reachable: endpointReachable,\n    version: report.version || null,\n    generated_at: report.generated_at || null,\n    mode: report.mode || null,\n    total: Number(summary.total || 0),\n    passed: Number(summary.passed || 0),\n    failed: Number(summary.failed || 0),\n    blocking_failed: Number(summary.blocking_failed || 0),\n    known_gaps: Number(summary.known_gaps || 0),\n    skipped: Number(summary.skipped || 0),\n    safety: report.safety || {},\n    failures,\n    cases: Array.isArray(report.cases) ? report.cases : [],\n    error: report.error || null,\n  },\n}];"
+      }
+    }
+  ],
+  "connections": {
+    "Run Manually": {
+      "main": [
+        [
+          {
+            "node": "Prepare Smoke Options",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "QA Smoke Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Smoke Options",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Smoke Options": {
+      "main": [
+        [
+          {
+            "node": "Run MCP Conversation Smoke",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run MCP Conversation Smoke": {
+      "main": [
+        [
+          {
+            "node": "Format Smoke Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "executionTimeout": 180,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "b9466118-9475-5a0e-a7a1-b4a6ee6bc072",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

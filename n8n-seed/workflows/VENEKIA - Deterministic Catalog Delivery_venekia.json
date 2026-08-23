@@ -1,0 +1,208 @@
+{
+  "id": "x2VlmShpQTbI07R4_venekia",
+  "name": "VENEKIA - Deterministic Catalog Delivery_venekia",
+  "nodes": [
+    {
+      "id": "d2f94c8a-1a61-4d6c-a5da-c74552822091",
+      "name": "Catalog Subworkflow Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "catalog_request",
+              "type": "object"
+            },
+            {
+              "name": "catalog_context_key",
+              "type": "string"
+            },
+            {
+              "name": "source_message_id",
+              "type": "string"
+            },
+            {
+              "name": "channel_family",
+              "type": "string"
+            },
+            {
+              "name": "supports_meta_interactive",
+              "type": "boolean"
+            },
+            {
+              "name": "phone_number",
+              "type": "string"
+            },
+            {
+              "name": "URL_MCP",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "4be181ca-b1b8-4528-af95-9e8c7d43ed37",
+      "name": "Prepare Catalog Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const input = $input.first().json || {};\nconst allowedBaseUrl = 'http://mcp_server:8000';\nconst baseUrl = String(input.URL_MCP || '').trim().replace(/\\/+$/, '');\nconst request = input.catalog_request && typeof input.catalog_request === 'object'\n  ? input.catalog_request\n  : { scope: 'all', term: '', intent_type: 'catalog_browse' };\nconst configValid = baseUrl === allowedBaseUrl;\n\nreturn [{\n  json: {\n    catalog_request: request,\n    catalog_context_key: String(input.catalog_context_key || `catalog:${input.source_message_id || 'unknown'}`),\n    source_message_id: String(input.source_message_id || ''),\n    channel_family: String(input.channel_family || 'generic'),\n    supports_meta_interactive: Boolean(input.supports_meta_interactive),\n    phone_number: String(input.phone_number || ''),\n    catalog_url: configValid ? `${allowedBaseUrl}/api/products/catalog-carousel` : '',\n    catalog_lookup_config_valid: configValid,\n  },\n}];"
+      }
+    },
+    {
+      "id": "6fe9eb60-32ff-4afe-a301-5b0a1f835929",
+      "name": "Fetch Catalog Products",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        720,
+        -80
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.catalog_url }}",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "ff35a9e6-bf9e-44e5-a118-ed64367d17dc",
+      "name": "Build Catalog Delivery Contract",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const context = $('Prepare Catalog Request').first().json || {};\nconst responseItems = $input.all().map((item) => item.json || {});\n\nfunction normalize(value) {\n  return String(value || '')\n    .toLowerCase()\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '')\n    .replace(/[^a-z0-9]+/g, ' ')\n    .trim();\n}\n\nfunction slug(value, max = 40) {\n  return normalize(value).replace(/\\s+/g, '_').slice(0, max) || 'catalog';\n}\n\nfunction short(value, max) {\n  const text = String(value || '').trim();\n  return text.length > max ? `${text.slice(0, max - 3)}...` : text;\n}\n\nfunction absoluteHttps(value) {\n  const text = String(value || '');\n  if (!text || /[\\u0000-\\u0020\\u007f]/.test(text) || text.includes('\\\\') || /%(?![0-9a-f]{2})/i.test(text)) return '';\n\n  const match = /^https:\\/\\/([^/?#]+)(?:[/?#][^\\s\\\\]*)?$/i.exec(text);\n  if (!match) return '';\n\n  const authority = match[1];\n  if (!authority || authority.includes('@') || authority.startsWith('[')) return '';\n\n  const firstColon = authority.indexOf(':');\n  const lastColon = authority.lastIndexOf(':');\n  if (firstColon !== lastColon) return '';\n\n  const host = firstColon === -1 ? authority : authority.slice(0, firstColon);\n  const port = firstColon === -1 ? '' : authority.slice(firstColon + 1);\n  if (!host || host.length > 253 || (port && (!/^\\d{1,5}$/.test(port) || Number(port) < 1 || Number(port) > 65535))) return '';\n\n  const canonicalHost = host.endsWith('.') ? host.slice(0, -1) : host;\n  const labels = canonicalHost.split('.');\n  if (!canonicalHost || labels.some((label) => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(label))) return '';\n\n  if (/^\\d+(?:\\.\\d+){3}$/.test(canonicalHost)\n    && labels.some((label) => !/^\\d{1,3}$/.test(label) || Number(label) > 255)) return '';\n\n  return text;\n}\n\nfunction extractRows(value) {\n  if (Array.isArray(value)) return value;\n  if (!value || typeof value !== 'object') return [];\n  for (const key of ['results', 'products', 'items']) {\n    if (Array.isArray(value[key])) return value[key];\n  }\n  if (value.data !== undefined) {\n    const nested = extractRows(value.data);\n    if (nested.length || Array.isArray(value.data)) return nested;\n  }\n  if (value.id !== undefined || value.product_id !== undefined) return [value];\n  return [];\n}\n\nlet statusCode = null;\nlet lookupError = !context.catalog_lookup_config_valid;\nconst rawRows = [];\nfor (const response of responseItems) {\n  const code = Number(response.statusCode || response.status || 0);\n  if (code) statusCode = code;\n  if (code >= 400 || response.error) lookupError = true;\n  const payload = Object.prototype.hasOwnProperty.call(response, 'body') ? response.body : response;\n  rawRows.push(...extractRows(payload));\n}\n\nconst request = context.catalog_request || {};\nconst scope = String(request.scope || 'all');\nconst requestedTerm = normalize(request.term || '');\nconst seen = new Set();\nconst products = [];\nfor (const row of rawRows) {\n  const id = String(row.id ?? row.product_id ?? row.sku ?? '').trim();\n  const name = String(row.name ?? row.product_name ?? row.model ?? '').trim();\n  if (!id || !name || seen.has(id)) continue;\n\n  if (requestedTerm && scope !== 'all') {\n    const searchable = scope === 'segment'\n      ? normalize([row.segment, row.category, row.type, row.body_type].filter(Boolean).join(' '))\n      : normalize([row.name, row.model, row.version, row.variant, row.category].filter(Boolean).join(' '));\n    const singularTerm = requestedTerm.replace(/s$/, '');\n    if (!searchable.includes(requestedTerm) && !(singularTerm && searchable.includes(singularTerm))) continue;\n  }\n\n  seen.add(id);\n  const descriptiveValue = [row.version, row.variant, row.segment, row.category]\n    .find((value) => value !== null && value !== undefined && String(value).trim() !== '' && normalize(value) !== 'all');\n  const subtitle = [descriptiveValue, row.price_from || row.price]\n    .filter((value) => value !== null && value !== undefined && String(value).trim() !== '')\n    .map(String)\n    .join(' | ');\n  products.push({\n    id,\n    name,\n    subtitle: short(subtitle, 120),\n    image_url: absoluteHttps(row.image_url || row.image1 || row.image || ''),\n  });\n}\n\nconst imageProducts = products.filter((product) => product.image_url).slice(0, 10);\nconst textProducts = products.slice(0, 10);\nconst supportsMeta = Boolean(context.supports_meta_interactive)\n  && /whatsapp|waba/i.test(String(context.channel_family || ''));\nconst phone = String(context.phone_number || '').replace(/[^0-9]/g, '');\nconst canCarousel = supportsMeta && phone.length >= 8 && imageProducts.length >= 2;\nconst catalogKey = String(context.catalog_context_key || `catalog:${context.source_message_id || 'unknown'}`);\nconst callbackContext = slug(catalogKey, 40);\n\nfunction result(fields) {\n  return {\n    json: {\n      catalog_context_key: catalogKey,\n      source_message_id: String(context.source_message_id || ''),\n      catalog_result_count: products.length,\n      catalog_lookup_status_code: statusCode,\n      catalog_callback_consumption_supported: false,\n      catalog_callback_status: 'encoded_with_title_fallback_unconsumed',\n      delivery_attachments: [],\n      private_note_content: '',\n      ...fields,\n    },\n  };\n}\n\nfunction textFallback(reason) {\n  if (reason === 'lookup_failed') {\n    return 'No pude consultar el catálogo en este momento. Intenta nuevamente en unos minutos.';\n  }\n  if (!textProducts.length) {\n    return 'No encontré vehículos disponibles para esa búsqueda. Puedo ayudarte con otra categoría o modelo.';\n  }\n  if (textProducts.length === 1) {\n    const product = textProducts[0];\n    return `Encontré una opción disponible: ${product.name}${product.subtitle ? ` (${product.subtitle})` : ''}. Dime si quieres conocer sus detalles o agendar una visita.`;\n  }\n  const lines = ['Estas son las opciones disponibles:'];\n  for (const product of textProducts) {\n    lines.push(`- ${product.name}${product.subtitle ? `: ${product.subtitle}` : ''}`);\n  }\n  lines.push('Dime cuál quieres conocer mejor.');\n  return lines.join('\\n');\n}\n\nif (lookupError && rawRows.length === 0) {\n  return [result({ delivery_route: 'chat_text', interactive_type: 'none', delivery_text: textFallback('lookup_failed'), meta_request_body: null, catalog_delivery_reason: context.catalog_lookup_config_valid ? 'lookup_failed' : 'invalid_catalog_host' })];\n}\n\nif (!canCarousel) {\n  const reason = !textProducts.length\n    ? 'no_results'\n    : (textProducts.length === 1 ? 'single_product' : (!supportsMeta || phone.length < 8 ? 'unsupported_channel' : 'insufficient_images'));\n  return [result({ delivery_route: 'chat_text', interactive_type: 'none', delivery_text: textFallback(reason), meta_request_body: null, catalog_delivery_reason: reason })];\n}\n\nconst cards = imageProducts.map((product, index) => {\n  const productKey = slug(product.id, 40);\n  const infoTitle = short(`Info ${product.name}`, 20);\n  const visitTitle = short(`Visitar ${product.name}`, 20);\n  return {\n    card_index: index,\n    type: 'cta_url',\n    header: { type: 'image', image: { link: product.image_url } },\n    body: { text: short(`${product.name}${product.subtitle ? `\\n${product.subtitle}` : ''}`, 160) },\n    action: {\n      buttons: [\n        { type: 'quick_reply', quick_reply: { id: `catalog__${callbackContext}__product_${productKey}__more_info`, title: infoTitle } },\n        { type: 'quick_reply', quick_reply: { id: `catalog__${callbackContext}__product_${productKey}__test_drive`, title: visitTitle } },\n      ],\n    },\n  };\n});\n\nconst intro = scope === 'segment' && request.term\n  ? `Estas son las opciones disponibles en ${String(request.term).trim()}.`\n  : (scope === 'model_versions' && request.term\n    ? `Estas son las versiones disponibles de ${String(request.term).trim()}.`\n    : 'Te comparto los vehículos disponibles.');\n\nreturn [result({\n  delivery_route: 'meta_interactive',\n  interactive_type: 'carousel',\n  delivery_text: intro,\n  meta_request_body: {\n    messaging_product: 'whatsapp',\n    recipient_type: 'individual',\n    to: phone,\n    type: 'interactive',\n    interactive: {\n      type: 'carousel',\n      body: { text: short(intro, 1024) },\n      action: { cards },\n    },\n  },\n  private_note_content: `Catálogo determinístico preparado con ${cards.length} vehículos.`,\n  catalog_delivery_reason: 'carousel',\n})];"
+      }
+    },
+    {
+      "id": "be425852-0685-4a9c-8ce1-428ec62c783d",
+      "name": "Catalog Host Allowed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "catalog-host-allowed",
+              "leftValue": "={{ $json.catalog_lookup_config_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Catalog Subworkflow Input": {
+      "main": [
+        [
+          {
+            "node": "Prepare Catalog Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Catalog Request": {
+      "main": [
+        [
+          {
+            "node": "Catalog Host Allowed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Catalog Host Allowed?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Catalog Products",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Catalog Delivery Contract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Catalog Products": {
+      "main": [
+        [
+          {
+            "node": "Build Catalog Delivery Contract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "f173fbf2-c675-539d-b96c-a4cdc49c4678",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

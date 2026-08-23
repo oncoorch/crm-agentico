@@ -1,0 +1,181 @@
+{
+  "id": "aQvNTirchW9no65f_kia-electrolineras",
+  "name": "Test de conectividad_kia-electrolineras",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "messages_created_test",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1104,
+        -96
+      ],
+      "id": "65e2ef04-b1a1-4e64-884c-1645cade87c7",
+      "name": "Webhook1",
+      "webhookId": "d03a3eb2-9cb7-43a2-85ea-3ae7c50ccd0d"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://{{ $json.URL_OMNICEM }}/api/v1/accounts/{{ $json.body.account.id }}/conversations/{{ $json.body.conversation.id }}/messages ",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "={{ $json.TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content",
+              "value": "=Hello from Autocom backend: {{ $json.body.content }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -288,
+        -192
+      ],
+      "id": "3713bc68-7a50-42a0-b554-5f96414ee891",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "98c64e10-ee06-4313-aa44-2c1620449751",
+              "name": "body.conversation",
+              "value": "={{ $json.body.conversation }}",
+              "type": "object"
+            },
+            {
+              "id": "f503cdf5-0b29-4303-ab95-a23dc0598074",
+              "name": "body.event",
+              "value": "={{ $json.body.event }}",
+              "type": "string"
+            },
+            {
+              "id": "846b8a87-ecf1-4f12-b48f-d8ec0fec45b0",
+              "name": "body.account",
+              "value": "={{ $json.body.account }}",
+              "type": "object"
+            },
+            {
+              "id": "6de4f8e0-ab79-429d-88ed-4f4d71c4daf6",
+              "name": "TOKEN",
+              "value": "9edQzVa1yZVPYU2o2489Rdqn",
+              "type": "string"
+            },
+            {
+              "id": "0af26e99-8bf0-4245-900e-888052112f36",
+              "name": "URL_OMNICEM",
+              "value": "chatwoot:3000",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -512,
+        -192
+      ],
+      "id": "10407320-5a4c-4bee-863f-0d8cdc8c0722",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "479c095b-bfcd-4b20-b566-0b62cc72c1ec",
+              "leftValue": "={{ $json.body.message_type }}",
+              "rightValue": "incoming",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -848,
+        -96
+      ],
+      "id": "626d77e7-4c05-4771-a1f5-2ccf846a8f35",
+      "name": "incoming?1"
+    }
+  ],
+  "connections": {
+    "Webhook1": {
+      "main": [
+        [
+          {
+            "node": "incoming?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "incoming?1": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "759814e9-4e2b-5d6d-ac80-c188f357cd05",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

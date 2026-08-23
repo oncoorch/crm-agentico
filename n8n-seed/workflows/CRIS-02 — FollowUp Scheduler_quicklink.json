@@ -1,0 +1,699 @@
+{
+  "id": "MGApcPGt1WSU2bBp_quicklink",
+  "name": "CRIS-02 — FollowUp Scheduler_quicklink",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wf04-test-run",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "wh-test-trigger",
+      "name": "Webhook Test Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        112,
+        4016
+      ],
+      "webhookId": "de1ba5b7-a48b-4276-a9b2-c4c0b32fb71e",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "0hYeKlozui5dMRDE_quicklink",
+          "name": "QL Sync Manual Webhook Token_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH recovered AS (\n  UPDATE sales_prod.scheduled_followups sf\n  SET retry_count = sf.retry_count + 1,\n      status = CASE\n        WHEN sf.retry_count + 1 >= GREATEST(COALESCE(sales_prod.get_system_config_int('followup.max-retries', 3), 3), 1) THEN 'FAILED'\n        ELSE 'PENDING'\n      END,\n      processed_at = CASE\n        WHEN sf.retry_count + 1 >= GREATEST(COALESCE(sales_prod.get_system_config_int('followup.max-retries', 3), 3), 1) THEN now()\n        ELSE NULL\n      END,\n      last_error_at = now(),\n      error_msg = CASE\n        WHEN sf.retry_count + 1 >= GREATEST(COALESCE(sales_prod.get_system_config_int('followup.max-retries', 3), 3), 1) THEN 'processing_timeout_failed'\n        ELSE 'processing_timeout_requeued'\n      END\n  WHERE sf.status = 'PROCESSING'\n    AND COALESCE(sf.processed_at, sf.created_at, now()) < now() - make_interval(mins => GREATEST(COALESCE(sales_prod.get_system_config_int('followup.processing-timeout-minutes', 45), 45), 5))\n  RETURNING sf.id\n)\nSELECT f.*\nFROM (\n  SELECT set_config('search_path', 'sales_prod, public, extensions', true) AS value\n) AS sp\nCROSS JOIN LATERAL sales_prod.claim_due_followups($1::integer + (length(sp.value) * 0) + (SELECT count(*)::integer * 0 FROM recovered)) AS f;",
+        "options": {
+          "queryReplacement": "={{ [10] }}"
+        }
+      },
+      "id": "pg-get-pending",
+      "name": "GET — Followups PENDING",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        336,
+        4000
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $items().filter(i => i.json?.tipo_followup).length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-has-items",
+      "name": "IF — Hay followups?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        560,
+        4000
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "loop-1",
+      "name": "Loop — Por Followup",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        784,
+        4000
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "c1",
+                    "leftValue": "={{ $json.tipo_followup }}",
+                    "rightValue": "CONTACTED_2",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "c2",
+                    "leftValue": "={{ $json.tipo_followup }}",
+                    "rightValue": "NO_CONTACTABLE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "c3",
+                    "leftValue": "={{ $json.tipo_followup }}",
+                    "rightValue": "CONTACTED_3",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "switch-tipo",
+      "name": "SWITCH — Tipo followup",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2352,
+        3648
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function getWindowMinutesUsed() {\n  try { const cfg = $('[WIN-IN] Touch Last Inbound').first().json; if (cfg && cfg.window_minutes) return Number(cfg.window_minutes); } catch(e) {}\n  try { const cfg = $('[WIN-FU] Evaluate Followup Window').first().json; if (cfg && cfg.window_minutes) return Number(cfg.window_minutes); } catch(e) {}\n  return 1440;\n}\n\nconst item = $input.first().json;\nfunction toTitleCase(s) { return String(s||'').toLowerCase().replace(/\\b\\w/g, c => c.toUpperCase()); }\nconst nombre = toTitleCase(item.nombre_cliente||'estimado/a cliente');\nconst modelo = toTitleCase(item.modelo||'su vehiculo');\nconst marca = (item.marca||'KIA').toUpperCase();\n\nif (marca !== 'KIA' && marca !== 'HYUNDAI') {\n  throw new Error(`[GUARD CONTACTO_2] marca inválida: \"${marca}\" conv=${item.conversation_id}`);\n}\n\nfunction normalizeWaPhone(raw) {\n  return String(raw || '').replace(/\\D/g, '');\n}\nconst telefonoWa = normalizeWaPhone(item.phone_e164 || item.telefono);\n\nconst CONTACTO_2_TEMPLATES = {\n  KIA: [\n    { name: 'kia_contacto2_v1', lang: 'es', params: [{ type: 'text', text: nombre }, { type: 'text', text: modelo }] },\n    { name: 'kia_contacto2_v2', lang: 'es', params: [{ type: 'text', text: nombre }] },\n  ],\n  HYUNDAI: [\n    { name: 'hyundai_contacto2_v1', lang: 'es', params: [{ type: 'text', text: nombre }, { type: 'text', text: modelo }] },\n    { name: 'hyundai_contacto2_v2', lang: 'es', params: [{ type: 'text', text: nombre }] },\n  ],\n};\nlet opciones = CONTACTO_2_TEMPLATES[marca];\nconst lastTplAt = item.last_template_sent_at ? new Date(item.last_template_sent_at) : null;\nconst repeatedRecent = item.last_template_sent && lastTplAt && (Date.now() - lastTplAt.getTime()) < 24 * 60 * 60 * 1000;\nif (repeatedRecent) opciones = opciones.filter(o => o.name !== item.last_template_sent);\nif (!opciones.length) throw new Error(`[GUARD TEMPLATE] template repetido en 24h: ${item.last_template_sent}`);\nconst tpl = opciones[Math.floor(Math.random() * opciones.length)];\n\nconst template_payload = {\n  messaging_product: 'whatsapp',\n  to: telefonoWa,\n  type: 'template',\n  template: {\n    name: tpl.name,\n    language: { code: tpl.lang },\n    components: [{ type: 'body', parameters: tpl.params }],\n  },\n};\n\nreturn [{json:{...item, template_payload, template_name_used: tpl.name, telefono_wa: telefonoWa,\n  next_estado:'CONTACTED_2', next_intentos:(parseInt(item.intentos_realizados)||0)+1,\n  next_followup_tipo:'CONTACTED_3', window_minutes_used: getWindowMinutesUsed()\n}}];"
+      },
+      "id": "code-msg2",
+      "name": "Code — Mensaje CONTACTO_2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2576,
+        3472
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nreturn [{json:{...item, next_estado:'NOT_CONTACTABLE', loss_reason:'SIN_RESPUESTA', cierre_enviado:false}}];"
+      },
+      "id": "code-nc",
+      "name": "Code — NO_CONTACTABLE",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2576,
+        3664
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function getWindowMinutesUsed() {\n  try { const cfg = $('[WIN-IN] Touch Last Inbound').first().json; if (cfg && cfg.window_minutes) return Number(cfg.window_minutes); } catch(e) {}\n  try { const cfg = $('[WIN-FU] Evaluate Followup Window').first().json; if (cfg && cfg.window_minutes) return Number(cfg.window_minutes); } catch(e) {}\n  return 1440;\n}\n\nconst item = $input.first().json;\nfunction toTitleCase(s) { return String(s||'').toLowerCase().replace(/\\b\\w/g, c => c.toUpperCase()); }\nconst nombre = toTitleCase(item.nombre_cliente||'estimado/a cliente');\nconst modelo = toTitleCase(item.modelo||'su vehiculo');\nconst marca = (item.marca||'KIA').toUpperCase();\n\nif (marca !== 'KIA' && marca !== 'HYUNDAI') {\n  throw new Error(`[GUARD CONTACTO_3] marca inválida: \"${marca}\" conv=${item.conversation_id}`);\n}\n\nfunction normalizeWaPhone(raw) {\n  return String(raw || '').replace(/\\D/g, '');\n}\nconst telefonoWa = normalizeWaPhone(item.phone_e164 || item.telefono);\n\nconst CONTACTO_3_TEMPLATES = {\n  KIA:     { name: 'kia_contacto3_v1',     lang: 'es', params: [{ type: 'text', text: nombre }, { type: 'text', text: modelo }] },\n  HYUNDAI: { name: 'hyundai_contacto3_v1', lang: 'es', params: [{ type: 'text', text: nombre }, { type: 'text', text: modelo }] },\n};\nconst tpl = CONTACTO_3_TEMPLATES[marca];\nconst lastTplAt = item.last_template_sent_at ? new Date(item.last_template_sent_at) : null;\nif (item.last_template_sent === tpl.name && lastTplAt && (Date.now() - lastTplAt.getTime()) < 24 * 60 * 60 * 1000) {\n  throw new Error(`[GUARD TEMPLATE] template repetido en 24h: ${tpl.name}`);\n}\n\nconst template_payload = {\n  messaging_product: 'whatsapp',\n  to: telefonoWa,\n  type: 'template',\n  template: {\n    name: tpl.name,\n    language: { code: tpl.lang },\n    components: [{ type: 'body', parameters: tpl.params }],\n  },\n};\n\nreturn [{json:{...item, template_payload, template_name_used: tpl.name, telefono_wa: telefonoWa,\n  next_estado:'CONTACTED_3', next_intentos:(parseInt(item.intentos_realizados)||0)+1,\n  next_followup_tipo:'NO_CONTACTABLE', window_minutes_used: getWindowMinutesUsed()\n}}];"
+      },
+      "id": "code-msg3",
+      "name": "Code — Mensaje CONTACTO_3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2576,
+        3856
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v23.0/1114673978398967/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer ${REDACTED_TOKEN}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.template_payload) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "http-wa-c3",
+      "name": "HTTP — WhatsApp Followup C3",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2800,
+        3856
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ \"SET search_path TO sales_prod, public, extensions;\\n\" + ((() => {\n  const src = $('Code — Mensaje CONTACTO_3').first().json;\n  const err = $json.error\n    ? String($json.error.message || $json.error.description || JSON.stringify($json.error)).replace(/'/g, \"''\")\n    : '';\n  const phoneRaw = src.phone_e164 || (src.telefono ? ('+' + String(src.telefono).replace(/^\\+/, '')) : '');\n  const phone = String(phoneRaw || '').replace(/'/g, \"''\");\n  const templateName = String(src.template_name_used || '').replace(/'/g, \"''\");\n  if (err) {\n    return `SET search_path TO sales_prod, public, extensions;\\nSELECT * FROM fail_claimed_followup('${src.followup_id}'::uuid, '${err}'::text);`;\n  }\n  return `SET search_path TO sales_prod, public, extensions;\\nSELECT * FROM complete_claimed_followup_success('${src.followup_id}'::uuid, '${phone}'::text, '${templateName}'::text);`;\n})()) }}",
+        "options": {}
+      },
+      "id": "pg-upd-conv-c3",
+      "name": "PG — Update conversation estado C3",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3024,
+        4112
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ \"SET search_path TO sales_prod, public, extensions;\\n\" + ((() => {\n  const src = $('Code — NO_CONTACTABLE').first().json;\n  const phoneRaw = src.phone_e164 || (src.telefono ? ('+' + String(src.telefono).replace(/^\\+/, '')) : '');\n  const phone = String(phoneRaw || '').replace(/'/g, \"''\");\n  return `SET search_path TO sales_prod, public, extensions;\\nSELECT * FROM complete_claimed_followup_success('${src.followup_id}'::uuid, '${phone}'::text, NULL);`;\n})()) }}",
+        "options": {}
+      },
+      "id": "pg-nc",
+      "name": "PG — Mark NO_CONTACTABLE",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2800,
+        3664
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v23.0/1114673978398967/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer ${REDACTED_TOKEN}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.template_payload) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "http-wa",
+      "name": "HTTP — WhatsApp Followup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2800,
+        3472
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ \"SET search_path TO sales_prod, public, extensions;\\n\" + ((() => {\n  const src = $('Code — Mensaje CONTACTO_2').first().json;\n  const err = $json.error\n    ? String($json.error.message || $json.error.description || JSON.stringify($json.error)).replace(/'/g, \"''\")\n    : '';\n  const phoneRaw = src.phone_e164 || (src.telefono ? ('+' + String(src.telefono).replace(/^\\+/, '')) : '');\n  const phone = String(phoneRaw || '').replace(/'/g, \"''\");\n  const templateName = String(src.template_name_used || '').replace(/'/g, \"''\");\n  if (err) {\n    return `SET search_path TO sales_prod, public, extensions;\\nSELECT * FROM fail_claimed_followup('${src.followup_id}'::uuid, '${err}'::text);`;\n  }\n  return `SET search_path TO sales_prod, public, extensions;\\nSELECT * FROM complete_claimed_followup_success('${src.followup_id}'::uuid, '${phone}'::text, '${templateName}'::text);`;\n})()) }}",
+        "options": {}
+      },
+      "id": "pg-upd-conv",
+      "name": "PG — Update conversation estado",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3024,
+        3824
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/cris-tags-sync",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ conv_id: $('Code — Mensaje CONTACTO_2').first().json.conversation_id, source: 'CRIS-02-FollowUp-Scheduler.contacto_2' }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "wf09-sync-followup-c2",
+      "name": "WF09 - Sync Tags CONTACTO_2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3248,
+        3824
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Requests immediate WF-09 tag sync. WF-09 remains the only Chatwoot labels writer."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/cris-tags-sync",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ conv_id: $('Code — Mensaje CONTACTO_3').first().json.conversation_id, source: 'CRIS-02-FollowUp-Scheduler.contacto_3' }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "wf09-sync-followup-c3",
+      "name": "WF09 - Sync Tags CONTACTO_3",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3248,
+        4112
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Requests immediate WF-09 tag sync. WF-09 remains the only Chatwoot labels writer."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/cris-tags-sync",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ conv_id: $('Code — NO_CONTACTABLE').first().json.conversation_id || $json.conversation_id, source: 'CRIS-02-FollowUp-Scheduler.no_contactable' }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "wf09-sync-followup-nc",
+      "name": "WF09 - Sync Tags NO_CONTACTABLE",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3024,
+        3664
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Requests immediate WF-09 tag sync. WF-09 remains the only Chatwoot labels writer."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nSELECT * FROM expire_pending_loss_reasons(48);",
+        "options": {}
+      },
+      "id": "pg-expire-loss-timeout-001",
+      "name": "PG - Expire Loss Reason Timeouts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        336,
+        4208
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "cron-1",
+      "name": "CRON 15min (dev)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        112,
+        3824
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Test Trigger": {
+      "main": [
+        [
+          {
+            "node": "GET — Followups PENDING",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET — Followups PENDING": {
+      "main": [
+        [
+          {
+            "node": "IF — Hay followups?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF — Hay followups?": {
+      "main": [
+        [
+          {
+            "node": "Loop — Por Followup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop — Por Followup": {
+      "main": [
+        [],
+        [
+          {
+            "node": "SWITCH — Tipo followup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SWITCH — Tipo followup": {
+      "main": [
+        [
+          {
+            "node": "Code — Mensaje CONTACTO_2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code — NO_CONTACTABLE",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code — Mensaje CONTACTO_3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code — Mensaje CONTACTO_2": {
+      "main": [
+        [
+          {
+            "node": "HTTP — WhatsApp Followup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code — NO_CONTACTABLE": {
+      "main": [
+        [
+          {
+            "node": "PG — Mark NO_CONTACTABLE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code — Mensaje CONTACTO_3": {
+      "main": [
+        [
+          {
+            "node": "HTTP — WhatsApp Followup C3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP — WhatsApp Followup C3": {
+      "main": [
+        [
+          {
+            "node": "PG — Update conversation estado C3",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PG — Update conversation estado C3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG — Update conversation estado C3": {
+      "main": [
+        [
+          {
+            "node": "Loop — Por Followup",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "WF09 - Sync Tags CONTACTO_3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG — Mark NO_CONTACTABLE": {
+      "main": [
+        [
+          {
+            "node": "Loop — Por Followup",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "WF09 - Sync Tags NO_CONTACTABLE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP — WhatsApp Followup": {
+      "main": [
+        [
+          {
+            "node": "PG — Update conversation estado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PG — Update conversation estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG — Update conversation estado": {
+      "main": [
+        [
+          {
+            "node": "Loop — Por Followup",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "WF09 - Sync Tags CONTACTO_2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WF09 - Sync Tags CONTACTO_2": {
+      "main": [
+        []
+      ]
+    },
+    "WF09 - Sync Tags CONTACTO_3": {
+      "main": [
+        []
+      ]
+    },
+    "WF09 - Sync Tags NO_CONTACTABLE": {
+      "main": [
+        []
+      ]
+    },
+    "CRON 15min (dev)": {
+      "main": [
+        [
+          {
+            "node": "GET — Followups PENDING",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "PG - Expire Loss Reason Timeouts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "timezone": "America/Guayaquil",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "none"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "19fcf901-791b-542c-a19a-7088b8f53352",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

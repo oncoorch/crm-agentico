@@ -1,0 +1,59 @@
+{
+  "id": "SlhiAaKQmeTCdU7c_quicklink",
+  "name": "QuickLink — TEST Disparar Lead Manual_quicklink",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "quicklink-test-lead",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "wh1",
+      "name": "Webhook TEST",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        304
+      ],
+      "webhookId": "644a0666-209f-4a93-91bc-757907a5847a"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\nfor (const item of $input.all()) {\n  item.json.myNewField = 1;\n}\n\nreturn $input.all();"
+      },
+      "id": "code1",
+      "name": "Validar y Ejecutar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        512,
+        304
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook TEST": {
+      "main": [
+        [
+          {
+            "node": "Validar y Ejecutar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "ab437fa5-8ab9-57dc-9636-2fd634790c9a",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

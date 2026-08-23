@@ -1,0 +1,106 @@
+{
+  "id": "BLq4ERPMx3nmKpSV_autocom",
+  "name": "Establishment Resolve Tester_autocom",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [\n  {\n    json: {\n      case_name: '1732_jetour_t2_bogota',\n      expected_city: 'Bogota',\n      payload: {\n        selected_establishment_id: null,\n        product_id: 12,\n        city: 'Bogota',\n        zone: null,\n        lat: null,\n        lng: null,\n        query: '',\n        limit: 10,\n      },\n    },\n  },\n  {\n    json: {\n      case_name: '1733_product15_bogota',\n      expected_city: 'Bogota',\n      payload: {\n        selected_establishment_id: null,\n        product_id: 15,\n        city: 'Bogota',\n        zone: null,\n        lat: null,\n        lng: null,\n        query: '',\n        limit: 10,\n      },\n    },\n  },\n  {\n    json: {\n      case_name: '1732_jetour_t2_bogota_query_empty',\n      expected_city: 'Bogota',\n      payload: {\n        selected_establishment_id: null,\n        product_id: 12,\n        city: 'Bogota',\n        zone: null,\n        lat: null,\n        lng: null,\n        query: '',\n        limit: 20,\n      },\n    },\n  },\n];"
+      },
+      "id": "build-test-cases",
+      "name": "Build Test Cases",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://mcp_server:8000/api/establishment-resolve",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.payload }}",
+        "options": {}
+      },
+      "id": "call-establishment-resolve",
+      "name": "Call Establishment Resolve",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        760,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $input.item.json.payload || {};\nconst response = $json;\nconst expectedCity = $input.item.json.expected_city || '';\nconst candidates = Array.isArray(response.candidates) ? response.candidates : [];\n\nreturn [{\n  json: {\n    case_name: $input.item.json.case_name,\n    request_payload: payload,\n    next_best_action: response.next_best_action || null,\n    selected_establishment_id: response.selected_establishment_id || null,\n    selected_establishment_name: response.selected_establishment_name || null,\n    candidates_count: candidates.length,\n    candidates: candidates.map((candidate) => ({\n      id: candidate.id,\n      name: candidate.name,\n      city: candidate.city,\n      brand: candidate.brand,\n      type: candidate.establishments_type,\n    })),\n    off_city_candidates: candidates.filter((candidate) => String(candidate.city || '').toLowerCase() !== String(expectedCity || '').toLowerCase()).map((candidate) => ({\n      id: candidate.id,\n      name: candidate.name,\n      city: candidate.city,\n    })),\n    raw_response: response,\n  },\n}];"
+      },
+      "id": "summarize-results",
+      "name": "Summarize Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build Test Cases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Test Cases": {
+      "main": [
+        [
+          {
+            "node": "Call Establishment Resolve",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Establishment Resolve": {
+      "main": [
+        [
+          {
+            "node": "Summarize Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "d815d769-f746-53b1-bbbd-250f990c1c77",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

@@ -1,0 +1,248 @@
+{
+  "id": "OKo1wV307d24RE9i_quitomotors",
+  "name": "QUITOMOTORS PRO - SGC Due Paso4 24h_quitomotors",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger-step4-abandoned",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -560,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/10 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger-step4-abandoned",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -560,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "path": "quitomotors-step4-abandoned-sync-run",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-trigger-step4-abandoned",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -560,
+        240
+      ],
+      "webhookId": "a9047e0d-6037-4726-b2f3-0e518d440422"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "set-mcp-url-step4-abandoned-field",
+              "name": "URL_MCP",
+              "value": "http://mcp_server:8000",
+              "type": "string"
+            },
+            {
+              "id": "set-step4-account-id",
+              "name": "account_id",
+              "value": "2",
+              "type": "string"
+            },
+            {
+              "id": "set-step4-inbox-id",
+              "name": "inbox_id",
+              "value": 2,
+              "type": "number"
+            },
+            {
+              "id": "set-step4-dry-run",
+              "name": "dry_run",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "set-step4-max-items",
+              "name": "max_items",
+              "value": 100,
+              "type": "number"
+            },
+            {
+              "id": "set-step4-lookback-hours",
+              "name": "lookback_hours",
+              "value": 168,
+              "type": "number"
+            },
+            {
+              "id": "set-step4-due-after-minutes",
+              "name": "due_after_minutes",
+              "value": 1440,
+              "type": "number"
+            },
+            {
+              "id": "set-step4-include-synthetic-ddt2",
+              "name": "include_synthetic_ddt2",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "set-step4-service-id",
+              "name": "service_id",
+              "value": 1,
+              "type": "number"
+            },
+            {
+              "id": "set-step4-create-private-notes",
+              "name": "create_private_notes",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "set-step4-resolve-conversations",
+              "name": "resolve_conversations",
+              "value": true,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-mcp-url-step4-abandoned",
+      "name": "Set MCP URL",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -304,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.URL_MCP + '/api/abandoned-leads/step4/process' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => { const num = (value, fallback) => { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : fallback; }; const bool = (value, fallback) => { if (typeof value === 'boolean') return value; const text = String(value || '').trim().toLowerCase(); if (['true', '1', 'yes', 'si'].includes(text)) return true; if (['false', '0', 'no'].includes(text)) return false; return fallback; }; const dueAfter = num($json.due_after_minutes, 1440); return { account_id: num($json.account_id, 2), inbox_id: num($json.inbox_id, 3), dry_run: bool($json.dry_run, false), max_items: num($json.max_items, 100), lookback_hours: num($json.lookback_hours, 168), due_after_minutes: dueAfter, min_age_minutes: dueAfter, channel_type: 'Channel::Whatsapp', include_synthetic_ddt2: bool($json.include_synthetic_ddt2, false), service_id: num($json.service_id, 1), create_private_notes: bool($json.create_private_notes, true), resolve_conversations: bool($json.resolve_conversations, true) }; })() }}",
+        "options": {}
+      },
+      "id": "http-step4-abandoned-process",
+      "name": "HTTP Step 4 Abandoned Process",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -16,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $json || {};\nreturn [{ json: {\n  ok: Boolean(result.ok),\n  dry_run: Boolean(result.dry_run),\n  processed: result.processed || 0,\n  synced: result.synced || 0,\n  skipped: result.skipped || 0,\n  errors: result.errors || 0,\n  min_age_minutes: result.min_age_minutes || null,\n  message: result.message || result.error || null,\n  raw: result,\n} }];"
+      },
+      "id": "format-step4-abandoned-result",
+      "name": "Format Step 4 Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        80
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set MCP URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set MCP URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set MCP URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set MCP URL": {
+      "main": [
+        [
+          {
+            "node": "HTTP Step 4 Abandoned Process",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Step 4 Abandoned Process": {
+      "main": [
+        [
+          {
+            "node": "Format Step 4 Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "bd46746a-38ed-59e8-aeb1-f85dee90bf5f",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

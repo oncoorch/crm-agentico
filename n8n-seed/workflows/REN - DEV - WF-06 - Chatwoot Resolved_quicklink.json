@@ -1,0 +1,212 @@
+{
+  "id": "Vw2m8vZn6SWyYikF_quicklink",
+  "name": "REN - DEV - WF-06 - Chatwoot Resolved_quicklink",
+  "nodes": [
+    {
+      "id": "wh-chatwoot-resolved-001",
+      "name": "Webhook Chatwoot Resolved POST",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -820,
+        120
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "renov/dev/chatwoot-resolved",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "aa72488d-aa70-4259-96d1-b3d8629f5c17"
+    },
+    {
+      "id": "code-normalize-resolved-001",
+      "name": "Code - Normalize Resolved Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -560,
+        120
+      ],
+      "parameters": {
+        "jsCode": "const input = $json || {};\nconst headers = input.headers || {};\nconst RESOLVED_SQL = \"WITH target AS MATERIALIZED (\\n  SELECT conversation.id, conversation.customer_id, conversation.status AS previous_status\\n    FROM renovation_dev.conversations conversation\\n   WHERE conversation.chatwoot_conversation_id = $1::text\\n   LIMIT 1\\n   FOR UPDATE\\n), control AS MATERIALIZED (\\n  SELECT control.*\\n    FROM (SELECT 1) seed LEFT JOIN target ON true\\n    CROSS JOIN LATERAL renovation_dev.resolve_chatwoot_bot_control($1::text, $2::timestamptz, $3::text) control\\n), operation_settle AS MATERIALIZED (\\n  SELECT renovation_dev.settle_chatwoot_handoff_operations($1::text, $2::timestamptz) AS settled\\n    FROM control\\n   WHERE control.control_updated\\n), updated AS (\\n  UPDATE renovation_dev.conversations conversation\\n     SET status = 'closed'::renovation_dev.conversation_status,\\n         closed_at = COALESCE(conversation.closed_at, $2::timestamptz),\\n         updated_at = now()\\n    FROM target\\n   WHERE conversation.id = target.id\\n     AND (\\n       conversation.status = 'handed_off'::renovation_dev.conversation_status\\n       OR (\\n         conversation.status = 'bot_active'::renovation_dev.conversation_status\\n         AND COALESCE((SELECT settled FROM operation_settle), 0) > 0\\n       )\\n     )\\n     AND COALESCE((SELECT control_updated FROM control), false)\\n     AND (conversation.handed_off_at IS NULL OR conversation.handed_off_at <= $2::timestamptz)\\n  RETURNING conversation.id, conversation.status\\n), logged AS (\\n  INSERT INTO renovation_dev.interaction_logs (\\n    customer_id, conversation_id, event_type, correlation_id, payload, success\\n  )\\n  SELECT\\n    target.customer_id,\\n    target.id,\\n    'chatwoot_conversation_resolved',\\n    $3::text,\\n    jsonb_build_object(\\n      'chatwoot_conversation_id', $1::text,\\n       'control_reactivated', COALESCE((SELECT control_updated FROM control), false),\\n       'handoff_operations_settled', COALESCE((SELECT settled FROM operation_settle), 0),\\n      'formal_handoff_closed', EXISTS (SELECT 1 FROM updated),\\n      'event', $4::text,\\n      'status', $5::text,\\n      'inbox_id', $6::text\\n    ),\\n    true\\n  FROM (SELECT 1) seed\\n  LEFT JOIN target ON true\\n  WHERE COALESCE((SELECT control_updated FROM control), false)\\n     OR EXISTS (SELECT 1 FROM updated)\\n  RETURNING id\\n)\\nSELECT\\n  $1::text AS chatwoot_conversation_id,\\n  (SELECT id FROM target) AS conversation_id,\\n  (SELECT previous_status::text FROM target) AS previous_status,\\n  COALESCE((SELECT status::text FROM updated), (SELECT previous_status::text FROM target)) AS conversation_status,\\n  COALESCE((SELECT control_updated FROM control), false) AS control_reactivated,\\n  COALESCE((SELECT settled FROM operation_settle), 0) AS handoff_operations_settled,\\n  EXISTS (SELECT 1 FROM updated) AS updated_to_closed,\\n  EXISTS (SELECT 1 FROM target) AS local_conversation_found,\\n  (SELECT id FROM logged) AS log_id;\";\nfunction env(name, fallback = '') { try { return $env[name] || fallback; } catch (error) { return fallback; } }\nfunction readHeader(name) {\n  const target = name.toLowerCase();\n  for (const [key, value] of Object.entries(headers)) {\n    if (String(key).toLowerCase() === target) return Array.isArray(value) ? value[0] : value;\n  }\n  return '';\n}\nfunction normalizeTimestamp(value) {\n  if (value === null || value === undefined || value === '') return null;\n  const raw = String(value).trim();\n  const numeric = Number(raw);\n  const date = Number.isFinite(numeric)\n    ? new Date(numeric < 9999999999 ? numeric * 1000 : numeric)\n    : new Date(raw);\n  return Number.isFinite(date.getTime()) ? date.toISOString() : null;\n}\nfunction normalizeKey(value) {\n  return String(value || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();\n}\nfunction changedStatus(source) {\n  const list = source.changed_attributes || source.conversation?.changed_attributes || source.changes || [];\n  if (!Array.isArray(list)) return '';\n  for (const entry of list) {\n    const name = entry.attribute_name || entry.name || entry.attribute || '';\n    if (String(name).toLowerCase() === 'status') {\n      return String(entry.current_value || entry.value || entry.to || '').toLowerCase();\n    }\n  }\n  return '';\n}\nfunction normalizeResolvedEvent(input, config = {}) {\n  const body = input.body && typeof input.body === 'object' ? input.body : input;\n  const conversation = body.conversation || body;\n  const inbox = body.inbox || conversation.inbox || {};\n  const account = body.account || {};\n  const event = String(body.event || body.name || body.event_type || '').trim();\n  const changedToStatus = changedStatus(body);\n  const status = String(changedToStatus || body.status || conversation.status || body.conversation_status || '').toLowerCase();\n  const conversationId = String(conversation.id || body.conversation_id || body.id || '').trim();\n  const inboxId = String(inbox.id || conversation.inbox_id || body.inbox_id || '').trim();\n  const inboxName = String(inbox.name || conversation.inbox_name || '').trim();\n  // Chatwoot NO manda cuenta a nivel raiz en conversation_status_changed: el\n  // unico lugar donde aparece es dentro del ultimo mensaje. Verificado con el\n  // payload real el 2026-08-15, que traia inbox_id pero ningun account.\n  const lastMessage = Array.isArray(body.messages) && body.messages.length\n    ? body.messages[body.messages.length - 1] || {}\n    : {};\n  const accountId = String(\n    account.id || body.account_id || conversation.account_id || lastMessage.account_id || '',\n  ).trim();\n  const expectedInboxId = String(config.inboxId || '').trim();\n  const expectedInboxName = String(config.inboxName || 'Agente AIGENTS RENOVACIONES 9663');\n  const expectedAccountId = String(config.accountId || '').trim();\n  const inboxMatches = (expectedInboxId && inboxId === expectedInboxId)\n    || (expectedInboxName && normalizeKey(inboxName) === normalizeKey(expectedInboxName));\n  // Ausente no es lo mismo que distinto. Lo que autentica este webhook es el\n  // token dedicado de la query, y el inbox ya discrimina cual es nuestro; exigir\n  // ademas una cuenta que Chatwoot a veces no manda descartaba TODOS los\n  // resolve reales y dejaba cada handoff colgado para siempre. Una cuenta\n  // presente y distinta se sigue rechazando.\n  const accountMatches = !expectedAccountId || !accountId || accountId === expectedAccountId;\n  const resolvedEvent = (event === 'conversation_status_changed' && status === 'resolved')\n    || (event === 'conversation_resolved' && status === 'resolved')\n    || (event === 'conversation_updated' && changedToStatus === 'resolved');\n  if (!resolvedEvent || status !== 'resolved' || !/^\\d+$/.test(conversationId) || !inboxMatches || !accountMatches) {\n    return { route: 'ignore', reason: !inboxMatches ? 'other_inbox' : (!accountMatches ? 'other_account' : 'not_resolved') };\n  }\n\n  const explicitTimestamp = normalizeTimestamp(body.updated_at || conversation.updated_at || body.created_at || conversation.created_at);\n  if (!explicitTimestamp) return { route: 'ignore', reason: 'missing_timestamp' };\n  const eventAt = explicitTimestamp;\n  const sourceEventKey = `cw-resolved:${conversationId}:${explicitTimestamp}`;\n  return {\n    route: 'resolved',\n    chatwoot_conversation_id: conversationId,\n    event,\n    status,\n    event_at: eventAt,\n    source_event_key: sourceEventKey,\n    inbox_id: inboxId,\n    persist_sql: RESOLVED_SQL,\n    persist_params: [conversationId, eventAt, sourceEventKey, event, status, inboxId],\n  };\n}\nconst expectedToken = env('RENOV_CHATWOOT_WEBHOOK_TOKEN');\nfunction safeEqual(left, right) {\n  const a = String(left || '');\n  const b = String(right || '');\n  if (!a || a.length !== b.length) return false;\n  let diff = 0;\n  for (let index = 0; index < a.length; index += 1) diff |= a.charCodeAt(index) ^ b.charCodeAt(index);\n  return diff === 0;\n}\nconst provided = readHeader('x-chatwoot-token') || readHeader('x-internal-token') || input.query?.token || '';\nif (!expectedToken || !safeEqual(provided, expectedToken)) return [{ json: { route: 'ignore', reason: 'unauthorized' } }];\nconst config = {\n  inboxId: env('RENOV_CHATWOOT_INBOX_ID'),\n  inboxName: env('RENOV_CHATWOOT_INBOX_NAME', 'Agente AIGENTS RENOVACIONES 9663'),\n  accountId: env('RENOV_CHATWOOT_ACCOUNT_ID'),\n};\nreturn [{ json: normalizeResolvedEvent(input, config) }];"
+      }
+    },
+    {
+      "id": "if-route-resolved-001",
+      "name": "IF - Route Resolved",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -300,
+        120
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "route-resolved",
+              "leftValue": "={{ $json.route }}",
+              "rightValue": "resolved",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "pg-close-conversation-001",
+      "name": "Postgres - Close Handoff Conversation",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -40,
+        20
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.persist_sql }}",
+        "options": {
+          "queryReplacement": "={{ $json.persist_params }}",
+          "queryBatching": "single"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "respond-resolved-001",
+      "name": "Respond - Resolved Processed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        220,
+        20
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, route: 'resolved', chatwoot_conversation_id: $json.chatwoot_conversation_id, conversation_id: $json.conversation_id || null, previous_status: $json.previous_status || null, conversation_status: $json.conversation_status || null, control_reactivated: $json.control_reactivated === true, handoff_operations_settled: Number($json.handoff_operations_settled || 0), updated_to_closed: $json.updated_to_closed === true, local_conversation_found: $json.local_conversation_found === true }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "respond-ignore-001",
+      "name": "Respond - 200 Ignore",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -40,
+        240
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, route: 'ignored', reason: $json.reason || 'not_applicable' }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "sticky-info-001",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -820,
+        -360
+      ],
+      "parameters": {
+        "content": "## REN - DEV - WF-06 - Chatwoot Resolved\n\nCierra un handoff formal y reactiva el control durable de intervención humana para la conversación Chatwoot.\n\nNo reactiva campañas masivas. La resolución se aplica por timestamp y source_event_key, incluso cuando el teléfono era desconocido o MULTI_MATCH.\n\nRENOV_CHATWOOT_WEBHOOK_TOKEN es obligatorio y protege el endpoint.",
+        "height": 440,
+        "width": 460
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Chatwoot Resolved POST": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalize Resolved Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Normalize Resolved Event": {
+      "main": [
+        [
+          {
+            "node": "IF - Route Resolved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Route Resolved": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Close Handoff Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond - 200 Ignore",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Close Handoff Conversation": {
+      "main": [
+        [
+          {
+            "node": "Respond - Resolved Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "executionTimeout": 60,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "errorWorkflow": "kD0eQVA4xbuhJTAb"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "5d80f1ae-2344-5652-b34c-5272a57665cc",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

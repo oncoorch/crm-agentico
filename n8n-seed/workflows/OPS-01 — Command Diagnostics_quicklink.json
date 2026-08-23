@@ -1,0 +1,70 @@
+{
+  "id": "X4Ty7LP5LuU8CvBb_quicklink",
+  "name": "OPS-01 — Command Diagnostics_quicklink",
+  "nodes": [
+    {
+      "id": "diag-webhook-001",
+      "name": "Webhook Diagnostics",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        160,
+        240
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cris-ops-command-diagnostics",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "0hYeKlozui5dMRDE_quicklink",
+          "name": "QL Sync Manual Webhook Token_QUICKLINK"
+        }
+      },
+      "webhookId": "cris-ops-command-diagnostics"
+    },
+    {
+      "id": "diag-command-001",
+      "name": "Execute Diagnostics",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        520,
+        240
+      ],
+      "parameters": {
+        "command": "uname -a ; hostname ; command -v docker || true ; command -v psql || true ; command -v node || true ; command -v npm || true ; command -v python3 || true ; command -v curl || true ; command -v wget || true ; command -v nc || true ; command -v rails || true ; command -v bundle || true ; getent hosts chatwoot || true ; getent hosts postgres || true ; getent hosts db || true ; getent hosts n8n || true ; env | cut -d= -f1 | sort | grep -E 'DB|POSTGRES|DATABASE|RAILS|CHATWOOT|REDIS' || true ; node -e \"try{require('pg');console.log('pg_module=present')}catch(e){console.log('pg_module=missing')}\" ; node -e \"const {Client}=require('pg'); const c=new Client({host:process.env.DB_POSTGRESDB_HOST,port:Number(process.env.DB_POSTGRESDB_PORT||5432),database:process.env.DB_POSTGRESDB_DATABASE,user:process.env.DB_POSTGRESDB_USER,password:process.env.DB_POSTGRESDB_PASSWORD}); c.connect().then(()=>c.query('select datname from pg_database where datistemplate=false order by datname')).then(r=>{console.log('databases='+r.rows.map(x=>x.datname).join(',')); return c.end();}).catch(e=>{console.log('db_error='+e.code+':' + e.message.replace(/password=${REDACTED_SECRET} ]+/g,'password=${REDACTED_SECRET}')); process.exit(0);})\""
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Diagnostics": {
+      "main": [
+        [
+          {
+            "node": "Execute Diagnostics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "ddd5716c-125e-517b-b4c0-b681d2aad707",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

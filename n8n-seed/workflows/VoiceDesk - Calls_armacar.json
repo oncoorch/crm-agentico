@@ -1,0 +1,123 @@
+{
+  "id": "F9Fl403d2GusTXuo_armacar",
+  "name": "VoiceDesk - Calls_armacar",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "vd-calls",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "4fa70f61-a331-4f2c-a2ea-7082acdfb74a",
+      "name": "Webhook Calls",
+      "webhookId": "02c6481a-adc2-4787-bfc1-6e40149bc55c"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1YgWSysAfZogPVeJhO-GUl_nwbURA7DmVPPKZYRGL1-w/edit?usp=sharing",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Hoja 1"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        224,
+        0
+      ],
+      "id": "ac7d5f8e-98d6-40ef-8308-3e87d8198645",
+      "name": "Leer Llamadas",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "jy6FVFN0kR9W8L6h_armacar",
+          "name": "Google Sheets account_ARMACAR"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all();\n\nconst calls = rows.map(r => ({\n  fecha: r.json['Fecha'] || '',\n  nombre: r.json['Nombre'] || '',\n  telefono: r.json['Teléfono'] || '',\n  motivo: r.json['Motivo'] || '',\n  duracion: r.json['Duración (min)'] || '0',\n  transcript: r.json['Transcripción'] || '',\n  acepto_whatsapp: r.json['Aceptó WhatsApp'] || 'NO',\n  grabacion: r.json['Grabación'] || '',\n  grabacion_estereo: r.json['Grabación Estéreo'] || '',\n  estado_llamada: r.json['Estado Llamada'] || ''\n})).filter(c => c.fecha !== '');\n\nreturn [{ json: { success: true, total: calls.length, calls } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "c85baa3c-68ea-465a-a3f9-a5efa851a4e4",
+      "name": "Procesar Llamadas"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        672,
+        0
+      ],
+      "id": "ed8f5a6e-dcf7-497e-9ac6-a380a99fefa8",
+      "name": "Responder Calls"
+    }
+  ],
+  "connections": {
+    "Webhook Calls": {
+      "main": [
+        [
+          {
+            "node": "Leer Llamadas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Llamadas": {
+      "main": [
+        [
+          {
+            "node": "Procesar Llamadas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Procesar Llamadas": {
+      "main": [
+        [
+          {
+            "node": "Responder Calls",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "3bc608b1-c598-5166-bb8e-267998f7a7a2",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

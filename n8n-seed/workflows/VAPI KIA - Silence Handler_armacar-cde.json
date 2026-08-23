@@ -1,0 +1,150 @@
+{
+  "id": "18vYv8Q2yZirkC7B_armacar-cde",
+  "name": "VAPI KIA - Silence Handler_armacar-cde",
+  "nodes": [
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "silence-check",
+              "leftValue": "={{ $json.body.message.type }}",
+              "rightValue": "silence-timed-out",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        0,
+        -112
+      ],
+      "id": "fe7d3366-149e-469d-a57f-4f0bd5ce76eb",
+      "name": "¿Es silencio?"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({}) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        208,
+        0
+      ],
+      "id": "dd5a87ac-8141-48de-bc3f-cdb85780a5fd",
+      "name": "Otros Eventos"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ messageResponse: { content: $json.message } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        432,
+        -224
+      ],
+      "id": "baf8c6be-e511-4702-b957-0a4a272164ed",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const messages = [\n  \"¿Te puedo ayudar en algo más?\",\n  \"¿Sigues ahí? ¿Hay algo en lo que pueda ayudarte?\"\n];\n\nconst index = Math.floor(Date.now() / 1000) % messages.length;\n\nreturn [{\n  json: {\n    message: messages[index]\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        -240
+      ],
+      "id": "e8ad6e46-3da9-4e32-ad08-ceb506475d5f",
+      "name": "mensaje"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vapi-silence",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -240,
+        -112
+      ],
+      "id": "8f03be68-9a9f-487e-8997-f28f87a0ef7c",
+      "name": "Webhook",
+      "webhookId": "64c0d67a-32fe-4429-b717-c0d32866c30c"
+    }
+  ],
+  "connections": {
+    "¿Es silencio?": {
+      "main": [
+        [
+          {
+            "node": "mensaje",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Otros Eventos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "mensaje": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "¿Es silencio?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "7d50abd9-7bf1-5a05-aadb-ab2a81de647b",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

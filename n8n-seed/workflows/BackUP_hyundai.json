@@ -1,0 +1,608 @@
+{
+  "id": "8L3Kzr07KUhb0g6Y_hyundai",
+  "name": "BackUP_hyundai",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "0a90de8e-4e5d-4d30-9c7b-757f98a2a9e2",
+      "name": "On clicking 'execute'",
+      "type": "n8n-nodes-base.manualTrigger",
+      "position": [
+        -1120,
+        416
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "id": "fb249b39-00e3-4cf0-bd1a-9d7623f62ab9",
+      "name": "Loop Over Items",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [
+        336,
+        512
+      ],
+      "typeVersion": 3
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {}
+          ]
+        }
+      },
+      "id": "3947bd14-2c72-491f-9352-55ca7949034b",
+      "name": "Every Day",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [
+        -1120,
+        624
+      ],
+      "typeVersion": 1.2
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "name": "=AIGENTS001-CLOUD-Backups-{{ $json.datetime }}",
+        "driveId": {
+          "__rl": true,
+          "value": "My Drive",
+          "mode": "list",
+          "cachedResultName": "My Drive",
+          "cachedResultUrl": "https://drive.google.com/drive/my-drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "1rON3jTctDkaKj8NTAZokZVjLjqV50cxM",
+          "mode": "list",
+          "cachedResultName": "Backup Reuniones",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/1rON3jTctDkaKj8NTAZokZVjLjqV50cxM"
+        },
+        "options": {}
+      },
+      "id": "0f9aac60-d81c-43d6-ad4a-7aa2c8124f50",
+      "name": "Create Folder with DateTime Stamp",
+      "type": "n8n-nodes-base.googleDrive",
+      "position": [
+        -512,
+        512
+      ],
+      "typeVersion": 3,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "LfrC6oL28lsmXIvQ",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "2589e80c-e8c3-4872-bd7a-d3e92f4a6ab7",
+              "name": "datetime",
+              "type": "string",
+              "value": "={{ $now }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6ee7c279-8e05-42f4-8677-9b68308c4d2b",
+      "name": "Get DateTIme",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        -816,
+        512
+      ],
+      "typeVersion": 3.4
+    },
+    {
+      "parameters": {
+        "filters": {},
+        "requestOptions": {}
+      },
+      "id": "5379b0c4-3644-4d8c-b203-a2be11fab977",
+      "name": "Get Workflows",
+      "type": "n8n-nodes-base.n8n",
+      "position": [
+        -224,
+        512
+      ],
+      "typeVersion": 1,
+      "credentials": {
+        "n8nApi": {
+          "id": "G4COerIWy31EjU0a_hyundai",
+          "name": "n8n account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "maxItems": 200
+      },
+      "id": "f5226e38-d014-47f1-8355-5e7e5c8f015e",
+      "name": "Limit to 200",
+      "type": "n8n-nodes-base.limit",
+      "position": [
+        80,
+        512
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "operation": "toJson",
+        "options": {
+          "fileName": "={{ $json.name }}"
+        }
+      },
+      "id": "1a5eb570-b37e-498f-a664-c19bb26e8015",
+      "name": "Convert Workflow to JSON File",
+      "type": "n8n-nodes-base.convertToFile",
+      "position": [
+        576,
+        512
+      ],
+      "typeVersion": 1.1
+    },
+    {
+      "parameters": {
+        "name": "={{ $binary.data.fileName }}.json",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Create Folder with DateTime Stamp').item.json.id }}"
+        },
+        "options": {}
+      },
+      "id": "4a54e089-0760-466a-bbb6-82f559345ae3",
+      "name": "Save JSON File to Google Drive Folder",
+      "type": "n8n-nodes-base.googleDrive",
+      "position": [
+        784,
+        640
+      ],
+      "typeVersion": 3,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "LfrC6oL28lsmXIvQ",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "83bd56dc-287b-42b2-82ca-ee1579691fb7",
+      "name": "Execute Once",
+      "type": "n8n-nodes-base.noOp",
+      "position": [
+        528,
+        160
+      ],
+      "executeOnce": true,
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "queryString": "n8n-Workflow-Backups",
+        "limit": 10,
+        "filter": {
+          "whatToSearch": "folders"
+        },
+        "options": {}
+      },
+      "id": "f7640929-aa0f-4587-8d0a-56cbfd4a0a28",
+      "name": "Search Folder Names",
+      "type": "n8n-nodes-base.googleDrive",
+      "position": [
+        736,
+        160
+      ],
+      "executeOnce": true,
+      "typeVersion": 3,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "LfrC6oL28lsmXIvQ",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "operation": "deleteFolder",
+        "folderNoRootId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.id }}"
+        },
+        "options": {
+          "deletePermanently": true
+        }
+      },
+      "id": "fceac980-6016-4c45-be7c-8524eaff263d",
+      "name": "Delete Folders",
+      "type": "n8n-nodes-base.googleDrive",
+      "position": [
+        1136,
+        160
+      ],
+      "typeVersion": 3,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "LfrC6oL28lsmXIvQ",
+          "name": "Google Drive account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ $now }}\nWorkflows Backup Complete\n{{ $('Create Folder with DateTime Stamp').item.json.name }}\nhttps://drive.google.com/drive/folders/{{ $('Create Folder with DateTime Stamp').item.json.id }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "d65e867a-839f-401a-82bc-065d9f54d9af",
+      "name": "Complete Message",
+      "type": "n8n-nodes-base.telegram",
+      "position": [
+        896,
+        -112
+      ],
+      "webhookId": "382a3b43-b83f-47b1-a276-67c6b98a441a",
+      "typeVersion": 1.2,
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "content": "## Save Workflows to Google Drive",
+        "height": 472,
+        "width": 704,
+        "color": 5
+      },
+      "id": "6141d716-6c24-4a07-83b2-146db73f89f5",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        272,
+        384
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## Keep Most Recent 7 Folders (Days) and Delete Others",
+        "height": 300,
+        "width": 1076,
+        "color": 3
+      },
+      "id": "2325ee5e-43de-441f-9089-ecb915e17e41",
+      "name": "Sticky Note1",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        272,
+        64
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## Notify User via Telegram",
+        "height": 260,
+        "width": 740
+      },
+      "id": "0adb5b48-4de9-4b99-8c1e-1420826ab912",
+      "name": "Sticky Note2",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        608,
+        -208
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get all input items and sort by name in descending order\nconst sortedItems = $input.all().sort((a, b) => {\n  if (!a.name || !b.name) return 0;\n  return b.name.localeCompare(a.name);\n});\n\n// Get items older than 7 days\nconst olderItems = sortedItems.slice(7);\n\nreturn olderItems\n\n"
+      },
+      "id": "c8808596-fd7f-4ea3-9d16-a1277b43b3a2",
+      "name": "Find Folders to Delete",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        928,
+        160
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "content": "## Limit for Debugging\nRemove this once you have it up and running",
+        "height": 340,
+        "width": 260
+      },
+      "id": "78114abc-6e04-448e-82e1-943a73344145",
+      "name": "Sticky Note3",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -16,
+        384
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## Get All Workflows\n",
+        "height": 340,
+        "width": 260
+      },
+      "id": "ce6cd2ad-cf9b-4dfd-a7f8-d7a20f012259",
+      "name": "Sticky Note4",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -304,
+        384
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## Create NEW Google Folder\n",
+        "height": 340,
+        "width": 260
+      },
+      "id": "0a6c7999-e2e3-4465-ba00-2d7498bb7b7c",
+      "name": "Sticky Note5",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -592,
+        384
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## Get DateTime Stamp\n",
+        "height": 340,
+        "width": 260
+      },
+      "id": "682d284d-336e-4776-bd75-8618a88dda51",
+      "name": "Sticky Note6",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -896,
+        384
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "/opt/backups",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        784,
+        416
+      ],
+      "id": "745e4be5-6e5e-4232-8f14-15184860e94b",
+      "name": "Read/Write Files from Disk"
+    },
+    {
+      "parameters": {
+        "sendTo": "cto@aigentss.com",
+        "subject": " 8L3Kzr07KUhb0g6Y",
+        "message": "=Ejecutado exitosamente!\n\n{{ $now }}\nWorkflows Backup Complete\n{{ $('Create Folder with DateTime Stamp').item.json.name }}\nhttps://drive.google.com/drive/folders/{{ $('Create Folder with DateTime Stamp').item.json.id }}\n\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        736,
+        -112
+      ],
+      "id": "4df0f464-5fac-4111-b0ca-5f963df1b9ed",
+      "name": "Send a message",
+      "webhookId": "0329d228-4dc9-4557-8aa1-ae1331c6806b",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "xh92dBbiwnRCZ982",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "On clicking 'execute'": {
+      "main": [
+        [
+          {
+            "node": "Get DateTIme",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Execute Once",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Convert Workflow to JSON File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every Day": {
+      "main": [
+        [
+          {
+            "node": "Get DateTIme",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Folder with DateTime Stamp": {
+      "main": [
+        [
+          {
+            "node": "Get Workflows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get DateTIme": {
+      "main": [
+        [
+          {
+            "node": "Create Folder with DateTime Stamp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Workflows": {
+      "main": [
+        [
+          {
+            "node": "Limit to 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit to 200": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert Workflow to JSON File": {
+      "main": [
+        [
+          {
+            "node": "Read/Write Files from Disk",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Save JSON File to Google Drive Folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save JSON File to Google Drive Folder": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Once": {
+      "main": [
+        [
+          {
+            "node": "Search Folder Names",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Folder Names": {
+      "main": [
+        [
+          {
+            "node": "Find Folders to Delete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Folders to Delete": {
+      "main": [
+        [
+          {
+            "node": "Delete Folders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read/Write Files from Disk": {
+      "main": [
+        []
+      ]
+    },
+    "Send a message": {
+      "main": [
+        [
+          {
+            "node": "Complete Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "2c90db63-5c9d-5198-9a01-caca04aea8b9",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

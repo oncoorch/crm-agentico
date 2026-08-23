@@ -1,0 +1,124 @@
+{
+  "id": "iGzz11iLGwcBZuYa_armacar",
+  "name": "VoiceDesk - Login_armacar",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vd-login",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "226d43c7-4bb8-4cee-be9e-904e71566791",
+      "name": "Webhook Login",
+      "webhookId": "9c9f8b20-e403-4625-b55e-9a10daff2622"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1YgWSysAfZogPVeJhO-GUl_nwbURA7DmVPPKZYRGL1-w/edit?usp=sharing",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "usuarios"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        224,
+        0
+      ],
+      "id": "4881008a-f3a3-467c-b1da-d5e3d1c47867",
+      "name": "Leer Usuarios",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "jy6FVFN0kR9W8L6h_armacar",
+          "name": "Google Sheets account_ARMACAR"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $('Webhook Login').first().json.body;\nconst email = body.email;\nconst password = body.password;\nconst usuarios = $input.all();\n\nconst usuario = usuarios.find(u => \n  u.json.email === email && \n  u.json.password === password\n);\n\nif (!usuario) {\n  return [{ json: { success: false, message: 'Credenciales incorrectas' } }];\n}\n\nreturn [{ json: {\n  success: true,\n  email: usuario.json.email,\n  rol: usuario.json.rol,\n  cliente_id: usuario.json.cliente_id,\n  token: Buffer.from(email + ':' + Date.now()).toString('base64')\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "24d07d79-26e2-43ce-8bff-f4958f34a694",
+      "name": "Validar Login"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        672,
+        0
+      ],
+      "id": "601987e1-918f-4f91-a2d2-a5d42adc4424",
+      "name": "Responder Login"
+    }
+  ],
+  "connections": {
+    "Webhook Login": {
+      "main": [
+        [
+          {
+            "node": "Leer Usuarios",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Usuarios": {
+      "main": [
+        [
+          {
+            "node": "Validar Login",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar Login": {
+      "main": [
+        [
+          {
+            "node": "Responder Login",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "1f7e13c1-abfc-5c0e-83ad-a361f40115a7",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

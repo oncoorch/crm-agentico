@@ -1,0 +1,382 @@
+{
+  "id": "8iUULwrJAQajjzfe_armacar",
+  "name": "VAPI - Transcripciones y Leads WhatsApp_armacar",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vapi-transcripciones",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1104,
+        208
+      ],
+      "id": "114d940c-8e7c-47af-bd8a-300b6afb4877",
+      "name": "Webhook VAPI",
+      "webhookId": "ad8c5389-1f96-4798-be50-a6e7dfe81bfe"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "check-end-call",
+              "leftValue": "={{ $json.body.message.type }}",
+              "rightValue": "end-of-call-report",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -880,
+        208
+      ],
+      "id": "f8bf8fd2-b852-4e58-b497-31f9ad34a099",
+      "name": "¿Es end-of-call?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\nconst message = body.message;\nconst call = message.call || {};\nconst artifact = message.artifact || {};\nconst analysis = message.analysis || {};\n\nconst transcript = artifact.transcript || 'Sin transcripcion';\n\nconst duracion = message.durationMinutes \n  ? Math.round(message.durationMinutes * 100) / 100 \n  : 0;\n\nconst transcriptLower = transcript.toLowerCase();\nconst acepto_whatsapp = (\n  transcriptLower.includes('whatsapp') && (\n    transcriptLower.includes('si') || \n    transcriptLower.includes('acepto') || \n    transcriptLower.includes('de acuerdo') || \n    transcriptLower.includes('claro') ||\n    transcriptLower.includes('perfecto')\n  )\n) ? 'SI' : 'NO';\n\nconst nombreMatch = transcript.match(/(?:me llamo|soy|mi nombre es)\\s+([A-Za-záéíóúÁÉÍÓÚñÑ]+(?:\\s+[A-Za-záéíóúÁÉÍÓÚñÑ]+)?)/i);\nconst nombre = nombreMatch ? nombreMatch[1] : 'No identificado';\n\nconst telefono = call.customer?.number || 'Web Call';\n\nconst motivo = analysis.summary || 'Sin resumen';\n\nconst fecha = new Date(message.startedAt || Date.now()).toLocaleString('es-EC', {\n  timeZone: 'America/Guayaquil'\n});\n\nconst grabacion = String(artifact.recordingUrl || 'Sin grabacion');\nconst grabacion_estereo = String(artifact.stereoRecordingUrl || 'Sin grabacion estereo');\nconst estado_llamada = String(message.endedReason || 'unknown');\n\nreturn [{\n  json: {\n    fecha: String(fecha),\n    nombre: String(nombre),\n    telefono: String(telefono),\n    motivo: String(motivo),\n    duracion: String(duracion),\n    transcript: String(transcript),\n    acepto_whatsapp: String(acepto_whatsapp),\n    grabacion: grabacion,\n    grabacion_estereo: grabacion_estereo,\n    estado_llamada: estado_llamada,\n    call_id: String(call.id || 'unknown')\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -656,
+        112
+      ],
+      "id": "20a00cc7-9273-48c2-8b54-0f2f1aca8b7e",
+      "name": "Extraer Datos"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1YgWSysAfZogPVeJhO-GUl_nwbURA7DmVPPKZYRGL1-w/edit?usp=sharing",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Hoja 1"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Fecha": "={{ $json.fecha }}",
+            "Nombre": "={{ $json.nombre }}",
+            "Teléfono": "={{ $json.telefono }}",
+            "Motivo": "={{ $json.motivo }}",
+            "Duración (min)": "={{ $json.duracion }}",
+            "Transcripción": "={{ $json.transcript }}",
+            "Aceptó WhatsApp": "={{ $json.acepto_whatsapp }}",
+            "Grabación": "={{ $json.grabacion }}",
+            "Grabación Estéreo": "={{ $json.grabacion_estereo }}",
+            "Estado Llamada": "={{ $json.estado_llamada }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Fecha",
+              "displayName": "Fecha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Nombre",
+              "displayName": "Nombre",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Teléfono",
+              "displayName": "Teléfono",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Motivo",
+              "displayName": "Motivo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Duración (min)",
+              "displayName": "Duración (min)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Transcripción",
+              "displayName": "Transcripción",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Aceptó WhatsApp",
+              "displayName": "Aceptó WhatsApp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Grabación",
+              "displayName": "Grabación",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Grabación Estéreo",
+              "displayName": "Grabación Estéreo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Estado Llamada",
+              "displayName": "Estado Llamada",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -448,
+        112
+      ],
+      "id": "23ddbb58-385c-474c-9e12-c95852d21c8a",
+      "name": "Guardar en Sheets",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "jy6FVFN0kR9W8L6h_armacar",
+          "name": "Google Sheets account_ARMACAR"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "check-whatsapp",
+              "leftValue": "={{ $json.acepto_whatsapp }}",
+              "rightValue": "SÍ",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        112
+      ],
+      "id": "25584790-d047-411d-8972-e0f034e578ca",
+      "name": "¿Aceptó WhatsApp?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Salida para agente WhatsApp outbound\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    accion: 'OUTBOUND_WHATSAPP',\n    telefono: data.telefono,\n    nombre: data.nombre,\n    motivo: data.motivo,\n    call_id: data.call_id,\n    timestamp: new Date().toISOString(),\n    estado: 'PENDIENTE',\n    mensaje_inicial: `Hola ${data.nombre}, le contactamos desde SIME Centros Médicos para continuar con su solicitud.`\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "fcc49566-34e9-4976-b80a-2826396beae6",
+      "name": "Preparar Outbound WA"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({}) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -656,
+        304
+      ],
+      "id": "0e5c238d-5e38-4465-98d5-55eaef59e64e",
+      "name": "Responder OK"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ received: true }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        16,
+        208
+      ],
+      "id": "d093fbc8-c220-469a-83d8-0883c2e63a24",
+      "name": "Responder VAPI"
+    }
+  ],
+  "connections": {
+    "Webhook VAPI": {
+      "main": [
+        [
+          {
+            "node": "¿Es end-of-call?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Es end-of-call?": {
+      "main": [
+        [
+          {
+            "node": "Extraer Datos",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer Datos": {
+      "main": [
+        [
+          {
+            "node": "Guardar en Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar en Sheets": {
+      "main": [
+        [
+          {
+            "node": "¿Aceptó WhatsApp?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Aceptó WhatsApp?": {
+      "main": [
+        [
+          {
+            "node": "Preparar Outbound WA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder VAPI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Outbound WA": {
+      "main": [
+        [
+          {
+            "node": "Responder VAPI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timeSavedMode": "fixed",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "033b3727-71f7-5d9b-a2a6-8fced9539363",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

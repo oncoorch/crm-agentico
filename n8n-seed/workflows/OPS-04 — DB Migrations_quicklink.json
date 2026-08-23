@@ -1,0 +1,474 @@
+{
+  "id": "JZ4pENuwzfycsIo6_quicklink",
+  "name": "OPS-04 — DB Migrations_quicklink",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ops-db-migrate",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-trigger-001",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        304
+      ],
+      "webhookId": "a275129b-e6b8-4849-96e2-6b9cb6884419"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nSELECT\n  'sales_prod_managed_by_local_runner'::text AS status,\n  COUNT(*)::integer AS history_rows,\n  COUNT(*) FILTER (WHERE success)::integer AS successful_rows,\n  COUNT(*) FILTER (WHERE version = '118')::integer AS v118_rows,\n  MAX(installed_rank)::integer AS max_installed_rank\nFROM flyway_schema_history;",
+        "options": {}
+      },
+      "id": "pg-repair-history-001",
+      "name": "Postgres - Repair flyway_schema_history",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        224,
+        304
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "continueOnFail": false
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nSELECT DISTINCT version FROM flyway_schema_history WHERE success = true ORDER BY version ASC",
+        "options": {}
+      },
+      "id": "pg-get-applied-001",
+      "name": "Postgres - Applied Versions",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        464,
+        304
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "continueOnFail": false
+    },
+    {
+      "parameters": {
+        "jsCode": "const appliedVersions = [];\nfor (const item of $input.all()) {\n  if (item.json && item.json.version && !item.json.error) {\n    appliedVersions.push(String(item.json.version));\n  }\n}\n\nreturn [{ json: {\n  pending_count: 0,\n  applied_count: appliedVersions.length,\n  applied_versions: appliedVersions,\n  migrations: [],\n  status: 'noop_sales_prod_managed_by_local_runner',\n  message: 'OPS-04 retargeted to sales_prod in safe no-op mode. Use the local migration runner for schema changes.'\n} }];"
+      },
+      "id": "code-pending-001",
+      "name": "Code - Pending Migrations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        688,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.pending_count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-pending-001",
+      "name": "IF - Has Pending",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        912,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "status",
+              "value": "ok",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "message",
+              "value": "No hay migraciones pendientes. Base de datos al dia.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-nothing-001",
+      "name": "Set - Nothing To Do",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1120,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "migrations",
+        "options": {}
+      },
+      "id": "split-out-001",
+      "name": "Split Out - Migrations",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "split-batches-001",
+      "name": "Loop - Each Migration",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1344,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ \"SET search_path TO sales_prod, public, extensions;\\n\" + ($json.sql + \"; SELECT '\" + $json.version + \"' AS version, '\" + $json.description + \"' AS description, \" + $json.checksum + \" AS checksum\") }}",
+        "options": {}
+      },
+      "id": "pg-exec-sql-001",
+      "name": "Postgres - Execute SQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1568,
+        432
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nINSERT INTO flyway_schema_history\n  (installed_rank,version,description,type,script,checksum,installed_by,execution_time,success)\nSELECT\n  COALESCE((SELECT MAX(installed_rank) FROM flyway_schema_history),0)+1,\n  '{{ $json.version }}',\n  '{{ $json.description }}',\n  'SQL',\n  'V{{ $json.version }}__{{ $json.description }}.sql',\n  {{ $json.checksum }},\n  'n8n',\n  0,\n  true\nWHERE NOT EXISTS (\n  SELECT 1 FROM flyway_schema_history WHERE version='{{ $json.version }}'\n);\nSELECT '{{ $json.version }}' AS version_applied;",
+        "options": {}
+      },
+      "id": "pg-record-history-001",
+      "name": "Postgres - Record History",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1792,
+        432
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { status: 'completed', message: 'Todas las migraciones pendientes aplicadas exitosamente' } }];"
+      },
+      "id": "code-done-001",
+      "name": "Code - Migration Complete",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## CRIS — DB Migrations\n\n**Agregar nueva migracion:**\n1. Editar `Code - Pending Migrations`\n2. Agregar a `ALL_MIGRATIONS`\n3. POST /webhook/flyway-migrate\n\n**splitInBatches v3:**\n- output[0] = Done\n- output[1] = Loop body\n\n**Credencial:** Supabase VPS",
+        "height": 300,
+        "width": 360
+      },
+      "id": "sticky-info-001",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -432,
+        96
+      ]
+    },
+    {
+      "id": "pg-acquire-migration-lock-001",
+      "name": "Postgres - Acquire Migration Lock",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        112,
+        304
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nCREATE TABLE IF NOT EXISTS ops_migration_mutex (\n  lock_name text PRIMARY KEY,\n  owner text,\n  locked_until timestamptz NOT NULL DEFAULT '-infinity'\n);\nINSERT INTO ops_migration_mutex (lock_name, owner, locked_until)\nVALUES ('OPS-04', '{{ $execution.id }}', 'infinity')\nON CONFLICT (lock_name) DO UPDATE\nSET owner = EXCLUDED.owner, locked_until = EXCLUDED.locked_until\nWHERE ops_migration_mutex.owner IS NULL\n   OR ops_migration_mutex.owner = EXCLUDED.owner;\nDO $lock$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1 FROM ops_migration_mutex\n    WHERE lock_name = 'OPS-04' AND owner = '{{ $execution.id }}'\n  ) THEN\n    RAISE EXCEPTION 'OPS-04 migration lock is held by another execution';\n  END IF;\nEND;\n$lock$;\nSELECT 'acquired' AS lock_status;",
+        "options": {}
+      }
+    },
+    {
+      "id": "pg-release-migration-lock-complete-001",
+      "name": "Postgres - Release Migration Lock Complete",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1800,
+        160
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nUPDATE ops_migration_mutex\nSET owner = NULL, locked_until = now()\nWHERE lock_name = 'OPS-04' AND owner = '{{ $execution.id }}';\nSELECT 'completed' AS status, 'Todas las migraciones pendientes aplicadas exitosamente' AS message;",
+        "options": {}
+      }
+    },
+    {
+      "id": "pg-release-migration-lock-noop-001",
+      "name": "Postgres - Release Migration Lock Noop",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1344,
+        528
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nUPDATE ops_migration_mutex\nSET owner = NULL, locked_until = now()\nWHERE lock_name = 'OPS-04' AND owner = '{{ $execution.id }}';\nSELECT 'ok' AS status, 'No hay migraciones pendientes. Base de datos al dia.' AS message;",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Acquire Migration Lock",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Repair flyway_schema_history": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Applied Versions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Applied Versions": {
+      "main": [
+        [
+          {
+            "node": "Code - Pending Migrations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Pending Migrations": {
+      "main": [
+        [
+          {
+            "node": "IF - Has Pending",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Has Pending": {
+      "main": [
+        [
+          {
+            "node": "Split Out - Migrations",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set - Nothing To Do",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out - Migrations": {
+      "main": [
+        [
+          {
+            "node": "Loop - Each Migration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop - Each Migration": {
+      "main": [
+        [
+          {
+            "node": "Code - Migration Complete",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Postgres - Execute SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Execute SQL": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Record History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Record History": {
+      "main": [
+        [
+          {
+            "node": "Loop - Each Migration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Acquire Migration Lock": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Repair flyway_schema_history",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Migration Complete": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Release Migration Lock Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Nothing To Do": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Release Migration Lock Noop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Release Migration Lock Complete": {
+      "main": [
+        []
+      ]
+    },
+    "Postgres - Release Migration Lock Noop": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "5fe39171-4224-5e90-b9b0-f1e237b38e16",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

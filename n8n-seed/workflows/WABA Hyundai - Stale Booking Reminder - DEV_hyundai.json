@@ -1,0 +1,115 @@
+{
+  "id": "XPqPiHBsAPSLGD5Z_hyundai",
+  "name": "WABA Hyundai - Stale Booking Reminder - DEV_hyundai",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 60
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        272,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://mcp_server:8000/api/reminders/stale-bookings/process",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ stale_minutes: 35, start_time: \"06:00\", end_time: \"22:30\", max_items: 50, dry_run: false, account_id: 2, chatwoot_api_access_token: $json.chatwoot_api_access_token }) }}",
+        "options": {}
+      },
+      "id": "process-stale-reminders",
+      "name": "Process Stale Reminders",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "chatwoot-bot-token",
+              "name": "chatwoot_api_access_token",
+              "value": "i8Xhrn8NmMLgCgGVWj22p3rW",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "edit-chatwoot-token",
+      "name": "Edit Chatwoot Token",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        416,
+        304
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Edit Chatwoot Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Chatwoot Token": {
+      "main": [
+        [
+          {
+            "node": "Process Stale Reminders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "1565d57a-20ab-5abc-8adb-6f75b016e433",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

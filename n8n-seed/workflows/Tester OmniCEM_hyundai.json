@@ -1,0 +1,1068 @@
+{
+  "id": "gpA50v3ocQIP8Ji9_hyundai",
+  "name": "Tester OmniCEM_hyundai",
+  "nodes": [
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.mensaje }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=Eres una IA que sabe absolutamente todo!"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        -1216,
+        752
+      ],
+      "id": "28d2fd68-bdb5-41b8-8239-81e4e1e2dee0",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "01ad49bc-ae98-47b4-a3e9-a4423316225c",
+              "name": "contact_id",
+              "value": "={{ $json.body.conversation.contact_inbox.id }}",
+              "type": "string"
+            },
+            {
+              "id": "fe3e2922-83f3-453b-9921-64df48468a45",
+              "name": "mensaje",
+              "value": "={{ $json.body.conversation.messages[0].content }}",
+              "type": "string"
+            },
+            {
+              "id": "a0bf0340-8328-41ac-888b-349e5a3a9888",
+              "name": "conversation_id",
+              "value": "={{ $('ec30e4a0-bdfc-4375-926a-679abe2b94c7').item.json.body.conversation.messages[0].conversation_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1440,
+        752
+      ],
+      "id": "5b288e1b-02a1-4d06-a503-692d76fe4f5f",
+      "name": "Variables Importantes"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -1248,
+        1200
+      ],
+      "id": "6f1ccc28-d3a5-46aa-891f-a2990e10e21d",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "5GscAtSxWlw1Avj8_hyundai",
+          "name": "Google Gemini(PaLM) Api account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://1001.ocm.aigentss.cloud:5678/api/v1/accounts/7/conversations/{{ $('Variables Importantes').item.json.conversation_id }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content",
+              "value": "={{ $json.output.Mensaje }}"
+            },
+            {
+              "name": "private",
+              "value": "false"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -592,
+        816
+      ],
+      "id": "99244494-13b5-477e-8569-c84174f6f3e6",
+      "name": "Mensaje de Respuesta",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "B7a2QTtnPxpZkBn7_hyundai",
+          "name": "Bearer: moPfMj7fvF8gNqJNacPWLuLa_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"Mensaje\": \"¡Hola! 😊 Soy el asistente de las asesorías de n8n. ¿En qué te gustaría automatizar hoy?\",\n  \"action\": \"ia\"\n}",
+        "autoFix": true
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        -1008,
+        992
+      ],
+      "id": "378171f4-2413-4082-a9ee-b279117f1874",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://chatwoot:3000/api/v1/accounts/2/conversations/{{ $('Variables Importantes').item.json.conversation_id }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content",
+              "value": "={{ $json.output.Mensaje }}"
+            },
+            {
+              "name": "private",
+              "value": "false"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -656,
+        1248
+      ],
+      "id": "22869122-fb8a-4fd6-83dc-78a25d231dd8",
+      "name": "Mensaje de Respuesta humano",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "bJMs6ZXsC6D8tTG7_hyundai",
+          "name": "Ee8z4N8PX1iD77U7uoMjv7jK_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -1664,
+        1056
+      ],
+      "id": "e10ce52e-251f-4f8a-94f8-5da65f8e604e",
+      "name": "No Operation, do nothing"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -1440,
+        960
+      ],
+      "id": "c746cf58-1477-4e30-b94d-e823b5c17f75",
+      "name": "No Operation, do nothing1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://chatwoot:3000/api/v1/accounts/2/conversations/{{ $json.conversation_id }}/custom_attributes",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "MtDd3UKegUMUdwv9xVFFSmeY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"custom_attributes\": {\n    \"bot\": \"off\"\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -464,
+        1248
+      ],
+      "id": "ae2e7791-b5c3-4465-af77-8f52fe567fd3",
+      "name": "Apaga el bot1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "27753f69-5efd-41bf-9fbe-ad8dcf18acb8",
+              "leftValue": "={{ $json.body.message_type }}",
+              "rightValue": "incoming",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1888,
+        960
+      ],
+      "id": "0ff4b00a-8c32-43a0-ae5e-a6b7f30baf95",
+      "name": "message_type"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "63cf33d9-bff4-44e3-aa90-25cd84407e12",
+              "leftValue": "={{ $('ec30e4a0-bdfc-4375-926a-679abe2b94c7').item.json.body.conversation.custom_attributes.bot }}",
+              "rightValue": "off",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1664,
+        864
+      ],
+      "id": "a881e2ac-c583-4666-823c-6045e135e592",
+      "name": "bot I/O"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c917ad24-790c-47af-b341-7fa28ddf2607",
+              "leftValue": "={{ $json.output.action }}",
+              "rightValue": "ia",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -864,
+        752
+      ],
+      "id": "621f2a80-7aa8-4481-a041-3c203f4cd5dc",
+      "name": "output.action"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $json.contact_id }}",
+        "contextWindowLength": 15
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.3,
+      "position": [
+        -1168,
+        992
+      ],
+      "id": "71ee6c12-4732-484d-8346-32563899b648",
+      "name": "n8n_chat_histories",
+      "credentials": {
+        "postgres": {
+          "id": "oaLqS6SkJ0wZfqRH_hyundai",
+          "name": "Supabase VPS_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ec30e4a0-bdfc-4375-926a-679abe2b94c7",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -2112,
+        960
+      ],
+      "id": "5a2e3e63-03f3-40b8-a0e4-486e69433b75",
+      "name": "ec30e4a0-bdfc-4375-926a-679abe2b94c7",
+      "webhookId": "ec30e4a0-bdfc-4375-926a-679abe2b94c7"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://{{ $json.URL_OMNICEM }}/api/v1/accounts/{{ $json.body.account.id }}/conversations/{{ $json.body.conversation.id }}/messages ",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "={{ $json.TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content",
+              "value": "=Hello {{ $json.body.message.processed_message_content }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -992,
+        464
+      ],
+      "id": "112c248b-6fc6-47a5-901d-3d9ff109a99a",
+      "name": "HTTP Request4"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "479c095b-bfcd-4b20-b566-0b62cc72c1ec",
+              "leftValue": "={{ $json.body[0].body.message_type }}",
+              "rightValue": "incoming",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1600,
+        480
+      ],
+      "id": "9065aa90-7247-4ad4-a081-646b43588f8b",
+      "name": "Mensaje de Entrada?"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c413696f-dff5-4eb9-b3d2-4c8181fc0210",
+              "name": "body.message",
+              "value": "={{ $json.body.message }}",
+              "type": "object"
+            },
+            {
+              "id": "98c64e10-ee06-4313-aa44-2c1620449751",
+              "name": "body.conversation",
+              "value": "={{ $json.body.conversation }}",
+              "type": "object"
+            },
+            {
+              "id": "d67b2818-e03a-4bf2-9681-101d2372fec5",
+              "name": "body.contact",
+              "value": "={{ $json.body.contact }}",
+              "type": "object"
+            },
+            {
+              "id": "f503cdf5-0b29-4303-ab95-a23dc0598074",
+              "name": "body.event",
+              "value": "={{ $json.body.event }}",
+              "type": "string"
+            },
+            {
+              "id": "846b8a87-ecf1-4f12-b48f-d8ec0fec45b0",
+              "name": "body.account",
+              "value": "={{ $json.body.account }}",
+              "type": "object"
+            },
+            {
+              "id": "6de4f8e0-ab79-429d-88ed-4f4d71c4daf6",
+              "name": "TOKEN",
+              "value": "aWmtJU6GYHHAuo432L5baiDB",
+              "type": "string"
+            },
+            {
+              "id": "0af26e99-8bf0-4245-900e-888052112f36",
+              "name": "URL_OMNICEM",
+              "value": "chatwoot:3000",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1328,
+        464
+      ],
+      "id": "1825172f-a660-4ba4-9b97-a1f01d84fe00",
+      "name": "Creador Token y URL"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://1001.ocm.aigentss.cloud:5678/api/v1/accounts/7/conversations/{{ $('Variables Importantes').item.json.conversation_id }}/messages",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content",
+              "value": "={{ $json.output.Mensaje }}"
+            },
+            {
+              "name": "private",
+              "value": "false"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -592,
+        640
+      ],
+      "id": "288f86d7-a61d-40d2-bca5-396a812cdd3f",
+      "name": "Mensaje de Respuesta1",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "content": "## AccessToken #1   1T: yQXLb7Nt4Amq5uhFHjoBL8Ge\n## AccessToken #7  JU: nze3TG8iman8dBsPfciuikxL\n## AccessToken #11  AL: Z1AK1whnrLNL2b9wRxgX6Nuf",
+        "height": 800,
+        "width": 992
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -704,
+        160
+      ],
+      "id": "ebd8597a-c53c-40e3-a53a-dfbb3afca6e0",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://1001.ocm.aigentss.cloud:5678/api/v1/accounts/7/conversations/{{ $('Variables Importantes').item.json.conversation_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "moPfMj7fvF8gNqJNacPWLuLa"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content",
+              "value": "={{ $json.output.Mensaje }}"
+            },
+            {
+              "name": "private",
+              "value": "false"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -592,
+        464
+      ],
+      "id": "a8bb7b11-6880-46ac-87fa-82c131dde0b7",
+      "name": "Mensaje de Respuesta2",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://1001.ocm.aigentss.cloud/api/v1/accounts/7/conversations/127/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content",
+              "value": "={{ $json.output.Mensaje }}"
+            },
+            {
+              "name": "private",
+              "value": "false"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -192,
+        816
+      ],
+      "id": "5c149607-41c9-49e9-bbb5-fea656988f19",
+      "name": "Mensaje de Respuesta3",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "B7a2QTtnPxpZkBn7_hyundai",
+          "name": "Bearer: moPfMj7fvF8gNqJNacPWLuLa_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://1001.ocm.aigentss.cloud/api/v1/accounts/7/conversations/127/messages",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content",
+              "value": "={{ $json.output.Mensaje }}"
+            },
+            {
+              "name": "private",
+              "value": "false"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -192,
+        640
+      ],
+      "id": "453545f0-f929-4110-a88a-db6361b65f82",
+      "name": "Mensaje de Respuesta4",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://1001.ocm.aigentss.cloud/api/v1/accounts/7/conversations/127/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "moPfMj7fvF8gNqJNacPWLuLa"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content",
+              "value": "={{ $json.output.Mensaje }}"
+            },
+            {
+              "name": "private",
+              "value": "false"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -192,
+        464
+      ],
+      "id": "b6d3235d-80ff-4e09-8b45-23460bd37ac4",
+      "name": "Mensaje de Respuesta5",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "content": "##  https://1001.ocm.aigentss.cloud\n\n\n### Problem in node ‘HTTP‘  Authorization failed - please check your credentials",
+        "height": 144,
+        "width": 432,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -224,
+        304
+      ],
+      "id": "d99cb4c1-af96-43c6-b5b4-e7ed5def1dc6",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "##  http://1001.ocm.aigentss.cloud:5678\n\n### Problem in node: The service refused the connection - perhaps it is offline",
+        "height": 144,
+        "width": 448,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -688,
+        304
+      ],
+      "id": "91cd0204-3440-4072-b1e9-00a7f61cb11c",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Specify Headers\n",
+        "height": 80,
+        "width": 150
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        48,
+        480
+      ],
+      "id": "700ab434-dd53-4f50-acfc-eb0895ed83e4",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## No Auth",
+        "height": 80,
+        "width": 150
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        48,
+        640
+      ],
+      "id": "521847c3-de40-48ff-ac94-513961990308",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "## Bearer Auth",
+        "height": 80,
+        "width": 182
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        48,
+        832
+      ],
+      "id": "b6151526-0f85-4d3b-acc4-d7d17e309042",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://chatwoot:3000/api/v1/accounts/7/conversations/127/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "moPfMj7fvF8gNqJNacPWLuLa"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"content\": \"Api Omnicem Curl Test\",\n  \"message_type\": \"outgoing\",\n  \"private\": false,\n  \"content_type\": \"text\",\n  \"content_attributes\": {},\n  \"campaign_id\": 1,\n  \"template_params\": {\n    \"name\": \"purchase_receipt\",\n    \"category\": \"UTILITY\",\n    \"language\": \"en_US\",\n    \"processed_params\": {\n      \"body\": {\n        \"1\": \"Visa\",\n        \"2\": \"Nike\",\n        \"3\": \"Bill\"\n      },\n      \"header\": {\n        \"media_url\": \"https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf\",\n        \"media_type\": \"document\"\n      },\n      \"buttons\": [\n        {\n          \"type\": \"url\",\n          \"parameter\": \"SSFSDFSD\"\n        }\n      ]\n    }\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -176,
+        1008
+      ],
+      "id": "eb9d3884-5147-458e-9df1-d5d88aca7f4b",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "content": "## LEO VPS Tester - Bot Token: moPfMj7fvF8gNqJNacPWLuLa",
+        "height": 208,
+        "width": 880,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2048,
+        192
+      ],
+      "id": "cd757f13-bf5d-456f-9893-b9ec177110f5",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://chatwoot:3000/api/v1/accounts/7/conversations/{{ $('Variables Importantes').item.json.conversation_id }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content",
+              "value": "={{ $json.output.Mensaje }}"
+            },
+            {
+              "name": "private",
+              "value": "false"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -176,
+        1184
+      ],
+      "id": "268c655c-3bf8-4cef-822d-e42099e87744",
+      "name": "Mensaje de Respuesta humano1",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "bJMs6ZXsC6D8tTG7_hyundai",
+          "name": "Ee8z4N8PX1iD77U7uoMjv7jK_HYUNDAI"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "output.action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Variables Importantes": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Structured Output Parser",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mensaje de Respuesta humano": {
+      "main": [
+        [
+          {
+            "node": "Apaga el bot1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apaga el bot1": {
+      "main": [
+        []
+      ]
+    },
+    "message_type": {
+      "main": [
+        [
+          {
+            "node": "bot I/O",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "bot I/O": {
+      "main": [
+        [
+          {
+            "node": "Variables Importantes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "output.action": {
+      "main": [
+        [
+          {
+            "node": "Mensaje de Respuesta",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Mensaje de Respuesta1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Mensaje de Respuesta2",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Mensaje de Respuesta5",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Mensaje de Respuesta4",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Mensaje de Respuesta3",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Mensaje de Respuesta humano1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mensaje de Respuesta humano",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "n8n_chat_histories": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ec30e4a0-bdfc-4375-926a-679abe2b94c7": {
+      "main": [
+        [
+          {
+            "node": "message_type",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Variables Importantes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mensaje de Entrada?": {
+      "main": [
+        [
+          {
+            "node": "Creador Token y URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Creador Token y URL": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "746542a6-3368-5ec9-aa6c-777fb06df199",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

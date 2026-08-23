@@ -1,0 +1,74 @@
+{
+  "id": "BPTQpj0pAEMUyesS_autocom",
+  "name": "AUTOCOM PROD - Sync Appointments to SGC cada 3 min_autocom",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/3 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "bd6fa01e-b61b-4794-b15a-c97f757d1d89",
+      "name": "Every 3 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -224,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://mcp_server_prod:8000/api/appointments/sync-next",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2aa523e1-8146-4a80-a5fd-95b63faa6dd2",
+      "name": "Call Sync Next Endpoint",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        48,
+        -32
+      ]
+    }
+  ],
+  "connections": {
+    "Every 3 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Call Sync Next Endpoint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "55801aea-127b-5be5-a488-a65ac1823942",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

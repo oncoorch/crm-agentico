@@ -1,0 +1,354 @@
+{
+  "id": "3JjfwIlBtMWrZxhT_hyundai",
+  "name": "CAMPAÑA SORTEO COPA MUNDIAL DE LA FIFA 2026_hyundai",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        64,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e180cc82-1fb3-47df-b6ac-44631668164d",
+              "name": "campaignName",
+              "value": "CAMPAÑA SORTEO COPA MUNDIAL DE LA FIFA 2026 JUNIO",
+              "type": "string"
+            },
+            {
+              "id": "0902c7ba-33f4-4494-b5b1-837348356c6e",
+              "name": "templateName",
+              "value": "hyundai_fifa_junio",
+              "type": "string"
+            },
+            {
+              "id": "15ea9d84-2f7a-4868-8eb2-29fde84b6307",
+              "name": "languageCode",
+              "value": "es_EC",
+              "type": "string"
+            },
+            {
+              "id": "da6adfdc-49c0-4693-ac7b-026eef151bd0",
+              "name": "drawDate",
+              "value": "19 de junio de 2026",
+              "type": "string"
+            },
+            {
+              "id": "75606de1-bd19-4dc5-9d21-b885494e50cd",
+              "name": "drawTime",
+              "value": "15:30",
+              "type": "string"
+            },
+            {
+              "id": "5599be35-b5b3-45b6-994f-0e82c030e8ac",
+              "name": "sourceSheet",
+              "value": "CAMPANA_FIFA_2026_JUNIO",
+              "type": "string"
+            },
+            {
+              "id": "52d45c3f-fc7c-4ce2-a990-552fa4a25323",
+              "name": "testMode",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "1ef3eb7d-53ed-4fe2-a4eb-5bcbd902e3bf",
+              "name": "testNumber",
+              "value": "593984040157",
+              "type": "string"
+            },
+            {
+              "id": "d451bc5c-3231-4c07-832c-fa4c8bea0370",
+              "name": "accountId",
+              "value": 2,
+              "type": "number"
+            },
+            {
+              "id": "1a889351-d089-4947-a844-b46727a59c81",
+              "name": "inboxId",
+              "value": 9,
+              "type": "number"
+            },
+            {
+              "id": "header-image-url",
+              "name": "headerImageUrl",
+              "value": "https://codercase.com/img/HYUNDAITEMP/campana_fifa_2026_junio.jpeg",
+              "type": "string"
+            },
+            {
+              "id": "source-sheet-url",
+              "name": "sourceSheetUrl",
+              "value": "https://docs.google.com/spreadsheets/d/1Kz7_aSYlgsBguIRi2uCaZe6F5DdniHkPvpiASP-v4c0/edit?gid=506439267#gid=506439267",
+              "type": "string"
+            },
+            {
+              "id": "source-csv-url",
+              "name": "sourceCsvUrl",
+              "value": "https://docs.google.com/spreadsheets/d/1Kz7_aSYlgsBguIRi2uCaZe6F5DdniHkPvpiASP-v4c0/gviz/tq?tqx=out:csv&sheet=CAMPANA_FIFA_2026_JUNIO",
+              "type": "string"
+            },
+            {
+              "id": "meta-phone-number-id",
+              "name": "meta_phone_number_id",
+              "value": "888577527672271",
+              "type": "string"
+            },
+            {
+              "id": "meta-access-token",
+              "name": "meta_access_token",
+              "value": "EAAVEBKOti8cBQIIadZCGd5hfFsY6ZCik3NAmCQFQ8TZCxiwS91rYU9QSa98qXR9KVyBO1DCHErQmDW3dPDUc8ZAxp7aHrYL4FTOcK5bop0eTwsFgfKd34ooPDgTXhOePbawS51udebYaPWWfDyQZB3wxBZACt9Qf71liTolqlKClKB0unhbaDdoRVVURKtbQZDZD",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "campaign-config",
+      "name": "Set Campaign Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        304,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const config = $('Set Campaign Config').first().json;\nconst input = $input.first();\nconst payload = input.json || {};\n\nfunction parseCsv(text) {\n  const rows = [];\n  let row = [];\n  let cell = '';\n  let inQuotes = false;\n\n  for (let i = 0; i < text.length; i += 1) {\n    const char = text[i];\n    const next = text[i + 1];\n\n    if (inQuotes) {\n      if (char === '\"' && next === '\"') {\n        cell += '\"';\n        i += 1;\n      } else if (char === '\"') {\n        inQuotes = false;\n      } else {\n        cell += char;\n      }\n      continue;\n    }\n\n    if (char === '\"') {\n      inQuotes = true;\n    } else if (char === ',') {\n      row.push(cell);\n      cell = '';\n    } else if (char === '\\n') {\n      row.push(cell);\n      rows.push(row);\n      row = [];\n      cell = '';\n    } else if (char !== '\\r') {\n      cell += char;\n    }\n  }\n\n  if (cell !== '' || row.length > 0) {\n    row.push(cell);\n    rows.push(row);\n  }\n\n  return rows;\n}\n\nfunction normalizePhone(value) {\n  const digits = String(value || '').replace(/\\D+/g, '');\n  if (!digits) return null;\n  if (digits.startsWith('593') && digits.length >= 12) return digits;\n  if (digits.startsWith('09') && digits.length === 10) return '593' + digits.slice(1);\n  if (digits.length === 9 && digits.startsWith('9')) return '593' + digits;\n  if (digits.length === 10 && digits.startsWith('9')) return '593' + digits.slice(1);\n  if (digits.length === 12 && digits.startsWith('593')) return digits;\n  return digits;\n}\n\nfunction pickDisplayName(fullName) {\n  const clean = String(fullName || '').trim().replace(/\\s+/g, ' ');\n  if (!clean) return 'Cliente Hyundai';\n  return clean.split(' ')[0];\n}\n\nconst csvText = typeof payload.data === 'string'\n  ? payload.data\n  : typeof payload.body === 'string'\n    ? payload.body\n    : typeof payload.response === 'string'\n      ? payload.response\n      : typeof payload.raw === 'string'\n        ? payload.raw\n        : '';\n\nif (!csvText) {\n  throw new Error('No se encontro texto CSV en la respuesta del nodo Fetch Source CSV');\n}\n\nconst rows = parseCsv(csvText);\nif (!rows.length) {\n  throw new Error('La base CSV esta vacia');\n}\n\nconst headers = rows[0].map((value) => String(value || '').trim());\nconst dataRows = rows.slice(1);\n\nconst contacts = dataRows.map((values) => {\n  const record = {};\n  headers.forEach((header, index) => {\n    if (!header) return;\n    record[header] = values[index] ?? '';\n  });\n  return {\n    name: String(record.name || '').trim(),\n    phone: String(record['phone number'] || '').trim(),\n    email: '',\n    city: '',\n    advisor: '',\n    model: '',\n    salesPoint: '',\n    idNumber: '',\n    chassis: '',\n  };\n});\n\nconst deduped = [];\nconst seen = new Set();\n\nfor (const contact of contacts) {\n  const phone = normalizePhone(contact.phone);\n  if (!phone || seen.has(phone)) continue;\n  seen.add(phone);\n  deduped.push({\n    ...contact,\n    whatsapp_to: phone,\n    displayName: pickDisplayName(contact.name),\n  });\n}\n\nconst recipients = config.testMode\n  ? [{\n      name: 'Cristobal',\n      displayName: 'Cristobal',\n      whatsapp_to: normalizePhone(config.testNumber),\n      email: '',\n      city: '',\n      advisor: '',\n      model: '',\n      salesPoint: '',\n      idNumber: '',\n      chassis: '',\n      source: 'test-number',\n    }]\n  : deduped;\n\nreturn recipients.map((contact, index) => ({\n  json: {\n    campaignName: config.campaignName,\n    templateName: config.templateName,\n    languageCode: config.languageCode,\n    drawDate: config.drawDate,\n    drawTime: config.drawTime,\n    sourceSheet: config.sourceSheet,\n    sourceSheetUrl: config.sourceSheetUrl,\n    sourceCsvUrl: config.sourceCsvUrl,\n    testMode: config.testMode,\n    accountId: config.accountId,\n    inboxId: config.inboxId,\n    headerImageUrl: config.headerImageUrl,\n    contact,\n    recipientIndex: index + 1,\n    totalRecipients: recipients.length,\n  },\n}));"
+      },
+      "id": "build-campaign-queue",
+      "name": "Build Campaign Queue",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        816,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item) => {\n  const row = item.json;\n  return {\n    json: {\n      ...row,\n      payload: {\n        messaging_product: 'whatsapp',\n        recipient_type: 'individual',\n        to: row.contact.whatsapp_to,\n        type: 'template',\n        template: {\n          name: row.templateName,\n          language: {\n            code: row.languageCode,\n          },\n          components: [\n            {\n              type: 'header',\n              parameters: [\n                {\n                  type: 'image',\n                  image: {\n                    link: row.headerImageUrl,\n                  },\n                },\n              ],\n            },\n            {\n              type: 'body',\n              parameters: [\n                { type: 'text', text: row.contact.displayName || 'Cliente Hyundai' },\n                { type: 'text', text: row.drawDate },\n                { type: 'text', text: row.drawTime },\n              ],\n            },\n          ],\n        },\n      },\n    },\n  };\n});"
+      },
+      "id": "prepare-template-payload",
+      "name": "Prepare Template Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v23.0/{{ $('Set Campaign Config').first().json.meta_phone_number_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Set Campaign Config').first().json.meta_access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.payload }}",
+        "options": {}
+      },
+      "id": "send-whatsapp-template",
+      "name": "Send WhatsApp Template",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1584,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map((item) => item.json);\nreturn [{\n  json: {\n    campaignName: rows[0]?.campaignName || 'CAMPAÑA SORTEO COPA MUNDIAL DE LA FIFA 2026',\n    sentItems: rows.length,\n    testMode: rows[0]?.testMode ?? true,\n    recipients: rows.map((row) => ({\n      to: row.contact?.whatsapp_to || null,\n      name: row.contact?.displayName || row.contact?.name || null,\n      messageId: row.messages?.[0]?.id || null,\n    })),\n  },\n}];"
+      },
+      "id": "summarize-send-results",
+      "name": "Summarize Send Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.sourceCsvUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "fetch-source-csv",
+      "name": "Fetch Source CSV",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        544,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "loop-over-recipients",
+      "name": "Loop Over Recipients",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1072,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "id": "wait-3-seconds",
+      "name": "Wait 2 Seconds",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1840,
+        320
+      ],
+      "webhookId": "bdfdc080-5bdc-4849-b8f2-b0cafdf2d83e"
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set Campaign Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Campaign Config": {
+      "main": [
+        [
+          {
+            "node": "Fetch Source CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Source CSV": {
+      "main": [
+        [
+          {
+            "node": "Build Campaign Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Campaign Queue": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Recipients",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Recipients": {
+      "main": [
+        [
+          {
+            "node": "Summarize Send Results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Template Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Template Payload": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Template",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp Template": {
+      "main": [
+        [
+          {
+            "node": "Wait 2 Seconds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 2 Seconds": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Recipients",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "22dde6b9-eab2-54e0-a5e2-d0e1138b3116",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

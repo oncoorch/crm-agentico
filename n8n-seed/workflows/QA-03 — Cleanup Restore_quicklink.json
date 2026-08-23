@@ -1,0 +1,142 @@
+{
+  "id": "Rt2DJLeUqULWE4DH_quicklink",
+  "name": "QA-03 — Cleanup Restore_quicklink",
+  "nodes": [
+    {
+      "id": "qa-cleanup-manual-001",
+      "name": "Manual Cleanup",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        120,
+        180
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "qa-cleanup-webhook-001",
+      "name": "Webhook Cleanup",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        120,
+        420
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cris-qa-cleanup",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "0hYeKlozui5dMRDE_quicklink",
+          "name": "QL Sync Manual Webhook Token_QUICKLINK"
+        }
+      },
+      "webhookId": "cris-qa-cleanup-permanent"
+    },
+    {
+      "id": "qa-cleanup-normalize-001",
+      "name": "Code - Normalize Cleanup Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const src = $json.body || $json || {};\nconst runId = src.run_id || src.runId || null;\nconst caseId = src.case_id || src.caseId || null;\nif (!runId && !caseId) throw new Error('run_id or case_id is required for CRIS QA cleanup');\nconst dryRun = src.dry_run !== false && String(src.dry_run || 'true').toLowerCase() !== 'false';\nconst restoreSnapshot = src.restore_snapshot === true || String(src.restore_snapshot || '').toLowerCase() === 'true';\nreturn [{ json: { run_id: runId, case_id: caseId, dry_run: dryRun, restore_snapshot: restoreSnapshot, requested_by: src.requested_by || 'n8n-cris-qa' } }];"
+      }
+    },
+    {
+      "id": "qa-cleanup-pg-execute-001",
+      "name": "PG - Cleanup Scoped Cases",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        760,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH params AS (SELECT NULLIF($1, '')::uuid AS run_id, NULLIF($2, '')::uuid AS case_id, $3::boolean AS dry_run, $4::boolean AS restore_snapshot), target AS (SELECT c.* FROM cris_test_cases c, params p WHERE (p.run_id IS NOT NULL AND c.run_id = p.run_id) OR (p.case_id IS NOT NULL AND c.id = p.case_id)), conv_restore AS (UPDATE conversaciones cv SET estado = COALESCE(NULLIF(t.snapshot_before->'conversation'->>'estado', '')::estado_conversacion, cv.estado), chatwoot_conv_id = COALESCE(NULLIF(t.snapshot_before->'conversation'->>'chatwoot_conv_id', '')::integer, cv.chatwoot_conv_id), chatwoot_contact_id = COALESCE(NULLIF(t.snapshot_before->'conversation'->>'chatwoot_contact_id', '')::integer, cv.chatwoot_contact_id), updated_at = now() FROM target t, params p WHERE p.dry_run = false AND p.restore_snapshot = true AND t.snapshot_before ? 'conversation' AND cv.id = NULLIF(t.snapshot_before->'conversation'->>'id', '')::uuid RETURNING cv.id), mem_restore AS (UPDATE lead_memory lm SET conversation_state = COALESCE(NULLIF(t.snapshot_before->'memory'->>'conversation_state', ''), lm.conversation_state), outbound_sequence_status = COALESCE(NULLIF(t.snapshot_before->'memory'->>'outbound_sequence_status', ''), lm.outbound_sequence_status), customer_engaged = COALESCE(NULLIF(t.snapshot_before->'memory'->>'customer_engaged', '')::boolean, lm.customer_engaged), selected_plan = NULLIF(t.snapshot_before->'memory'->>'selected_plan', ''), selected_plan_name = NULLIF(t.snapshot_before->'memory'->>'selected_plan_name', ''), selected_plan_price = NULLIF(t.snapshot_before->'memory'->>'selected_plan_price', '')::numeric, selected_plan_duration = NULLIF(t.snapshot_before->'memory'->>'selected_plan_duration', '')::integer, chatwoot_conv_id = COALESCE(NULLIF(t.snapshot_before->'memory'->>'chatwoot_conv_id', '')::integer, lm.chatwoot_conv_id), chatwoot_contact_id = COALESCE(NULLIF(t.snapshot_before->'memory'->>'chatwoot_contact_id', '')::integer, lm.chatwoot_contact_id), updated_at = now() FROM target t, params p WHERE p.dry_run = false AND p.restore_snapshot = true AND t.snapshot_before ? 'memory' AND lm.id = NULLIF(t.snapshot_before->'memory'->>'id', '')::uuid RETURNING lm.id), cancelled AS (UPDATE scheduled_followups sf SET status = 'CANCELLED', processed_at = now(), error_msg = 'cancelled_by_cris_qa_cleanup' FROM target t, params p WHERE p.dry_run = false AND sf.status = 'PENDING' AND sf.conversation_id = t.conversation_id RETURNING sf.id), case_update AS (UPDATE cris_test_cases c SET cleanup_status = CASE WHEN (SELECT dry_run FROM params) THEN 'DRY_RUN' WHEN (SELECT restore_snapshot FROM params) THEN 'RESTORED_FROM_SNAPSHOT' ELSE 'CLEANED_PENDING_FOLLOWUPS' END, updated_at = now() FROM target t WHERE c.id = t.id AND (SELECT dry_run FROM params) = false RETURNING c.id) SELECT (SELECT count(*) FROM target)::integer AS target_cases, (SELECT count(*) FROM conv_restore)::integer AS restored_conversations, (SELECT count(*) FROM mem_restore)::integer AS restored_memories, (SELECT count(*) FROM cancelled)::integer AS cancelled_followups, (SELECT count(*) FROM case_update)::integer AS updated_cases, (SELECT dry_run FROM params) AS dry_run, (SELECT restore_snapshot FROM params) AS restore_snapshot;",
+        "options": {
+          "queryReplacement": "={{ [ $json.run_id || '', $json.case_id || '', $json.dry_run, $json.restore_snapshot ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "qa-cleanup-note-001",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        120,
+        -120
+      ],
+      "parameters": {
+        "content": "## CRIS QA - Cleanup Restore\n\nWebhook: POST /cris-qa-cleanup\n\nInput: { run_id?, case_id?, dry_run=true, restore_snapshot=false }\n\nDry-run is default.\nSet dry_run=false to cancel scoped pending followups.\nSet restore_snapshot=true to restore selected conversation/memory fields from snapshot_before.",
+        "height": 280,
+        "width": 430
+      }
+    }
+  ],
+  "connections": {
+    "Manual Cleanup": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalize Cleanup Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Cleanup": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalize Cleanup Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Normalize Cleanup Request": {
+      "main": [
+        [
+          {
+            "node": "PG - Cleanup Scoped Cases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "1c396f66-2036-5afb-a40c-e5b116ab559f",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

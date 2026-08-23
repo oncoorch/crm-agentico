@@ -1,0 +1,195 @@
+{
+  "id": "3AR8DLX6jEERa8va_autocom",
+  "name": "AUTOCOM PROD - SGC Due Paso4 24h_autocom",
+  "nodes": [
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "url-mcp",
+              "name": "URL_MCP",
+              "value": "http://mcp_server_prod:8000",
+              "type": "string"
+            },
+            {
+              "id": "account-id",
+              "name": "account_id",
+              "value": "2",
+              "type": "string"
+            },
+            {
+              "id": "inbox-id",
+              "name": "inbox_id",
+              "value": 3,
+              "type": "number"
+            },
+            {
+              "id": "dry-run",
+              "name": "dry_run",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "max-items",
+              "name": "max_items",
+              "value": 100,
+              "type": "number"
+            },
+            {
+              "id": "lookback-hours",
+              "name": "lookback_hours",
+              "value": 168,
+              "type": "number"
+            },
+            {
+              "id": "due-after-minutes",
+              "name": "due_after_minutes",
+              "value": 1440,
+              "type": "number"
+            },
+            {
+              "id": "include-synthetic-ddt2",
+              "name": "include_synthetic_ddt2",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "service-id",
+              "name": "service_id",
+              "value": 1,
+              "type": "number"
+            },
+            {
+              "id": "create-private-notes",
+              "name": "create_private_notes",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "resolve-conversations",
+              "name": "resolve_conversations",
+              "value": true,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-environment",
+      "name": "Set Environment",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -464,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function toBool(value, fallback = false) {\n  if (typeof value === 'boolean') return value;\n  if (value === undefined || value === null || value === '') return fallback;\n  const text = String(value).trim().toLowerCase();\n  return ['1', 'true', 'yes', 'si', 'sí'].includes(text);\n}\n\nconst accountId = String($json.account_id || '').trim();\nconst inboxId = String($json.inbox_id || '').trim();\nconst payload = {\n  dry_run: toBool($json.dry_run, false),\n  max_items: Number($json.max_items || 100),\n  lookback_hours: Number($json.lookback_hours || 168),\n  due_after_minutes: Number($json.due_after_minutes || 1440),\n  include_synthetic_ddt2: toBool($json.include_synthetic_ddt2, false),\n  service_id: Number($json.service_id || 1),\n  create_private_notes: toBool($json.create_private_notes, true),\n  resolve_conversations: toBool($json.resolve_conversations, true),\n};\nif (accountId) payload.account_id = Number(accountId);\nif (inboxId) payload.inbox_id = Number(inboxId);\nreturn [{ json: { ...$json, payload } }];"
+      },
+      "id": "build-payload",
+      "name": "Build Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.URL_MCP + '/api/autocom/sgc-due/process' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.payload }}",
+        "options": {}
+      },
+      "id": "process-mcp",
+      "name": "Process MCP",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Every 10 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -688,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Set Environment": {
+      "main": [
+        [
+          {
+            "node": "Build Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Payload": {
+      "main": [
+        [
+          {
+            "node": "Process MCP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 10 minutes": {
+      "main": [
+        [
+          {
+            "node": "Set Environment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "7d24587a-679e-5748-a6d5-def571bf16a8",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

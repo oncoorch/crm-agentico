@@ -1,0 +1,91 @@
+{
+  "id": "lrFK2XEezpWzBWCC_quicklink",
+  "name": "REN - DEV - OPS-06 - Inbound Buffer Maintenance_quicklink",
+  "nodes": [
+    {
+      "id": "ops06-schedule-001",
+      "name": "Schedule - Daily Buffer Purge",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -320,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 3 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ops06-purge-001",
+      "name": "Postgres - Purge Inbound Buffer",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -40,
+        0
+      ],
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "SELECT renovation_dev.purge_inbound_message_buffer(interval '7 days') AS purged_rows;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "ops06-sticky-001",
+      "name": "OPS-06 Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -660,
+        -180
+      ],
+      "parameters": {
+        "content": "## OPS-06 - Inbound Buffer Maintenance\n\nPurga diaria a las 03:30 `America/Guayaquil` de filas del buffer inbound consumidas hace más de 7 días.\n\nLa función vive en V15 y solo opera `renovation_dev.inbound_message_buffer`. El schema está calificado para no depender del `search_path` compartido.",
+        "height": 320,
+        "width": 300
+      }
+    }
+  ],
+  "connections": {
+    "Schedule - Daily Buffer Purge": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Purge Inbound Buffer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "c614ba9c-2648-5ef1-85c2-e5df3655a599",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

@@ -1,0 +1,1033 @@
+{
+  "id": "o57OtH24CCVzvSv7_quicklink",
+  "name": "REN - DEV - WF-02B - Campaign Batch Sender_quicklink",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "renov/dev/internal/campaign-batch-sender",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -520,
+        -140
+      ],
+      "id": "wf02b-webhook",
+      "name": "POST Batch Sender",
+      "webhookId": "2d46a6f4-b63f-45ef-9f0c-13ea85a302b0"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds",
+              "secondsInterval": 5
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -520,
+        180
+      ],
+      "id": "wf02b-schedule",
+      "name": "Schedule Queue Poll"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst CLAIM_SQL = \"WITH requested AS (\\n  SELECT\\n    $1::uuid AS dispatch_id,\\n    coalesce($2::timestamptz, now()) AS send_at,\\n    nullif(lower(btrim($3::text)), '') AS simulate_http_status,\\n    coalesce($4::boolean, false) AS respond_to_webhook,\\n    coalesce($5::boolean, false) AS real_send\\n), claim_clock AS (\\n  SELECT\\n    clock_timestamp() AS claimed_at,\\n    date_trunc('minute', clock_timestamp()) AS window_started_at\\n), send_guard AS (\\n  SELECT renovation_dev.is_automatic_send_allowed((SELECT send_at FROM requested)) AS allowed\\n), expired_leases AS (\\n  UPDATE renovation_dev.quicklink_campaign_dispatches dispatch\\n     SET status = CASE\\n           WHEN dispatch.worker_attempt_count >= 4 THEN 'failed'::renovation_dev.dispatch_status\\n           ELSE 'queued'::renovation_dev.dispatch_status\\n         END,\\n         process_after = CASE dispatch.worker_attempt_count\\n           WHEN 1 THEN (SELECT claimed_at FROM claim_clock) + interval '30 seconds'\\n           WHEN 2 THEN (SELECT claimed_at FROM claim_clock) + interval '120 seconds'\\n           WHEN 3 THEN (SELECT claimed_at FROM claim_clock) + interval '300 seconds'\\n           ELSE dispatch.process_after\\n         END,\\n         next_attempt_at = CASE dispatch.worker_attempt_count\\n           WHEN 1 THEN (SELECT claimed_at FROM claim_clock) + interval '30 seconds'\\n           WHEN 2 THEN (SELECT claimed_at FROM claim_clock) + interval '120 seconds'\\n           WHEN 3 THEN (SELECT claimed_at FROM claim_clock) + interval '300 seconds'\\n           ELSE NULL\\n         END,\\n         completed_at = CASE\\n           WHEN dispatch.worker_attempt_count >= 4 THEN (SELECT claimed_at FROM claim_clock)\\n           ELSE NULL\\n         END,\\n         lease_token = NULL,\\n         leased_at = NULL,\\n         lease_expires_at = NULL,\\n         last_error = 'worker_lease_expired'\\n   WHERE dispatch.status = 'running'\\n     AND dispatch.lease_expires_at <= (SELECT claimed_at FROM claim_clock)\\n  RETURNING dispatch.id, dispatch.client_id, dispatch.status\\n), expired_final_items AS (\\n  UPDATE renovation_dev.quicklink_campaign_dispatch_items item\\n     SET status = 'failed'::renovation_dev.delivery_status,\\n         reject_reason = 'SEND_FAILED',\\n         last_error = 'worker_lease_expired',\\n         attempt_count = 3\\n    FROM expired_leases expired\\n   WHERE expired.status = 'failed'\\n     AND item.dispatch_id = expired.id\\n      AND item.status = 'pending'\\n  RETURNING item.id\\n), rate_limited_clients AS (\\n  SELECT claim_window_row.client_id\\n    FROM renovation_dev.provider_dispatch_claim_windows claim_window_row, claim_clock\\n   WHERE claim_window_row.window_started_at = claim_clock.window_started_at\\n     AND claim_window_row.claim_count >= 10\\n), candidate AS (\\n  SELECT dispatch.id, dispatch.client_id\\n    FROM renovation_dev.quicklink_campaign_dispatches dispatch\\n    CROSS JOIN requested\\n    CROSS JOIN claim_clock\\n   WHERE dispatch.status = 'queued'\\n      AND dispatch.process_after <= claim_clock.claimed_at\\n      AND (requested.dispatch_id IS NULL OR dispatch.id = requested.dispatch_id)\\n      AND (requested.dispatch_id IS NOT NULL OR dispatch.dev_simulate_http_status IS NULL)\\n      AND (requested.dispatch_id IS NOT NULL OR dispatch.last_error IS DISTINCT FROM 'dev_deferred_pending')\\n      AND (\\n        requested.real_send\\n        OR NOT EXISTS (\\n          SELECT 1\\n            FROM renovation_dev.quicklink_campaign_dispatch_items real_item\\n           WHERE real_item.dispatch_id = dispatch.id\\n             AND real_item.status = 'pending'\\n             AND real_item.metadata->>'realSendMode' = 'real'\\n        )\\n      )\\n     AND (SELECT allowed FROM send_guard)\\n     AND NOT EXISTS (\\n       SELECT 1\\n         FROM expired_leases expired\\n        WHERE expired.client_id = dispatch.client_id\\n     )\\n      AND NOT EXISTS (\\n        SELECT 1\\n          FROM renovation_dev.quicklink_campaign_dispatches active\\n        WHERE active.client_id = dispatch.client_id\\n          AND active.status = 'running'\\n           AND active.lease_expires_at > claim_clock.claimed_at\\n      )\\n      AND NOT EXISTS (\\n        SELECT 1\\n          FROM rate_limited_clients limited\\n         WHERE limited.client_id = dispatch.client_id\\n      )\\n      AND pg_try_advisory_xact_lock(hashtextextended(dispatch.client_id, 0))\\n   ORDER BY\\n     CASE WHEN dispatch.id = requested.dispatch_id THEN 0 ELSE 1 END,\\n     dispatch.process_after,\\n     dispatch.requested_at,\\n     dispatch.id\\n   LIMIT 1\\n   FOR UPDATE OF dispatch SKIP LOCKED\\n), claim_window AS (\\n  INSERT INTO renovation_dev.provider_dispatch_claim_windows (\\n    client_id, window_started_at, claim_count\\n  )\\n  SELECT candidate.client_id, claim_clock.window_started_at, 1\\n    FROM candidate, claim_clock\\n  ON CONFLICT (client_id, window_started_at) DO UPDATE\\n    SET claim_count = renovation_dev.provider_dispatch_claim_windows.claim_count + 1,\\n        updated_at = now()\\n  WHERE renovation_dev.provider_dispatch_claim_windows.claim_count < 10\\n  RETURNING client_id, window_started_at, claim_count\\n), claimed AS (\\n  UPDATE renovation_dev.quicklink_campaign_dispatches dispatch\\n     SET status = 'running'::renovation_dev.dispatch_status,\\n         worker_attempt_count = dispatch.worker_attempt_count + 1,\\n         started_at = coalesce(dispatch.started_at, (SELECT claimed_at FROM claim_clock)),\\n         next_attempt_at = NULL,\\n          lease_token = gen_random_uuid(),\\n          leased_at = (SELECT claimed_at FROM claim_clock),\\n          lease_expires_at = (SELECT claimed_at FROM claim_clock) + interval '60 seconds',\\n          dev_simulate_http_status = coalesce(requested.simulate_http_status, dispatch.dev_simulate_http_status)\\n    FROM candidate, claim_window, requested\\n   WHERE dispatch.id = candidate.id\\n     AND claim_window.client_id = candidate.client_id\\n  RETURNING dispatch.*\\n), marked_real_items AS (\\n  UPDATE renovation_dev.quicklink_campaign_dispatch_items item\\n     SET metadata = item.metadata || jsonb_build_object('realSendMode', 'real'),\\n         updated_at = now()\\n    FROM claimed, requested\\n   WHERE item.dispatch_id = claimed.id\\n     AND item.status = 'pending'\\n     AND requested.real_send\\n  RETURNING item.id\\n), selected_dispatch AS (\\n  SELECT * FROM claimed\\n  UNION ALL\\n  SELECT dispatch.*\\n    FROM renovation_dev.quicklink_campaign_dispatches dispatch, requested\\n   WHERE dispatch.id = requested.dispatch_id\\n     AND NOT EXISTS (SELECT 1 FROM claimed)\\n  LIMIT 1\\n)\\nSELECT\\n  selected_dispatch.id::text AS job_id,\\n  selected_dispatch.sf_dispatch_id,\\n  (claimed.id IS NOT NULL) AS claimed,\\n  (SELECT allowed FROM send_guard) AS allowed_to_send,\\n  CASE\\n    WHEN claimed.id IS NOT NULL THEN 'claimed'\\n    WHEN NOT (SELECT allowed FROM send_guard) THEN 'outside_business_hours'\\n    WHEN selected_dispatch.id IS NOT NULL AND selected_dispatch.status = 'running' THEN 'client_busy'\\n    WHEN selected_dispatch.id IS NOT NULL AND selected_dispatch.process_after > (SELECT claimed_at FROM claim_clock) THEN 'not_due'\\n    WHEN selected_dispatch.id IS NOT NULL AND EXISTS (\\n      SELECT 1\\n        FROM rate_limited_clients limited\\n       WHERE limited.client_id = selected_dispatch.client_id\\n    ) THEN 'client_rate_limited'\\n    WHEN EXISTS (SELECT 1 FROM candidate) AND NOT EXISTS (SELECT 1 FROM claim_window) THEN 'claim_race_lost'\\n    ELSE 'no_due_dispatch'\\n  END AS outcome,\\n  selected_dispatch.status::text AS dispatch_status,\\n  selected_dispatch.worker_attempt_count AS attempt_count,\\n  selected_dispatch.process_after,\\n  selected_dispatch.next_attempt_at,\\n  selected_dispatch.lease_token::text,\\n  selected_dispatch.lease_expires_at,\\n  coalesce(requested.simulate_http_status, selected_dispatch.dev_simulate_http_status) AS simulate_http_status,\\n  requested.respond_to_webhook,\\n  CASE\\n    WHEN requested.real_send OR EXISTS (SELECT 1 FROM marked_real_items) THEN 'real'\\n    WHEN EXISTS (\\n      SELECT 1\\n        FROM renovation_dev.quicklink_campaign_dispatch_items real_item\\n       WHERE real_item.dispatch_id = selected_dispatch.id\\n         AND real_item.status = 'pending'\\n         AND real_item.metadata->>'realSendMode' = 'real'\\n    ) THEN 'real'\\n    ELSE 'dry_run'\\n  END AS send_mode,\\n  coalesce(10 - claim_window.claim_count, 0) AS rate_remaining,\\n  0::integer AS sent_count,\\n  0::integer AS failed_count,\\n  coalesce((\\n    SELECT count(*)::integer\\n      FROM renovation_dev.quicklink_campaign_dispatch_items item\\n     WHERE item.dispatch_id = selected_dispatch.id\\n       AND item.status = 'pending'\\n  ), 0) AS pending_count\\nFROM requested\\nLEFT JOIN selected_dispatch ON true\\nLEFT JOIN claimed ON claimed.id = selected_dispatch.id\\nLEFT JOIN claim_window ON claim_window.client_id = selected_dispatch.client_id;\\n\";\n\nfunction env(name, fallback = '') { try { return $env[name] || fallback; } catch (e) { return fallback; } }\nconst request = $input.first().json;\nconst headers = request.headers ?? {};\nconst body = request.body ?? {};\n\nfunction readHeader(name) {\n  const target = name.toLowerCase();\n  for (const [key, value] of Object.entries(headers)) {\n    if (String(key).toLowerCase() === target) return Array.isArray(value) ? value[0] : value;\n  }\n  return '';\n}\n\nfunction fail(statusCode, code, message, details = []) {\n  return [{ json: { ok: false, statusCode, body: { code, message, details } } }];\n}\n\nconst expectedToken = env('RENOV_INTERNAL_TOKEN');\nif (!expectedToken) return fail(503, 'INTERNAL_ERROR', 'Falta RENOV_INTERNAL_TOKEN en n8n.');\n\nconst auth = String(readHeader('authorization') || '');\nconst bearer = auth.match(/^Bearer\\s+(.+)$/i)?.[1] || '';\nconst provided = readHeader('x-internal-token') || bearer;\nif (provided !== expectedToken) return fail(401, 'UNAUTHORIZED', 'Token interno invalido o ausente.');\n\nconst jobId = String(body.job_id || body.dispatch_id || '').trim();\nif (jobId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(jobId)) {\n  return fail(400, 'INVALID_PAYLOAD', 'job_id UUID requerido.');\n}\n\nif (String(env('RENOV_DEV_DRY_RUN_SENDS', '')).toLowerCase() !== 'true') {\n  return fail(503, 'INTERNAL_ERROR', 'RENOV_DEV_DRY_RUN_SENDS debe permanecer activo durante el piloto controlado.');\n}\n\nconst sendMode = String(body.send_mode || 'dry_run').trim().toLowerCase();\nif (!['dry_run', 'real'].includes(sendMode)) {\n  return fail(400, 'INVALID_PAYLOAD', 'send_mode debe ser dry_run o real.');\n}\nconst realSend = sendMode === 'real';\nif (realSend && !jobId) {\n  return fail(400, 'INVALID_PAYLOAD', 'job_id es obligatorio para un HSM real.');\n}\nif (realSend && String(env('RENOV_DEV_REAL_HSM_ENABLED', '')).toLowerCase() !== 'true') {\n  return fail(503, 'REAL_HSM_DISABLED', 'El piloto HSM real esta deshabilitado.');\n}\n\nconst rawSimulation = body.simulate_http_status;\nlet simulateHttpStatus = null;\nif (rawSimulation !== undefined && rawSimulation !== null && String(rawSimulation).trim() !== '') {\n  simulateHttpStatus = String(rawSimulation).trim().toLowerCase();\n  const numericStatus = /^[1-5][0-9][0-9]$/.test(simulateHttpStatus);\n  if (simulateHttpStatus !== 'network' && !numericStatus) {\n    return fail(400, 'INVALID_PAYLOAD', 'simulate_http_status debe ser network o un status HTTP entre 100 y 599.');\n  }\n  if (!jobId) {\n    return fail(400, 'INVALID_PAYLOAD', 'job_id es obligatorio al simular una respuesta del proveedor.');\n  }\n  if (realSend) {\n    return fail(400, 'INVALID_PAYLOAD', 'simulate_http_status no aplica a un HSM real.');\n  }\n}\n\nconst sendAt = realSend ? new Date().toISOString() : (body.send_at ? String(body.send_at) : new Date().toISOString());\n\nreturn [{\n  json: {\n    ok: true,\n    sql: CLAIM_SQL,\n    query_params: [jobId || null, sendAt, simulateHttpStatus, true, realSend],\n    job_id: jobId || null,\n    send_at: sendAt,\n    simulate_http_status: simulateHttpStatus,\n    send_mode: sendMode,\n  },\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -280,
+        -140
+      ],
+      "id": "wf02b-validate",
+      "name": "Validate Sender Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst CLAIM_SQL = \"WITH requested AS (\\n  SELECT\\n    $1::uuid AS dispatch_id,\\n    coalesce($2::timestamptz, now()) AS send_at,\\n    nullif(lower(btrim($3::text)), '') AS simulate_http_status,\\n    coalesce($4::boolean, false) AS respond_to_webhook,\\n    coalesce($5::boolean, false) AS real_send\\n), claim_clock AS (\\n  SELECT\\n    clock_timestamp() AS claimed_at,\\n    date_trunc('minute', clock_timestamp()) AS window_started_at\\n), send_guard AS (\\n  SELECT renovation_dev.is_automatic_send_allowed((SELECT send_at FROM requested)) AS allowed\\n), expired_leases AS (\\n  UPDATE renovation_dev.quicklink_campaign_dispatches dispatch\\n     SET status = CASE\\n           WHEN dispatch.worker_attempt_count >= 4 THEN 'failed'::renovation_dev.dispatch_status\\n           ELSE 'queued'::renovation_dev.dispatch_status\\n         END,\\n         process_after = CASE dispatch.worker_attempt_count\\n           WHEN 1 THEN (SELECT claimed_at FROM claim_clock) + interval '30 seconds'\\n           WHEN 2 THEN (SELECT claimed_at FROM claim_clock) + interval '120 seconds'\\n           WHEN 3 THEN (SELECT claimed_at FROM claim_clock) + interval '300 seconds'\\n           ELSE dispatch.process_after\\n         END,\\n         next_attempt_at = CASE dispatch.worker_attempt_count\\n           WHEN 1 THEN (SELECT claimed_at FROM claim_clock) + interval '30 seconds'\\n           WHEN 2 THEN (SELECT claimed_at FROM claim_clock) + interval '120 seconds'\\n           WHEN 3 THEN (SELECT claimed_at FROM claim_clock) + interval '300 seconds'\\n           ELSE NULL\\n         END,\\n         completed_at = CASE\\n           WHEN dispatch.worker_attempt_count >= 4 THEN (SELECT claimed_at FROM claim_clock)\\n           ELSE NULL\\n         END,\\n         lease_token = NULL,\\n         leased_at = NULL,\\n         lease_expires_at = NULL,\\n         last_error = 'worker_lease_expired'\\n   WHERE dispatch.status = 'running'\\n     AND dispatch.lease_expires_at <= (SELECT claimed_at FROM claim_clock)\\n  RETURNING dispatch.id, dispatch.client_id, dispatch.status\\n), expired_final_items AS (\\n  UPDATE renovation_dev.quicklink_campaign_dispatch_items item\\n     SET status = 'failed'::renovation_dev.delivery_status,\\n         reject_reason = 'SEND_FAILED',\\n         last_error = 'worker_lease_expired',\\n         attempt_count = 3\\n    FROM expired_leases expired\\n   WHERE expired.status = 'failed'\\n     AND item.dispatch_id = expired.id\\n      AND item.status = 'pending'\\n  RETURNING item.id\\n), rate_limited_clients AS (\\n  SELECT claim_window_row.client_id\\n    FROM renovation_dev.provider_dispatch_claim_windows claim_window_row, claim_clock\\n   WHERE claim_window_row.window_started_at = claim_clock.window_started_at\\n     AND claim_window_row.claim_count >= 10\\n), candidate AS (\\n  SELECT dispatch.id, dispatch.client_id\\n    FROM renovation_dev.quicklink_campaign_dispatches dispatch\\n    CROSS JOIN requested\\n    CROSS JOIN claim_clock\\n   WHERE dispatch.status = 'queued'\\n      AND dispatch.process_after <= claim_clock.claimed_at\\n      AND (requested.dispatch_id IS NULL OR dispatch.id = requested.dispatch_id)\\n      AND (requested.dispatch_id IS NOT NULL OR dispatch.dev_simulate_http_status IS NULL)\\n      AND (requested.dispatch_id IS NOT NULL OR dispatch.last_error IS DISTINCT FROM 'dev_deferred_pending')\\n      AND (\\n        requested.real_send\\n        OR NOT EXISTS (\\n          SELECT 1\\n            FROM renovation_dev.quicklink_campaign_dispatch_items real_item\\n           WHERE real_item.dispatch_id = dispatch.id\\n             AND real_item.status = 'pending'\\n             AND real_item.metadata->>'realSendMode' = 'real'\\n        )\\n      )\\n     AND (SELECT allowed FROM send_guard)\\n     AND NOT EXISTS (\\n       SELECT 1\\n         FROM expired_leases expired\\n        WHERE expired.client_id = dispatch.client_id\\n     )\\n      AND NOT EXISTS (\\n        SELECT 1\\n          FROM renovation_dev.quicklink_campaign_dispatches active\\n        WHERE active.client_id = dispatch.client_id\\n          AND active.status = 'running'\\n           AND active.lease_expires_at > claim_clock.claimed_at\\n      )\\n      AND NOT EXISTS (\\n        SELECT 1\\n          FROM rate_limited_clients limited\\n         WHERE limited.client_id = dispatch.client_id\\n      )\\n      AND pg_try_advisory_xact_lock(hashtextextended(dispatch.client_id, 0))\\n   ORDER BY\\n     CASE WHEN dispatch.id = requested.dispatch_id THEN 0 ELSE 1 END,\\n     dispatch.process_after,\\n     dispatch.requested_at,\\n     dispatch.id\\n   LIMIT 1\\n   FOR UPDATE OF dispatch SKIP LOCKED\\n), claim_window AS (\\n  INSERT INTO renovation_dev.provider_dispatch_claim_windows (\\n    client_id, window_started_at, claim_count\\n  )\\n  SELECT candidate.client_id, claim_clock.window_started_at, 1\\n    FROM candidate, claim_clock\\n  ON CONFLICT (client_id, window_started_at) DO UPDATE\\n    SET claim_count = renovation_dev.provider_dispatch_claim_windows.claim_count + 1,\\n        updated_at = now()\\n  WHERE renovation_dev.provider_dispatch_claim_windows.claim_count < 10\\n  RETURNING client_id, window_started_at, claim_count\\n), claimed AS (\\n  UPDATE renovation_dev.quicklink_campaign_dispatches dispatch\\n     SET status = 'running'::renovation_dev.dispatch_status,\\n         worker_attempt_count = dispatch.worker_attempt_count + 1,\\n         started_at = coalesce(dispatch.started_at, (SELECT claimed_at FROM claim_clock)),\\n         next_attempt_at = NULL,\\n          lease_token = gen_random_uuid(),\\n          leased_at = (SELECT claimed_at FROM claim_clock),\\n          lease_expires_at = (SELECT claimed_at FROM claim_clock) + interval '60 seconds',\\n          dev_simulate_http_status = coalesce(requested.simulate_http_status, dispatch.dev_simulate_http_status)\\n    FROM candidate, claim_window, requested\\n   WHERE dispatch.id = candidate.id\\n     AND claim_window.client_id = candidate.client_id\\n  RETURNING dispatch.*\\n), marked_real_items AS (\\n  UPDATE renovation_dev.quicklink_campaign_dispatch_items item\\n     SET metadata = item.metadata || jsonb_build_object('realSendMode', 'real'),\\n         updated_at = now()\\n    FROM claimed, requested\\n   WHERE item.dispatch_id = claimed.id\\n     AND item.status = 'pending'\\n     AND requested.real_send\\n  RETURNING item.id\\n), selected_dispatch AS (\\n  SELECT * FROM claimed\\n  UNION ALL\\n  SELECT dispatch.*\\n    FROM renovation_dev.quicklink_campaign_dispatches dispatch, requested\\n   WHERE dispatch.id = requested.dispatch_id\\n     AND NOT EXISTS (SELECT 1 FROM claimed)\\n  LIMIT 1\\n)\\nSELECT\\n  selected_dispatch.id::text AS job_id,\\n  selected_dispatch.sf_dispatch_id,\\n  (claimed.id IS NOT NULL) AS claimed,\\n  (SELECT allowed FROM send_guard) AS allowed_to_send,\\n  CASE\\n    WHEN claimed.id IS NOT NULL THEN 'claimed'\\n    WHEN NOT (SELECT allowed FROM send_guard) THEN 'outside_business_hours'\\n    WHEN selected_dispatch.id IS NOT NULL AND selected_dispatch.status = 'running' THEN 'client_busy'\\n    WHEN selected_dispatch.id IS NOT NULL AND selected_dispatch.process_after > (SELECT claimed_at FROM claim_clock) THEN 'not_due'\\n    WHEN selected_dispatch.id IS NOT NULL AND EXISTS (\\n      SELECT 1\\n        FROM rate_limited_clients limited\\n       WHERE limited.client_id = selected_dispatch.client_id\\n    ) THEN 'client_rate_limited'\\n    WHEN EXISTS (SELECT 1 FROM candidate) AND NOT EXISTS (SELECT 1 FROM claim_window) THEN 'claim_race_lost'\\n    ELSE 'no_due_dispatch'\\n  END AS outcome,\\n  selected_dispatch.status::text AS dispatch_status,\\n  selected_dispatch.worker_attempt_count AS attempt_count,\\n  selected_dispatch.process_after,\\n  selected_dispatch.next_attempt_at,\\n  selected_dispatch.lease_token::text,\\n  selected_dispatch.lease_expires_at,\\n  coalesce(requested.simulate_http_status, selected_dispatch.dev_simulate_http_status) AS simulate_http_status,\\n  requested.respond_to_webhook,\\n  CASE\\n    WHEN requested.real_send OR EXISTS (SELECT 1 FROM marked_real_items) THEN 'real'\\n    WHEN EXISTS (\\n      SELECT 1\\n        FROM renovation_dev.quicklink_campaign_dispatch_items real_item\\n       WHERE real_item.dispatch_id = selected_dispatch.id\\n         AND real_item.status = 'pending'\\n         AND real_item.metadata->>'realSendMode' = 'real'\\n    ) THEN 'real'\\n    ELSE 'dry_run'\\n  END AS send_mode,\\n  coalesce(10 - claim_window.claim_count, 0) AS rate_remaining,\\n  0::integer AS sent_count,\\n  0::integer AS failed_count,\\n  coalesce((\\n    SELECT count(*)::integer\\n      FROM renovation_dev.quicklink_campaign_dispatch_items item\\n     WHERE item.dispatch_id = selected_dispatch.id\\n       AND item.status = 'pending'\\n  ), 0) AS pending_count\\nFROM requested\\nLEFT JOIN selected_dispatch ON true\\nLEFT JOIN claimed ON claimed.id = selected_dispatch.id\\nLEFT JOIN claim_window ON claim_window.client_id = selected_dispatch.client_id;\\n\";\nfunction env(name, fallback = '') { try { return $env[name] || fallback; } catch (e) { return fallback; } }\n\n// Fail closed: the poller is disabled until real provider delivery is integrated.\nif (String(env('RENOV_DEV_DRY_RUN_SENDS', '')).toLowerCase() !== 'true') return [];\n\nreturn [{\n  json: {\n    ok: true,\n    sql: CLAIM_SQL,\n    query_params: [null, new Date().toISOString(), null, false, false],\n    scheduled_poll: true,\n  },\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -40,
+        180
+      ],
+      "id": "wf02b-prepare-poll",
+      "name": "Prepare Scheduled Poll"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ok",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -40,
+        -140
+      ],
+      "id": "wf02b-if",
+      "name": "IF Sender Valid"
+    },
+    {
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": {
+          "queryReplacement": "={{ $json.query_params }}",
+          "queryBatching": "single"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        240,
+        40
+      ],
+      "id": "wf02b-claim",
+      "name": "Postgres - Claim Dispatch",
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "claimed",
+              "leftValue": "={{ $json.claimed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        40
+      ],
+      "id": "wf02b-if-claimed",
+      "name": "IF Dispatch Claimed"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "real-mode",
+              "leftValue": "={{ $json.send_mode }}",
+              "rightValue": "real",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        720,
+        40
+      ],
+      "id": "wf02b-if-real",
+      "name": "IF Real HSM Mode"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst SETTLE_SQL = \"WITH requested AS (\\n  SELECT\\n    $1::uuid AS dispatch_id,\\n    $2::uuid AS lease_token,\\n    nullif(lower(btrim($3::text)), '') AS simulate_http_status,\\n    coalesce($4::boolean, false) AS respond_to_webhook\\n), simulated_outcome AS (\\n  SELECT\\n    requested.*,\\n    CASE\\n      WHEN simulate_http_status ~ '^[1-5][0-9][0-9]$' THEN simulate_http_status::integer\\n      ELSE NULL\\n    END AS http_status,\\n    simulate_http_status = 'network' AS network_failure\\n  FROM requested\\n), outcome AS (\\n  SELECT\\n    simulated_outcome.*,\\n    simulate_http_status IS NULL\\n      OR coalesce(http_status BETWEEN 200 AND 299, false) AS succeeded,\\n    network_failure\\n      OR http_status = 429\\n      OR coalesce(http_status BETWEEN 500 AND 599, false) AS transient_failure\\n  FROM simulated_outcome\\n), dispatch_scope AS (\\n  SELECT dispatch.*\\n    FROM renovation_dev.quicklink_campaign_dispatches dispatch\\n    JOIN requested ON requested.dispatch_id = dispatch.id\\n   WHERE dispatch.status = 'running'\\n     AND dispatch.lease_token = requested.lease_token\\n     AND dispatch.lease_expires_at > clock_timestamp()\\n   FOR UPDATE OF dispatch\\n), item_decisions AS (\\n  SELECT\\n    item.id,\\n    item.campaign_target_id,\\n    item.template_name,\\n    CASE\\n      WHEN account.id IS NULL OR vehicle.id IS NULL\\n        OR account.deleted_at IS NOT NULL OR vehicle.deleted_at IS NOT NULL\\n        THEN 'UNKNOWN_ACCOUNT'\\n      WHEN account.campaign_paused OR EXISTS (\\n        SELECT 1\\n          FROM renovation_dev.conversations conversation\\n         WHERE conversation.customer_id = account.id\\n           AND conversation.status IN ('handed_off', 'closed', 'renewed', 'not_interested')\\n      ) THEN 'CAMPAIGN_PAUSED'\\n      WHEN account.opportunity_closed OR vehicle.opportunity_closed THEN 'OPPORTUNITY_CLOSED'\\n      ELSE NULL\\n    END AS guard_rejection\\n  FROM renovation_dev.quicklink_campaign_dispatch_items item\\n  JOIN dispatch_scope dispatch ON dispatch.id = item.dispatch_id\\n  LEFT JOIN renovation_dev.campaign_targets target ON target.id = item.campaign_target_id\\n  LEFT JOIN renovation_dev.quicklink_account_assignments account ON account.id = target.customer_id\\n  LEFT JOIN renovation_dev.quicklink_vehicle_assignments vehicle ON vehicle.id = target.vehicle_id\\n  WHERE item.status = 'pending'\\n), counts_before AS (\\n  SELECT\\n    count(*)::integer AS pending_count,\\n    count(*) FILTER (WHERE guard_rejection IS NULL)::integer AS eligible_count,\\n    count(*) FILTER (WHERE guard_rejection IS NOT NULL)::integer AS guarded_count\\n  FROM item_decisions\\n), existing_failures AS (\\n  SELECT count(*)::integer AS failed_count\\n    FROM renovation_dev.quicklink_campaign_dispatch_items item\\n    JOIN dispatch_scope dispatch ON dispatch.id = item.dispatch_id\\n   WHERE item.status = 'failed'\\n), settlement_plan AS (\\n  SELECT\\n    dispatch.*,\\n    outcome.http_status,\\n    outcome.network_failure,\\n    outcome.succeeded,\\n    outcome.transient_failure,\\n    counts_before.pending_count,\\n    counts_before.eligible_count,\\n    counts_before.guarded_count,\\n    existing_failures.failed_count AS existing_failed_count,\\n    outcome.transient_failure\\n      AND dispatch.worker_attempt_count < 4\\n      AND counts_before.eligible_count > 0 AS should_retry,\\n    CASE dispatch.worker_attempt_count\\n      WHEN 1 THEN 30\\n      WHEN 2 THEN 120\\n      WHEN 3 THEN 300\\n      ELSE NULL\\n    END AS retry_delay_seconds\\n  FROM dispatch_scope dispatch, outcome, counts_before, existing_failures\\n), guarded_items AS (\\n  UPDATE renovation_dev.quicklink_campaign_dispatch_items item\\n     SET status = 'failed'::renovation_dev.delivery_status,\\n         reject_reason = decision.guard_rejection,\\n         last_error = lower(decision.guard_rejection),\\n         attempt_count = least((SELECT worker_attempt_count FROM settlement_plan), 3)\\n    FROM item_decisions decision\\n   WHERE item.id = decision.id\\n     AND decision.guard_rejection IS NOT NULL\\n  RETURNING item.id\\n), sent_items AS (\\n  UPDATE renovation_dev.quicklink_campaign_dispatch_items item\\n     SET status = 'sent'::renovation_dev.delivery_status,\\n         attempt_count = least(plan.worker_attempt_count, 3),\\n         sent_at = now(),\\n         provider_message_id = coalesce(item.provider_message_id, 'dryrun-' || item.id::text),\\n         last_error = NULL,\\n         metadata = item.metadata || jsonb_strip_nulls(jsonb_build_object(\\n           'dryRun', true,\\n           'sentBy', 'REN-DEV-WF-02B',\\n           'simulateHttpStatus', plan.http_status\\n         ))\\n    FROM item_decisions decision, settlement_plan plan\\n   WHERE item.id = decision.id\\n     AND decision.guard_rejection IS NULL\\n     AND plan.succeeded\\n  RETURNING item.*\\n), provider_failed_items AS (\\n  UPDATE renovation_dev.quicklink_campaign_dispatch_items item\\n     SET status = 'failed'::renovation_dev.delivery_status,\\n         attempt_count = least(plan.worker_attempt_count, 3),\\n         reject_reason = 'SEND_FAILED',\\n         last_error = CASE\\n           WHEN plan.network_failure THEN 'simulated_network_failure'\\n           ELSE 'simulated_http_' || plan.http_status::text\\n         END,\\n         metadata = item.metadata || jsonb_strip_nulls(jsonb_build_object(\\n           'dryRun', true,\\n           'sentBy', 'REN-DEV-WF-02B',\\n           'simulateHttpStatus', plan.http_status,\\n           'simulateNetworkFailure', plan.network_failure\\n         ))\\n    FROM item_decisions decision, settlement_plan plan\\n   WHERE item.id = decision.id\\n     AND decision.guard_rejection IS NULL\\n     AND NOT plan.succeeded\\n     AND NOT plan.should_retry\\n  RETURNING item.id\\n), updated_targets AS (\\n  UPDATE renovation_dev.campaign_targets target\\n     SET send_count = target.send_count + 1,\\n         last_template_sent = item.template_name,\\n         last_sent_at = item.sent_at\\n    FROM sent_items item\\n   WHERE target.id = item.campaign_target_id\\n  RETURNING target.id\\n), finalized AS (\\n  UPDATE renovation_dev.quicklink_campaign_dispatches dispatch\\n     SET status = CASE\\n           WHEN plan.should_retry THEN 'queued'::renovation_dev.dispatch_status\\n           WHEN NOT plan.succeeded AND plan.eligible_count > 0 THEN 'failed'::renovation_dev.dispatch_status\\n           WHEN dispatch.rejected_count > 0\\n             OR plan.guarded_count > 0\\n             OR plan.existing_failed_count > 0\\n             THEN 'partial'::renovation_dev.dispatch_status\\n           ELSE 'completed'::renovation_dev.dispatch_status\\n         END,\\n         process_after = CASE\\n           WHEN plan.should_retry THEN now() + make_interval(secs => plan.retry_delay_seconds)\\n           ELSE dispatch.process_after\\n         END,\\n         next_attempt_at = CASE\\n           WHEN plan.should_retry THEN now() + make_interval(secs => plan.retry_delay_seconds)\\n           ELSE NULL\\n         END,\\n         completed_at = CASE WHEN plan.should_retry THEN NULL ELSE now() END,\\n         lease_token = NULL,\\n         leased_at = NULL,\\n         lease_expires_at = NULL,\\n         last_http_status = plan.http_status,\\n         last_error = CASE\\n           WHEN plan.should_retry AND plan.network_failure THEN 'simulated_network_failure'\\n           WHEN plan.should_retry THEN 'simulated_http_' || plan.http_status::text\\n           WHEN NOT plan.succeeded AND plan.network_failure THEN 'simulated_network_failure_retries_exhausted'\\n           WHEN NOT plan.succeeded AND plan.transient_failure THEN 'simulated_http_' || plan.http_status::text || '_retries_exhausted'\\n           WHEN NOT plan.succeeded THEN 'simulated_http_' || plan.http_status::text || '_terminal'\\n           ELSE NULL\\n         END\\n    FROM settlement_plan plan\\n   WHERE dispatch.id = plan.id\\n  RETURNING dispatch.*, plan.succeeded, plan.transient_failure, plan.should_retry,\\n            plan.pending_count, plan.eligible_count, plan.guarded_count,\\n            plan.existing_failed_count, plan.network_failure\\n), selected_dispatch AS (\\n  SELECT dispatch.*\\n    FROM renovation_dev.quicklink_campaign_dispatches dispatch, requested\\n   WHERE dispatch.id = requested.dispatch_id\\n)\\nSELECT\\n  selected_dispatch.id::text AS job_id,\\n  selected_dispatch.sf_dispatch_id,\\n  (finalized.id IS NOT NULL) AS claimed,\\n  (finalized.id IS NOT NULL) AS settled,\\n  true AS allowed_to_send,\\n  CASE\\n    WHEN finalized.id IS NULL THEN 'lease_lost'\\n    WHEN finalized.should_retry THEN 'retry_scheduled'\\n    WHEN finalized.succeeded THEN 'success'\\n    WHEN finalized.transient_failure THEN 'retries_exhausted'\\n    ELSE 'terminal_failure'\\n  END AS outcome,\\n  coalesce(finalized.status, selected_dispatch.status)::text AS dispatch_status,\\n  coalesce(finalized.worker_attempt_count, selected_dispatch.worker_attempt_count) AS attempt_count,\\n  coalesce(finalized.process_after, selected_dispatch.process_after) AS process_after,\\n  finalized.next_attempt_at,\\n  finalized.last_http_status,\\n  requested.simulate_http_status,\\n  requested.respond_to_webhook,\\n  'dry_run'::text AS send_mode,\\n  coalesce((SELECT count(*)::integer FROM sent_items), 0) AS sent_count,\\n  coalesce(\\n    CASE WHEN finalized.should_retry THEN finalized.eligible_count ELSE 0 END,\\n    (SELECT count(*)::integer FROM renovation_dev.quicklink_campaign_dispatch_items item\\n      WHERE item.dispatch_id = selected_dispatch.id AND item.status = 'pending'),\\n    0\\n  ) AS pending_count,\\n  coalesce(finalized.existing_failed_count, 0)\\n    + coalesce((SELECT count(*)::integer FROM guarded_items), 0)\\n    + coalesce((SELECT count(*)::integer FROM provider_failed_items), 0) AS failed_count\\nFROM requested\\nLEFT JOIN selected_dispatch ON true\\nLEFT JOIN finalized ON finalized.id = selected_dispatch.id;\\n\";\nconst claim = $input.first().json ?? {};\n\nif (!claim.job_id || !claim.lease_token) {\n  throw new Error('A claimed dispatch must include job_id and lease_token.');\n}\n\nreturn [{\n  json: {\n    sql: SETTLE_SQL,\n    query_params: [claim.job_id, claim.lease_token, claim.simulate_http_status || null, claim.respond_to_webhook === true || claim.respond_to_webhook === 't' || claim.respond_to_webhook === 'true'],\n  },\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        -220
+      ],
+      "id": "wf02b-prepare-settle",
+      "name": "Prepare Dry Run Settlement"
+    },
+    {
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": {
+          "queryReplacement": "={{ $json.query_params }}",
+          "queryBatching": "single"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1200,
+        -220
+      ],
+      "id": "wf02b-settle",
+      "name": "Postgres - Settle Dry Run",
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst PREPARE_REAL_SQL = \"WITH requested AS (\\n  SELECT\\n    $1::uuid AS dispatch_id,\\n    $2::uuid AS lease_token,\\n    coalesce($3::boolean, false) AS respond_to_webhook,\\n    coalesce($4::timestamptz, clock_timestamp()) AS guard_at\\n), dispatch_scope AS MATERIALIZED (\\n  SELECT dispatch.*\\n    FROM renovation_dev.quicklink_campaign_dispatches dispatch\\n    JOIN requested ON requested.dispatch_id = dispatch.id\\n   WHERE dispatch.status = 'running'\\n     AND dispatch.lease_token = requested.lease_token\\n     AND dispatch.lease_expires_at > clock_timestamp()\\n   FOR UPDATE OF dispatch\\n), item_counts AS (\\n  SELECT\\n    count(item.id)::integer AS total_count,\\n    count(item.id) FILTER (WHERE item.status = 'pending')::integer AS pending_count\\n    FROM dispatch_scope dispatch\\n    LEFT JOIN renovation_dev.quicklink_campaign_dispatch_items item\\n      ON item.dispatch_id = dispatch.id\\n), candidate AS (\\n  SELECT\\n    item.id AS item_id,\\n    item.campaign_target_id,\\n    item.template_name,\\n    item.metadata,\\n    account.id AS customer_id,\\n    account.salesforce_contact_id AS sf_account_id,\\n    account.phone AS current_phone,\\n    account.campaign_paused,\\n    account.opportunity_closed AS account_opportunity_closed,\\n    account.deleted_at AS account_deleted_at,\\n    vehicle.id AS vehicle_id,\\n    vehicle.service_name,\\n    vehicle.salesforce_opportunity_id,\\n    vehicle.opportunity_closed AS vehicle_opportunity_closed,\\n    vehicle.deleted_at AS vehicle_deleted_at,\\n    EXISTS (\\n      SELECT 1\\n        FROM renovation_dev.conversations conversation\\n       WHERE conversation.customer_id = account.id\\n         AND conversation.status IN ('handed_off', 'closed', 'renewed', 'not_interested')\\n    ) AS conversation_blocked\\n  FROM dispatch_scope dispatch\\n  JOIN renovation_dev.quicklink_campaign_dispatch_items item\\n    ON item.dispatch_id = dispatch.id\\n   AND item.status = 'pending'\\n  LEFT JOIN renovation_dev.campaign_targets target ON target.id = item.campaign_target_id\\n  LEFT JOIN renovation_dev.quicklink_account_assignments account ON account.id = target.customer_id\\n  LEFT JOIN renovation_dev.quicklink_vehicle_assignments vehicle\\n    ON vehicle.id = target.vehicle_id\\n   AND vehicle.customer_id = account.id\\n  ORDER BY item.id\\n  LIMIT 1\\n), decision AS (\\n  SELECT\\n    requested.dispatch_id,\\n    requested.lease_token,\\n    requested.respond_to_webhook,\\n    dispatch.id AS scoped_dispatch_id,\\n    dispatch.sf_dispatch_id,\\n    dispatch.worker_attempt_count,\\n    coalesce(item_counts.total_count, 0) AS total_count,\\n    coalesce(item_counts.pending_count, 0) AS pending_count,\\n    candidate.*,\\n    CASE\\n      WHEN dispatch.id IS NULL THEN 'LEASE_LOST'\\n      WHEN coalesce(item_counts.total_count, 0) <> 1 THEN 'REAL_BATCH_LIMIT'\\n      WHEN coalesce(item_counts.pending_count, 0) <> 1 THEN 'NO_PENDING_ITEM'\\n      WHEN NOT renovation_dev.is_automatic_send_allowed(requested.guard_at) THEN 'OUTSIDE_BUSINESS_HOURS'\\n      WHEN candidate.customer_id IS NULL OR candidate.vehicle_id IS NULL\\n        OR candidate.account_deleted_at IS NOT NULL OR candidate.vehicle_deleted_at IS NOT NULL\\n        THEN 'UNKNOWN_ACCOUNT'\\n      WHEN candidate.campaign_paused OR candidate.conversation_blocked THEN 'CAMPAIGN_PAUSED'\\n      WHEN candidate.account_opportunity_closed OR candidate.vehicle_opportunity_closed THEN 'OPPORTUNITY_CLOSED'\\n      -- Catálogo del documento de escenarios §6; mismo conjunto que\\n      -- `begin_real_hsm.sql`. Ver la nota allí sobre por qué este guard importa\\n      -- mientras ninguna de las tres esté APPROVED en Meta.\\n      WHEN candidate.template_name NOT IN (\\n             'renovacion_vencimiento_2026_v1',\\n             'renovacion_vencimiento_2026_v2',\\n             'renovacion_vencimiento_2026_v3'\\n           ) THEN 'INVALID_TEMPLATE'\\n      WHEN candidate.current_phone !~ '^\\\\+[1-9][0-9]{7,14}$'\\n        OR candidate.metadata->>'phone' IS DISTINCT FROM candidate.current_phone\\n        THEN 'INVALID_PHONE'\\n      WHEN coalesce(candidate.salesforce_opportunity_id, '') !~ '^[A-Za-z0-9]{15,18}$'\\n        THEN 'OPPORTUNITY_REVALIDATION_UNAVAILABLE'\\n      WHEN candidate.metadata->>'realSendState' = 'requesting'\\n        AND candidate.metadata->>'realSendMessageId' IS NULL\\n        THEN 'PROVIDER_RESULT_UNKNOWN'\\n      WHEN btrim(coalesce(candidate.metadata->'mergeFields'->>'1', '')) = ''\\n        OR btrim(coalesce(candidate.metadata->'mergeFields'->>'3', '')) = ''\\n        OR btrim(coalesce(candidate.service_name, '')) = ''\\n        THEN 'MISSING_TEMPLATE_VARIABLE'\\n      ELSE NULL\\n    END AS guard_outcome\\n  FROM requested\\n  LEFT JOIN dispatch_scope dispatch ON true\\n  LEFT JOIN item_counts ON true\\n  LEFT JOIN candidate ON true\\n), extended_lease AS (\\n  UPDATE renovation_dev.quicklink_campaign_dispatches dispatch\\n     SET lease_expires_at = clock_timestamp() + interval '120 seconds'\\n    FROM decision\\n   WHERE dispatch.id = decision.scoped_dispatch_id\\n     AND decision.guard_outcome IS NULL\\n  RETURNING dispatch.id\\n)\\nSELECT\\n  decision.dispatch_id::text AS job_id,\\n  decision.sf_dispatch_id,\\n  decision.lease_token::text,\\n  decision.item_id::text,\\n  decision.respond_to_webhook,\\n  decision.worker_attempt_count AS attempt_count,\\n  decision.total_count,\\n  decision.pending_count,\\n  decision.guard_outcome AS real_outcome,\\n  decision.guard_outcome IS NULL AND EXISTS (SELECT 1 FROM extended_lease) AS should_revalidate_salesforce,\\n  decision.salesforce_opportunity_id,\\n  decision.sf_account_id,\\n  decision.template_name,\\n  decision.metadata->'mergeFields' AS merge_fields,\\n  decision.service_name,\\n  decision.current_phone AS phone\\nFROM decision;\\n\";\nconst claim = $input.first().json ?? {};\nif (!claim.job_id || !claim.lease_token || claim.send_mode !== 'real') {\n  throw new Error('A real HSM claim must include job_id, lease_token and send_mode=real.');\n}\nreturn [{ json: {\n  sql: PREPARE_REAL_SQL,\n  query_params: [\n    claim.job_id,\n    claim.lease_token,\n    claim.respond_to_webhook === true || claim.respond_to_webhook === 't' || claim.respond_to_webhook === 'true',\n    new Date().toISOString(),\n  ],\n} }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        80
+      ],
+      "id": "wf02b-prepare-real",
+      "name": "Prepare Real HSM Preflight"
+    },
+    {
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": {
+          "queryReplacement": "={{ $json.query_params }}",
+          "queryBatching": "single"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1200,
+        80
+      ],
+      "id": "wf02b-pg-real-preflight",
+      "name": "Postgres - Prepare Real HSM",
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "sf-needed",
+              "leftValue": "={{ $json.should_revalidate_salesforce }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        80
+      ],
+      "id": "wf02b-if-sf-needed",
+      "name": "IF Salesforce Revalidation Needed"
+    },
+    {
+      "parameters": {
+        "jsCode": "function parseObject(value) {\n  if (value && typeof value === 'object' && !Array.isArray(value)) return value;\n  if (typeof value === 'string' && value.trim()) {\n    try {\n      const parsed = JSON.parse(value);\n      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};\n    } catch (error) {}\n  }\n  return {};\n}\n\nfunction sameSalesforceId(left, right) {\n  const a = String(left || '').trim();\n  const b = String(right || '').trim();\n  return /^[A-Za-z0-9]{15,18}$/.test(a)\n    && /^[A-Za-z0-9]{15,18}$/.test(b)\n    && a.slice(0, 15) === b.slice(0, 15);\n}\n\nfunction classifySalesforceOpportunityResponse(opportunityId, accountId, response) {\n  const source = response && typeof response === 'object' ? response : {};\n  const status = Number(source.statusCode ?? source.status ?? 0);\n  const body = parseObject(source.body === undefined ? source : source.body);\n  if (status === 0 || status === 429 || status >= 500) {\n    return { real_outcome: 'SF_TRANSIENT', real_http_status: status, real_error: `SALESFORCE_HTTP_${status || 0}`, should_begin_real_send: false };\n  }\n  if (status === 404) {\n    return { real_outcome: 'OPPORTUNITY_NOT_FOUND', real_http_status: status, real_error: 'SALESFORCE_OPPORTUNITY_NOT_FOUND', should_begin_real_send: false };\n  }\n  if (status < 200 || status >= 300) {\n    return { real_outcome: 'SF_TERMINAL', real_http_status: status, real_error: `SALESFORCE_HTTP_${status || 0}`, should_begin_real_send: false };\n  }\n  if (!sameSalesforceId(opportunityId, body.Id)\n      || !sameSalesforceId(accountId, body.AccountId)\n      || typeof body.IsClosed !== 'boolean'\n      || !String(body.StageName || '').trim()) {\n    return { real_outcome: 'SF_RESPONSE_INVALID', real_http_status: status, real_error: 'SALESFORCE_OPPORTUNITY_RESPONSE_INVALID', should_begin_real_send: false };\n  }\n  if (body.IsClosed) {\n    return { real_outcome: 'OPPORTUNITY_CLOSED', real_http_status: status, real_error: null, should_begin_real_send: false, sf_stage_name: String(body.StageName) };\n  }\n  return { real_outcome: 'SF_OPEN', real_http_status: status, real_error: null, should_begin_real_send: true, sf_stage_name: String(body.StageName) };\n}\n\nconst item = $json;\nfunction env(name, fallback = '') { try { return String($env[name] || fallback); } catch (error) { return fallback; } }\nfunction formBody(values) { return Object.entries(values).map(([key, value]) => encodeURIComponent(key) + '=' + encodeURIComponent(String(value))).join('&'); }\nasync function request(options) {\n  try {\n    const response = await this.helpers.httpRequest({ method: options.method, url: options.url, headers: options.headers || {}, body: options.body, json: true, resolveWithFullResponse: true, simple: false, timeout: 10000 });\n    const status = Number(response.statusCode ?? response.status ?? 200);\n    return { statusCode: status, body: response.body === undefined ? response : response.body };\n  } catch (error) {\n    const statusFromMessage = String(error?.message || '').match(/status code (\\d{3})/i)?.[1];\n    const status = Number(error?.statusCode || error?.response?.statusCode || error?.response?.status || statusFromMessage || 0);\n    return { statusCode: status, body: error?.response?.body || {}, requestError: 'NETWORK_ERROR' };\n  }\n}\nfunction result(extra) { return [{ json: { ...item, ...extra } }]; }\nconst allowedPhones = env('RENOV_DEV_REAL_HSM_ALLOWED_PHONES').split(',').map((value) => value.trim()).filter(Boolean);\nif (!allowedPhones.length || !allowedPhones.includes(String(item.phone || ''))) {\n  return result({ real_outcome: 'REAL_PHONE_NOT_ALLOWLISTED', real_http_status: null, real_error: 'REAL_PHONE_NOT_ALLOWLISTED', should_begin_real_send: false });\n}\nconst opportunityId = String(item.salesforce_opportunity_id || '').trim();\nconst accountId = String(item.sf_account_id || '').trim();\nif (!/^[A-Za-z0-9]{15,18}$/.test(opportunityId) || !/^[A-Za-z0-9]{15,18}$/.test(accountId)) {\n  return result({ real_outcome: 'OPPORTUNITY_REVALIDATION_UNAVAILABLE', real_http_status: null, real_error: 'OPPORTUNITY_REVALIDATION_UNAVAILABLE', should_begin_real_send: false });\n}\nconst baseUrl = env('SALESFORCE_DEV_BASE_URL', 'https://quicklink--uat.sandbox.my.salesforce.com').replace(/\\/+$/, '');\nconst tokenUrl = env('SALESFORCE_DEV_TOKEN_URL', baseUrl + '/services/oauth2/token');\nconst clientId = env('SALESFORCE_DEV_CLIENT_ID');\nconst clientSecret = env('SALESFORCE_DEV_CLIENT_SECRET');\nif (!baseUrl.startsWith('https://') || !tokenUrl.startsWith('https://') || !clientId || !clientSecret) {\n  return result({ real_outcome: 'SF_CONFIG_INCOMPLETE', real_http_status: null, real_error: 'SALESFORCE_CONFIG_INCOMPLETE', should_begin_real_send: false });\n}\nconst tokenResponse = await request.call(this, { method: 'POST', url: tokenUrl, headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: formBody({ grant_type: 'client_credentials', client_id: clientId, client_secret: clientSecret }) });\nconst tokenBody = parseObject(tokenResponse.body);\nif (!(tokenResponse.statusCode >= 200 && tokenResponse.statusCode < 300) || !String(tokenBody.access_token || '')) {\n  const transient = tokenResponse.statusCode === 0 || tokenResponse.statusCode === 429 || tokenResponse.statusCode >= 500;\n  return result({ real_outcome: transient ? 'SF_TRANSIENT' : 'SF_TERMINAL', real_http_status: tokenResponse.statusCode, real_error: tokenResponse.requestError || ('SALESFORCE_AUTH_FAILED_' + tokenResponse.statusCode), should_begin_real_send: false });\n}\nconst instanceUrl = String(tokenBody.instance_url || baseUrl).replace(/\\/+$/, '');\nif (!instanceUrl.startsWith('https://')) {\n  return result({ real_outcome: 'SF_RESPONSE_INVALID', real_http_status: tokenResponse.statusCode, real_error: 'SALESFORCE_INSTANCE_URL_INVALID', should_begin_real_send: false });\n}\nconst apiVersion = /^v\\d+\\.\\d+$/.test(env('SALESFORCE_API_VERSION')) ? env('SALESFORCE_API_VERSION') : 'v64.0';\nconst opportunityUrl = instanceUrl + '/services/data/' + apiVersion + '/sobjects/Opportunity/' + encodeURIComponent(opportunityId) + '?fields=Id,AccountId,IsClosed,StageName';\nconst opportunityResponse = await request.call(this, { method: 'GET', url: opportunityUrl, headers: { authorization: 'Bearer ' + tokenBody.access_token, accept: 'application/json' } });\nreturn result(classifySalesforceOpportunityResponse(opportunityId, accountId, opportunityResponse));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        -20
+      ],
+      "id": "wf02b-salesforce-revalidate",
+      "name": "Code - Revalidate Salesforce Opportunity"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "sf-open",
+              "leftValue": "={{ $json.should_begin_real_send }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1920,
+        -20
+      ],
+      "id": "wf02b-if-sf-open",
+      "name": "IF Salesforce Opportunity Open"
+    },
+    {
+      "parameters": {
+        "jsCode": "const TEMPLATE_VARIABLES = Object.freeze({\"renovacion_vencimiento_2026_v1\":[\"1\",\"2\",\"3\"],\"renovacion_vencimiento_2026_v2\":[\"1\",\"2\",\"3\"],\"renovacion_vencimiento_2026_v3\":[\"1\",\"2\",\"3\"]});\n\nfunction parseObject(value) {\n  if (value && typeof value === 'object' && !Array.isArray(value)) return value;\n  if (typeof value === 'string' && value.trim()) {\n    try {\n      const parsed = JSON.parse(value);\n      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};\n    } catch (error) {}\n  }\n  return {};\n}\n\nfunction buildMetaHsmRequest(item, phoneNumberId, apiVersion = 'v23.0') {\n  const templateName = String(item.template_name || '');\n  const keys = TEMPLATE_VARIABLES[templateName];\n  if (!keys) throw new Error('INVALID_TEMPLATE');\n  const mergeFields = parseObject(item.merge_fields);\n  const values = {\n    ...mergeFields,\n    2: String(item.service_name || ''),\n  };\n  if (keys.some((key) => !String(values[key] || '').trim())) throw new Error('MISSING_TEMPLATE_VARIABLE');\n  const phone = String(item.phone || '');\n  if (!/^\\+[1-9][0-9]{7,14}$/.test(phone)) throw new Error('INVALID_PHONE');\n  const numberId = String(phoneNumberId || '').trim();\n  if (!/^\\d+$/.test(numberId)) throw new Error('META_PHONE_NUMBER_ID_REQUIRED');\n  const version = /^v\\d+\\.\\d+$/.test(String(apiVersion || '')) ? String(apiVersion) : 'v23.0';\n  return {\n    meta_send_url: `https://graph.facebook.com/${version}/${numberId}/messages`,\n    meta_send_body: {\n      messaging_product: 'whatsapp',\n      recipient_type: 'individual',\n      to: phone.slice(1),\n      type: 'template',\n      template: {\n        name: templateName,\n        language: { code: 'es' },\n        components: [{\n          type: 'body',\n          parameters: keys.map((key) => ({ type: 'text', text: String(values[key]).trim() })),\n        }],\n      },\n    },\n  };\n}\n\nconst item = $json;\nfunction env(name, fallback = '') { try { return String($env[name] || fallback); } catch (error) { return fallback; } }\ntry {\n  const request = buildMetaHsmRequest(item, env('RENOV_META_PHONE_NUMBER_ID'), env('META_API_VERSION', 'v23.0'));\n  return [{ json: { ...item, ...request, meta_request_ready: true } }];\n} catch (error) {\n  return [{ json: { ...item, meta_request_ready: false, real_outcome: String(error?.message || 'META_REQUEST_INVALID'), real_http_status: null, real_error: String(error?.message || 'META_REQUEST_INVALID').slice(0, 500) } }];\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        -100
+      ],
+      "id": "wf02b-build-meta",
+      "name": "Code - Build Meta HSM"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "meta-ready",
+              "leftValue": "={{ $json.meta_request_ready }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2400,
+        -100
+      ],
+      "id": "wf02b-if-meta-ready",
+      "name": "IF Meta Request Ready"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst BEGIN_REAL_SQL = \"WITH requested AS (\\n  SELECT\\n    $1::uuid AS dispatch_id,\\n    $2::uuid AS lease_token,\\n    $3::uuid AS item_id,\\n    coalesce($4::boolean, false) AS respond_to_webhook,\\n    nullif(btrim($5::text), '') AS expected_opportunity_id,\\n    coalesce($6::timestamptz, clock_timestamp()) AS guard_at\\n), item_scope AS MATERIALIZED (\\n  SELECT\\n    dispatch.id AS scoped_dispatch_id,\\n    dispatch.sf_dispatch_id,\\n    dispatch.worker_attempt_count,\\n    item.id AS scoped_item_id,\\n    item.template_name,\\n    item.metadata,\\n    account.id AS customer_id,\\n    account.phone AS current_phone,\\n    account.campaign_paused,\\n    account.opportunity_closed AS account_opportunity_closed,\\n    account.deleted_at AS account_deleted_at,\\n    vehicle.id AS vehicle_id,\\n    vehicle.service_name,\\n    vehicle.salesforce_opportunity_id,\\n    vehicle.opportunity_closed AS vehicle_opportunity_closed,\\n    vehicle.deleted_at AS vehicle_deleted_at,\\n    EXISTS (\\n      SELECT 1\\n        FROM renovation_dev.conversations conversation\\n       WHERE conversation.customer_id = account.id\\n         AND conversation.status IN ('handed_off', 'closed', 'renewed', 'not_interested')\\n    ) AS conversation_blocked\\n  FROM requested\\n  JOIN renovation_dev.quicklink_campaign_dispatches dispatch\\n    ON dispatch.id = requested.dispatch_id\\n   AND dispatch.status = 'running'\\n   AND dispatch.lease_token = requested.lease_token\\n   AND dispatch.lease_expires_at > clock_timestamp()\\n  JOIN renovation_dev.quicklink_campaign_dispatch_items item\\n    ON item.id = requested.item_id\\n   AND item.dispatch_id = dispatch.id\\n   AND item.status = 'pending'\\n  LEFT JOIN renovation_dev.campaign_targets target ON target.id = item.campaign_target_id\\n  LEFT JOIN renovation_dev.quicklink_account_assignments account ON account.id = target.customer_id\\n  LEFT JOIN renovation_dev.quicklink_vehicle_assignments vehicle\\n    ON vehicle.id = target.vehicle_id\\n   AND vehicle.customer_id = account.id\\n  FOR UPDATE OF dispatch, item\\n), decision AS (\\n  SELECT\\n    requested.dispatch_id,\\n    requested.lease_token,\\n    requested.item_id,\\n    requested.respond_to_webhook,\\n    requested.expected_opportunity_id,\\n    scope.scoped_dispatch_id,\\n    scope.sf_dispatch_id,\\n    scope.worker_attempt_count,\\n    scope.scoped_item_id,\\n    scope.template_name,\\n    scope.metadata,\\n    scope.service_name,\\n    scope.current_phone,\\n    CASE\\n      WHEN scope.scoped_dispatch_id IS NULL THEN 'LEASE_LOST'\\n      WHEN NOT renovation_dev.is_automatic_send_allowed(requested.guard_at) THEN 'OUTSIDE_BUSINESS_HOURS'\\n      WHEN scope.customer_id IS NULL OR scope.vehicle_id IS NULL\\n        OR scope.account_deleted_at IS NOT NULL OR scope.vehicle_deleted_at IS NOT NULL\\n        THEN 'UNKNOWN_ACCOUNT'\\n      WHEN scope.campaign_paused OR scope.conversation_blocked THEN 'CAMPAIGN_PAUSED'\\n      WHEN scope.account_opportunity_closed OR scope.vehicle_opportunity_closed THEN 'OPPORTUNITY_CLOSED'\\n      WHEN scope.salesforce_opportunity_id IS DISTINCT FROM requested.expected_opportunity_id\\n        THEN 'OPPORTUNITY_CHANGED'\\n      -- Catálogo del documento de escenarios §6. La ruta real quedó migrada a\\n      -- estas plantillas el 2026-08-14; las tres son de vencimiento, que es la\\n      -- única familia que el sender real envía hoy. Ninguna está APPROVED\\n      -- todavía en Meta, así que este guard sigue siendo el que impide enviar\\n      -- una plantilla que Meta rechazaría.\\n      WHEN scope.template_name NOT IN (\\n             'renovacion_vencimiento_2026_v1',\\n             'renovacion_vencimiento_2026_v2',\\n             'renovacion_vencimiento_2026_v3'\\n           ) THEN 'INVALID_TEMPLATE'\\n      WHEN scope.current_phone !~ '^\\\\+[1-9][0-9]{7,14}$'\\n        OR scope.metadata->>'phone' IS DISTINCT FROM scope.current_phone\\n        THEN 'INVALID_PHONE'\\n      WHEN scope.metadata->>'realSendState' = 'requesting' THEN 'PROVIDER_RESULT_UNKNOWN'\\n      WHEN btrim(coalesce(scope.metadata->'mergeFields'->>'1', '')) = ''\\n        OR btrim(coalesce(scope.metadata->'mergeFields'->>'3', '')) = ''\\n        OR btrim(coalesce(scope.service_name, '')) = ''\\n        THEN 'MISSING_TEMPLATE_VARIABLE'\\n      ELSE NULL\\n    END AS guard_outcome\\n  FROM requested\\n  LEFT JOIN item_scope scope ON true\\n), marked AS (\\n  UPDATE renovation_dev.quicklink_campaign_dispatch_items item\\n     SET attempt_count = least(decision.worker_attempt_count, 3),\\n         metadata = item.metadata || jsonb_build_object(\\n           'realSendMode', 'real',\\n           'realSendState', 'requesting',\\n           'realSendStartedAt', to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD\\\"T\\\"HH24:MI:SS.MS\\\"Z\\\"')\\n         ),\\n         updated_at = now()\\n    FROM decision\\n   WHERE item.id = decision.scoped_item_id\\n     AND decision.guard_outcome IS NULL\\n  RETURNING item.id\\n), extended_lease AS (\\n  UPDATE renovation_dev.quicklink_campaign_dispatches dispatch\\n     SET lease_expires_at = clock_timestamp() + interval '120 seconds'\\n    FROM decision\\n   WHERE dispatch.id = decision.scoped_dispatch_id\\n     AND decision.guard_outcome IS NULL\\n     AND EXISTS (SELECT 1 FROM marked)\\n  RETURNING dispatch.id\\n)\\nSELECT\\n  decision.dispatch_id::text AS job_id,\\n  decision.sf_dispatch_id,\\n  decision.lease_token::text,\\n  decision.item_id::text,\\n  decision.respond_to_webhook,\\n  decision.worker_attempt_count AS attempt_count,\\n  decision.guard_outcome AS real_outcome,\\n  decision.guard_outcome IS NULL\\n    AND EXISTS (SELECT 1 FROM marked)\\n    AND EXISTS (SELECT 1 FROM extended_lease) AS should_call_meta,\\n  decision.expected_opportunity_id AS salesforce_opportunity_id,\\n  decision.template_name,\\n  decision.metadata->'mergeFields' AS merge_fields,\\n  decision.service_name,\\n  decision.current_phone AS phone,\\n  'real'::text AS send_mode\\nFROM decision;\\n\";\nconst item = $input.first().json ?? {};\nif (!item.job_id || !item.lease_token || !item.item_id || item.real_outcome !== 'SF_OPEN') {\n  throw new Error('Salesforce must confirm one open Opportunity before the final local guard.');\n}\nreturn [{ json: {\n  sql: BEGIN_REAL_SQL,\n  query_params: [\n    item.job_id,\n    item.lease_token,\n    item.item_id,\n    item.respond_to_webhook === true || item.respond_to_webhook === 't' || item.respond_to_webhook === 'true',\n    item.salesforce_opportunity_id,\n    new Date().toISOString(),\n  ],\n} }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        -180
+      ],
+      "id": "wf02b-prepare-begin-real",
+      "name": "Prepare Final Local Guard"
+    },
+    {
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": {
+          "queryReplacement": "={{ $json.query_params }}",
+          "queryBatching": "single"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2880,
+        -180
+      ],
+      "id": "wf02b-pg-begin-real",
+      "name": "Postgres - Begin Real HSM",
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "local-guard",
+              "leftValue": "={{ $json.should_call_meta }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3120,
+        -180
+      ],
+      "id": "wf02b-if-local-guard",
+      "name": "IF Final Local Guard Passed"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Code - Build Meta HSM').first().json.meta_send_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Code - Build Meta HSM').first().json.meta_send_body) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3360,
+        -260
+      ],
+      "id": "wf02b-meta-send",
+      "name": "HTTP - Send Meta HSM",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "renovMetaDev20260808_quicklink",
+          "name": "Meta Graph DEV - WABA token_QUICKLINK"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "function classifyMetaResponse(response) {\n  const source = response && typeof response === 'object' ? response : {};\n  const body = source.body && typeof source.body === 'object' ? source.body : source;\n  const status = Number(source.statusCode || source.status || (body.messages?.[0]?.id ? 200 : 0));\n  const messageId = String(body.messages?.[0]?.id || '');\n  const errorCode = body.error?.code ?? null;\n  const symbolicError = errorCode === null ? null : `META_ERROR_${String(errorCode).slice(0, 40)}`;\n  if (status >= 200 && status < 300 && /^wamid\\./.test(messageId)) {\n    return { real_outcome: 'META_ACCEPTED', real_http_status: status, provider_message_id: messageId, real_error: null };\n  }\n  if (status >= 200 && status < 300) {\n    return { real_outcome: 'META_UNCERTAIN', real_http_status: status, provider_message_id: null, real_error: 'META_2XX_WITHOUT_WAMID' };\n  }\n  if (status === 0) {\n    return { real_outcome: 'META_UNCERTAIN', real_http_status: status, provider_message_id: null, real_error: 'META_PROVIDER_RESULT_UNKNOWN', meta_error_code: errorCode };\n  }\n  if (status === 429) {\n    return { real_outcome: 'META_TRANSIENT', real_http_status: status, provider_message_id: null, real_error: symbolicError || 'META_HTTP_429', meta_error_code: errorCode };\n  }\n  if (status >= 500) {\n    return { real_outcome: 'META_UNCERTAIN', real_http_status: status, provider_message_id: null, real_error: symbolicError || `META_HTTP_${status}`, meta_error_code: errorCode };\n  }\n  return { real_outcome: 'META_TERMINAL', real_http_status: status, provider_message_id: null, real_error: symbolicError || `META_HTTP_${status || 0}`, meta_error_code: errorCode };\n}\n\nconst context = $('Code - Build Meta HSM').first().json;\nconst begin = $('Postgres - Begin Real HSM').first().json;\nreturn [{ json: { ...context, ...begin, ...classifyMetaResponse($json) } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        -260
+      ],
+      "id": "wf02b-meta-result",
+      "name": "Code - Classify Meta HSM Result"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst SETTLE_REAL_SQL = \"WITH requested AS (\\n  SELECT\\n    $1::uuid AS dispatch_id,\\n    $2::uuid AS lease_token,\\n    $3::uuid AS item_id,\\n    upper(btrim($4::text)) AS real_outcome,\\n    $5::integer AS http_status,\\n    nullif(btrim($6::text), '') AS provider_message_id,\\n    nullif(left(btrim($7::text), 500), '') AS error_message,\\n    coalesce($8::boolean, false) AS respond_to_webhook\\n), dispatch_scope AS MATERIALIZED (\\n  SELECT\\n    dispatch.id AS scoped_dispatch_id,\\n    dispatch.sf_dispatch_id,\\n    dispatch.worker_attempt_count,\\n    dispatch.rejected_count\\n  FROM renovation_dev.quicklink_campaign_dispatches dispatch\\n  JOIN requested ON requested.dispatch_id = dispatch.id\\n  WHERE dispatch.status = 'running'\\n    AND dispatch.lease_token = requested.lease_token\\n  FOR UPDATE OF dispatch\\n), plan AS (\\n  SELECT\\n    requested.dispatch_id,\\n    requested.item_id,\\n    requested.real_outcome,\\n    requested.http_status,\\n    requested.provider_message_id,\\n    requested.error_message,\\n    requested.respond_to_webhook,\\n    scope.scoped_dispatch_id,\\n    scope.sf_dispatch_id,\\n    scope.worker_attempt_count,\\n    scope.rejected_count,\\n    requested.real_outcome = 'META_ACCEPTED'\\n      AND requested.http_status BETWEEN 200 AND 299\\n      AND requested.provider_message_id ~ '^wamid\\\\.' AS provider_accepted,\\n    requested.real_outcome IN ('SF_TRANSIENT', 'META_TRANSIENT', 'OUTSIDE_BUSINESS_HOURS')\\n      AND scope.worker_attempt_count < 4 AS should_retry,\\n    CASE scope.worker_attempt_count\\n      WHEN 1 THEN 30 WHEN 2 THEN 120 WHEN 3 THEN 300 ELSE NULL\\n    END AS retry_delay_seconds\\n  FROM requested\\n  JOIN dispatch_scope scope ON true\\n), counts_before AS (\\n  SELECT\\n    count(*) FILTER (WHERE item.status = 'accepted')::integer AS accepted_count,\\n    count(*) FILTER (WHERE item.status = 'pending')::integer AS pending_count,\\n    count(*) FILTER (WHERE item.status = 'failed')::integer AS failed_count\\n  FROM renovation_dev.quicklink_campaign_dispatch_items item\\n  JOIN plan ON plan.scoped_dispatch_id = item.dispatch_id\\n), accepted_item AS (\\n  UPDATE renovation_dev.quicklink_campaign_dispatch_items item\\n     SET status = 'accepted'::renovation_dev.delivery_status,\\n         provider_message_id = plan.provider_message_id,\\n         attempt_count = least(plan.worker_attempt_count, 3),\\n         sent_at = now(),\\n         reject_reason = NULL,\\n         last_error = NULL,\\n         metadata = item.metadata || jsonb_build_object(\\n           'realSendMode', 'real',\\n           'realSendState', 'accepted',\\n           'realSendMessageId', plan.provider_message_id,\\n           'realSendHttpStatus', plan.http_status,\\n           'sentBy', 'REN-DEV-WF-02B'\\n         ),\\n         updated_at = now()\\n    FROM plan\\n   WHERE item.id = plan.item_id\\n     AND item.dispatch_id = plan.scoped_dispatch_id\\n     AND item.status = 'pending'\\n     AND plan.provider_accepted\\n  RETURNING item.campaign_target_id, item.template_name, item.sent_at\\n), retry_item AS (\\n  UPDATE renovation_dev.quicklink_campaign_dispatch_items item\\n     SET metadata = (item.metadata - 'realSendState' - 'realSendStartedAt') || jsonb_strip_nulls(jsonb_build_object(\\n           'realSendMode', 'real',\\n           'realSendHttpStatus', plan.http_status,\\n           'realSendLastOutcome', plan.real_outcome\\n         )),\\n         last_error = lower(plan.real_outcome),\\n         updated_at = now()\\n    FROM plan\\n   WHERE item.id = plan.item_id\\n     AND item.dispatch_id = plan.scoped_dispatch_id\\n     AND item.status = 'pending'\\n     AND plan.should_retry\\n  RETURNING item.id\\n), failed_items AS (\\n  UPDATE renovation_dev.quicklink_campaign_dispatch_items item\\n     SET status = 'failed'::renovation_dev.delivery_status,\\n         attempt_count = least(plan.worker_attempt_count, 3),\\n         -- `reject_reason` solo admite el vocabulario cerrado que fija el CHECK\\n         -- de V12. Los motivos internos del guard real —INVALID_TEMPLATE,\\n         -- MISSING_TEMPLATE_VARIABLE, PROVIDER_RESULT_UNKNOWN— no están en esa\\n         -- lista y caen a SEND_FAILED; su causa exacta sobrevive en\\n         -- `last_error`. Mapear INVALID_TEMPLATE de forma literal violaba el\\n         -- CHECK y abortaba el settlement entero, dejando el item sin liquidar.\\n         reject_reason = CASE plan.real_outcome\\n           WHEN 'CAMPAIGN_PAUSED' THEN 'CAMPAIGN_PAUSED'\\n           WHEN 'OPPORTUNITY_CLOSED' THEN 'OPPORTUNITY_CLOSED'\\n           WHEN 'INVALID_PHONE' THEN 'INVALID_PHONE'\\n           WHEN 'UNKNOWN_ACCOUNT' THEN 'UNKNOWN_ACCOUNT'\\n           WHEN 'OUTSIDE_BUSINESS_HOURS' THEN 'OUTSIDE_BUSINESS_HOURS'\\n           ELSE 'SEND_FAILED'\\n         END,\\n         last_error = lower(coalesce(plan.real_outcome, 'real_send_failed')),\\n         metadata = item.metadata || jsonb_strip_nulls(jsonb_build_object(\\n           'realSendMode', 'real',\\n           'realSendState', 'failed',\\n           'realSendHttpStatus', plan.http_status,\\n           'realSendLastOutcome', plan.real_outcome\\n         )),\\n         updated_at = now()\\n    FROM plan\\n   WHERE item.dispatch_id = plan.scoped_dispatch_id\\n     AND item.status = 'pending'\\n     AND NOT plan.provider_accepted\\n     AND NOT plan.should_retry\\n     AND (item.id = plan.item_id OR plan.item_id IS NULL OR plan.real_outcome = 'REAL_BATCH_LIMIT')\\n  RETURNING item.id\\n), updated_target AS (\\n  UPDATE renovation_dev.campaign_targets target\\n     SET send_count = target.send_count + 1,\\n         last_template_sent = accepted.template_name,\\n         last_sent_at = accepted.sent_at\\n    FROM accepted_item accepted\\n   WHERE target.id = accepted.campaign_target_id\\n  RETURNING target.id\\n), result_counts AS (\\n  SELECT\\n    counts.accepted_count + (SELECT count(*)::integer FROM accepted_item) AS accepted_count,\\n    counts.pending_count\\n      - (SELECT count(*)::integer FROM accepted_item)\\n      - (SELECT count(*)::integer FROM failed_items) AS pending_count,\\n    counts.failed_count + (SELECT count(*)::integer FROM failed_items) AS failed_count\\n  FROM counts_before counts\\n), finalized AS (\\n  UPDATE renovation_dev.quicklink_campaign_dispatches dispatch\\n     SET status = CASE\\n           WHEN plan.should_retry THEN 'queued'::renovation_dev.dispatch_status\\n           WHEN counts.accepted_count > 0 AND (plan.rejected_count > 0 OR counts.failed_count > 0)\\n             THEN 'partial'::renovation_dev.dispatch_status\\n           WHEN counts.accepted_count > 0 THEN 'completed'::renovation_dev.dispatch_status\\n           ELSE 'failed'::renovation_dev.dispatch_status\\n         END,\\n         process_after = CASE\\n           WHEN plan.should_retry THEN now() + make_interval(secs => plan.retry_delay_seconds)\\n           ELSE dispatch.process_after\\n         END,\\n         next_attempt_at = CASE\\n           WHEN plan.should_retry THEN now() + make_interval(secs => plan.retry_delay_seconds)\\n           ELSE NULL\\n         END,\\n         completed_at = CASE WHEN plan.should_retry THEN NULL ELSE now() END,\\n         lease_token = NULL,\\n         leased_at = NULL,\\n         lease_expires_at = NULL,\\n         last_http_status = plan.http_status,\\n         last_error = CASE\\n           WHEN plan.provider_accepted THEN NULL\\n           WHEN plan.should_retry THEN lower(plan.real_outcome)\\n           ELSE lower(coalesce(plan.real_outcome, 'real_send_failed'))\\n         END\\n    FROM plan, result_counts counts\\n   WHERE dispatch.id = plan.scoped_dispatch_id\\n  RETURNING\\n    dispatch.id AS finalized_dispatch_id,\\n    dispatch.sf_dispatch_id,\\n    dispatch.status AS finalized_status,\\n    dispatch.worker_attempt_count,\\n    dispatch.process_after,\\n    dispatch.next_attempt_at,\\n    dispatch.last_http_status,\\n    plan.real_outcome,\\n    plan.provider_accepted,\\n    plan.should_retry,\\n    plan.respond_to_webhook,\\n    counts.accepted_count AS real_accepted_count,\\n    counts.pending_count AS real_pending_count,\\n    counts.failed_count AS real_failed_count\\n), audit AS (\\n  INSERT INTO renovation_dev.interaction_logs (\\n    event_type, correlation_id, payload, success, error_message\\n  )\\n  SELECT\\n    'wf02b_real_hsm',\\n    finalized.sf_dispatch_id || ':' || coalesce(requested.item_id::text, 'batch'),\\n    jsonb_strip_nulls(jsonb_build_object(\\n      'sf_dispatchId', finalized.sf_dispatch_id,\\n      'item_id', requested.item_id,\\n      'outcome', finalized.real_outcome,\\n      'http_status', requested.http_status,\\n      'provider_message_id', requested.provider_message_id,\\n      'attempt', finalized.worker_attempt_count\\n    )),\\n    finalized.provider_accepted,\\n    CASE\\n      WHEN finalized.provider_accepted THEN NULL\\n      ELSE coalesce(requested.error_message, lower(finalized.real_outcome))\\n    END\\n  FROM finalized, requested\\n  RETURNING id\\n), selected_dispatch AS (\\n  SELECT\\n    dispatch.id,\\n    dispatch.sf_dispatch_id,\\n    dispatch.status,\\n    dispatch.worker_attempt_count,\\n    dispatch.process_after,\\n    dispatch.next_attempt_at,\\n    dispatch.last_http_status\\n  FROM renovation_dev.quicklink_campaign_dispatches dispatch, requested\\n  WHERE dispatch.id = requested.dispatch_id\\n)\\nSELECT\\n  selected.id::text AS job_id,\\n  selected.sf_dispatch_id,\\n  (finalized.finalized_dispatch_id IS NOT NULL) AS claimed,\\n  (finalized.finalized_dispatch_id IS NOT NULL) AS settled,\\n  coalesce(finalized.provider_accepted, false) AS allowed_to_send,\\n  coalesce(finalized.real_outcome, requested.real_outcome, 'LEASE_LOST') AS outcome,\\n  coalesce(finalized.finalized_status, selected.status)::text AS dispatch_status,\\n  coalesce(finalized.worker_attempt_count, selected.worker_attempt_count, 0) AS attempt_count,\\n  coalesce(finalized.process_after, selected.process_after) AS process_after,\\n  coalesce(finalized.next_attempt_at, selected.next_attempt_at) AS next_attempt_at,\\n  coalesce(finalized.last_http_status, selected.last_http_status) AS last_http_status,\\n  requested.respond_to_webhook,\\n  coalesce(finalized.real_accepted_count, 0) AS sent_count,\\n  coalesce(finalized.real_pending_count, 0) AS pending_count,\\n  coalesce(finalized.real_failed_count, 0) AS failed_count,\\n  'real'::text AS send_mode\\nFROM requested\\nLEFT JOIN selected_dispatch selected ON true\\nLEFT JOIN finalized ON finalized.finalized_dispatch_id = selected.id;\\n\";\nconst item = $input.first().json ?? {};\nif (!item.job_id || !item.lease_token) {\n  throw new Error('A real HSM settlement must include job_id and lease_token.');\n}\nconst rawStatus = item.real_http_status;\nconst httpStatus = rawStatus === null || rawStatus === undefined || rawStatus === '' ? null : Number(rawStatus);\nreturn [{ json: {\n  sql: SETTLE_REAL_SQL,\n  query_params: [\n    item.job_id,\n    item.lease_token,\n    item.item_id || null,\n    String(item.real_outcome || 'PROVIDER_RESULT_UNKNOWN'),\n    Number.isInteger(httpStatus) && httpStatus > 0 ? httpStatus : null,\n    item.provider_message_id || null,\n    item.real_error || null,\n    item.respond_to_webhook === true || item.respond_to_webhook === 't' || item.respond_to_webhook === 'true',\n  ],\n} }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3840,
+        40
+      ],
+      "id": "wf02b-prepare-real-settle",
+      "name": "Prepare Real HSM Settlement"
+    },
+    {
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": {
+          "queryReplacement": "={{ $json.query_params }}",
+          "queryBatching": "single"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        4080,
+        40
+      ],
+      "id": "wf02b-pg-real-settle",
+      "name": "Postgres - Settle Real HSM",
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst result = $input.first().json ?? {};\nreturn [{\n  json: {\n    statusCode: 200,\n    respond_to_webhook: result.respond_to_webhook === true || result.respond_to_webhook === 't' || result.respond_to_webhook === 'true',\n    body: {\n      job_id: result.job_id || null,\n      allowed_to_send: result.allowed_to_send === true || result.allowed_to_send === 't' || result.allowed_to_send === 'true',\n      claimed: result.claimed === true || result.claimed === 't' || result.claimed === 'true',\n      settled: result.settled === true || result.settled === 't' || result.settled === 'true',\n      outcome: result.outcome || null,\n      attempt: Number(result.attempt_count || 0),\n      next_attempt_at: result.next_attempt_at || null,\n      lease_expires_at: result.lease_expires_at || null,\n      sent: Number(result.sent_count || 0),\n      pending: Number(result.pending_count || 0),\n      failed: Number(result.failed_count || 0),\n      dispatch_status: result.dispatch_status || null,\n      send_mode: result.send_mode || 'dry_run',\n      dry_run: result.send_mode !== 'real',\n    },\n  },\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4320,
+        40
+      ],
+      "id": "wf02b-shape",
+      "name": "Shape Sender Response"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "respond",
+              "leftValue": "={{ $json.respond_to_webhook }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4560,
+        40
+      ],
+      "id": "wf02b-if-respond",
+      "name": "IF Webhook Response"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.statusCode }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        4800,
+        -60
+      ],
+      "id": "wf02b-respond",
+      "name": "Respond Sender"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.statusCode }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        240,
+        -220
+      ],
+      "id": "wf02b-reject",
+      "name": "Respond Sender Rejected"
+    },
+    {
+      "parameters": {
+        "content": "## WF-02B - Durable Campaign Batch Sender\n\nDry-run remains the default behind `RENOV_DEV_DRY_RUN_SENDS=true`. Real HSM is an explicit one-item pilot requiring `send_mode=real`, `job_id`, `RENOV_DEV_REAL_HSM_ENABLED=true`, an allowlisted phone, an open Salesforce Opportunity linked to the same Account and a final local guard.\n\nThe 5-second poll never claims work already marked for real send. Meta network, 5xx and 2xx-without-`wamid` ambiguity are terminal because Meta provides no idempotency key for this POST. Retry delays remain 30/120/300 seconds for Salesforce and known Meta transient failures such as 429.\n\nSQL sources: `dispatch/{claim_dispatch,sender_dry_run,prepare_real_hsm,begin_real_hsm,settle_real_hsm}.sql`.",
+        "height": 500,
+        "width": 540
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1080,
+        -260
+      ],
+      "id": "wf02b-sticky",
+      "name": "Sticky Note"
+    }
+  ],
+  "connections": {
+    "POST Batch Sender": {
+      "main": [
+        [
+          {
+            "node": "Validate Sender Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Queue Poll": {
+      "main": [
+        [
+          {
+            "node": "Prepare Scheduled Poll",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Sender Request": {
+      "main": [
+        [
+          {
+            "node": "IF Sender Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Scheduled Poll": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Claim Dispatch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Sender Valid": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Claim Dispatch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Sender Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Claim Dispatch": {
+      "main": [
+        [
+          {
+            "node": "IF Dispatch Claimed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Dispatch Claimed": {
+      "main": [
+        [
+          {
+            "node": "IF Real HSM Mode",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Shape Sender Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Real HSM Mode": {
+      "main": [
+        [
+          {
+            "node": "Prepare Real HSM Preflight",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Dry Run Settlement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Dry Run Settlement": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Settle Dry Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Settle Dry Run": {
+      "main": [
+        [
+          {
+            "node": "Shape Sender Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Real HSM Preflight": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Prepare Real HSM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Prepare Real HSM": {
+      "main": [
+        [
+          {
+            "node": "IF Salesforce Revalidation Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Salesforce Revalidation Needed": {
+      "main": [
+        [
+          {
+            "node": "Code - Revalidate Salesforce Opportunity",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Real HSM Settlement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Revalidate Salesforce Opportunity": {
+      "main": [
+        [
+          {
+            "node": "IF Salesforce Opportunity Open",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Salesforce Opportunity Open": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Meta HSM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Real HSM Settlement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Meta HSM": {
+      "main": [
+        [
+          {
+            "node": "IF Meta Request Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Meta Request Ready": {
+      "main": [
+        [
+          {
+            "node": "Prepare Final Local Guard",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Real HSM Settlement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Final Local Guard": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Begin Real HSM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Begin Real HSM": {
+      "main": [
+        [
+          {
+            "node": "IF Final Local Guard Passed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Final Local Guard Passed": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Send Meta HSM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Real HSM Settlement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Send Meta HSM": {
+      "main": [
+        [
+          {
+            "node": "Code - Classify Meta HSM Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Classify Meta HSM Result": {
+      "main": [
+        [
+          {
+            "node": "Prepare Real HSM Settlement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Real HSM Settlement": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Settle Real HSM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Settle Real HSM": {
+      "main": [
+        [
+          {
+            "node": "Shape Sender Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Sender Response": {
+      "main": [
+        [
+          {
+            "node": "IF Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Webhook Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Sender",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "376b660f-be1f-5f77-b0da-8a3d0be15a7a",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

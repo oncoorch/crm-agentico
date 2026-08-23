@@ -1,0 +1,281 @@
+{
+  "id": "G3A1J6iSFiTDvWT8_quicklink",
+  "name": "WF-CHATWOOT-ATTRS — Fase 3_quicklink",
+  "nodes": [
+    {
+      "id": "sticky-c3-001",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -220,
+        80
+      ],
+      "parameters": {
+        "content": "## WF-CHATWOOT-ATTRS — Fase 3\n\n**Objetivo:** Aplicar labels en conversación\ny sincronizar atributos en contacto Chatwoot.\n\n**Labels:** marca (kia/hyundai) + estado CRIS\n**Attrs:** marca, modelo, quicklink_id, estado_cris\n**Tracker:** eventos_conversacion (chatwoot_labels_aplicados)\n**Pre-req:** Fase 1 + 2 completadas",
+        "height": 280,
+        "width": 380,
+        "color": 6
+      }
+    },
+    {
+      "id": "cron-c3-001",
+      "name": "CRON - Cada 5 Min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        280
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "pg-c3-001",
+      "name": "PG - Get No Labels",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        260,
+        280
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT c.id AS conv_id, c.nombre, c.marca, c.modelo, c.estado, c.quicklink_id, c.chatwoot_conv_id, c.chatwoot_contact_id FROM conversaciones c WHERE c.chatwoot_conv_id IS NOT NULL AND c.chatwoot_contact_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM eventos_conversacion e WHERE e.conversation_id = c.id AND e.tipo_evento = 'chatwoot_labels_aplicados') AND c.estado NOT IN ('PENDIENTE','DESCARTADO') ORDER BY c.created_at ASC LIMIT 50",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "loop-c3-001",
+      "name": "Loop - Each Conv",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        520,
+        280
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "set-c3-done",
+      "name": "Set - Attrs Done",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        740,
+        480
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "status",
+              "value": "attrs_done",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "finished_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "code-c3-build",
+      "name": "Code - Build Labels Attrs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        740,
+        280
+      ],
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\n\nconst sanitize = s => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').substring(0, 25);\n\nconst marcaLabel = sanitize(item.marca);\nconst estadoLabel = sanitize(item.estado);\nconst labels = [marcaLabel, estadoLabel].filter(Boolean);\n\nconst labelsBody = JSON.stringify({ labels });\n\nconst contactAttrsBody = JSON.stringify({\n  additional_attributes: {\n    marca: item.marca || '',\n    modelo: item.modelo || '',\n    quicklink_id: item.quicklink_id || '',\n    estado_cris: item.estado || ''\n  }\n});\n\nconst eventoPayload = JSON.stringify({\n  labels,\n  chatwoot_conv_id: item.chatwoot_conv_id,\n  chatwoot_contact_id: item.chatwoot_contact_id\n}).replace(/'/g, \"''\");\n\nreturn [{\n  json: {\n    conv_id: item.conv_id,\n    chatwoot_conv_id: item.chatwoot_conv_id,\n    chatwoot_contact_id: item.chatwoot_contact_id,\n    labels_body: labelsBody,\n    contact_attrs_body: contactAttrsBody,\n    evento_payload: eventoPayload\n  }\n}];"
+      }
+    },
+    {
+      "id": "http-c3-labels",
+      "name": "HTTP - Post Labels",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1000,
+        280
+      ],
+      "parameters": {},
+      "notes": "WF-09 TagManager owns Chatwoot labels. This node intentionally preserves the execution chain without writing labels."
+    },
+    {
+      "id": "http-c3-contact",
+      "name": "HTTP - Update Contact Attrs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1260,
+        280
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "PATCH",
+        "url": "=http://172.18.0.24:3000/api/v1/accounts/2/contacts/{{ $('Code - Build Labels Attrs').first().json.chatwoot_contact_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Code - Build Labels Attrs').first().json.contact_attrs_body }}",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "pg-c3-log",
+      "name": "PG - Log Attrs Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1520,
+        280
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO eventos_conversacion (conversation_id, tipo_evento, actor, payload) VALUES ('{{ $('Code - Build Labels Attrs').first().json.conv_id }}'::uuid, 'chatwoot_labels_aplicados', 'sistema', '{{ $('Code - Build Labels Attrs').first().json.evento_payload }}')",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "CRON - Cada 5 Min": {
+      "main": [
+        [
+          {
+            "node": "PG - Get No Labels",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Get No Labels": {
+      "main": [
+        [
+          {
+            "node": "Loop - Each Conv",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop - Each Conv": {
+      "main": [
+        [
+          {
+            "node": "Set - Attrs Done",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Build Labels Attrs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Labels Attrs": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Post Labels",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Post Labels": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Update Contact Attrs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Update Contact Attrs": {
+      "main": [
+        [
+          {
+            "node": "PG - Log Attrs Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Log Attrs Event": {
+      "main": [
+        [
+          {
+            "node": "Loop - Each Conv",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Bogota",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "5a243f01-a5f6-59d0-bf16-3b4fca14e3e1",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

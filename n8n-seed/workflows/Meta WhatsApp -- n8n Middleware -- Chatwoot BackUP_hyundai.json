@@ -1,0 +1,401 @@
+{
+  "id": "BCLnyVJX07J55Mdz_hyundai",
+  "name": "Meta WhatsApp -> n8n Middleware -> Chatwoot BackUP_hyundai",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "a7a697f3-4790-4b83-a0a6-c56e4f84d28d",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a2a89a54-637a-40da-bcdc-5e039c4bb95c",
+      "name": "Webhook Verify GET",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        -368
+      ],
+      "webhookId": "a7a697f3-4790-4b83-a0a6-c56e4f84d28d"
+    },
+    {
+      "parameters": {
+        "jsCode": "const q = $json.query || {};\nconst mode = q['hub.mode'];\nconst token = q['hub.verify_token'];\nconst challenge = q['hub.challenge'];\nconst expected = $env.META_VERIFY_TOKEN || '0931234d935978f4527ec724e1a9c60e';\n\nif (mode === 'subscribe' && token === expected) {\n  return [{ json: { ok: true, challenge } }];\n}\n\nreturn [{ json: { ok: false, error: 'Verification token mismatch' } }];"
+      },
+      "id": "3758323b-d235-4ee5-967b-1ea5a1f71e50",
+      "name": "Validate Verify Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -416,
+        -368
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2a",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a6e9ce0f-40eb-4d98-9b36-e242a7ac47c3",
+      "name": "If Verify OK",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -192,
+        -368
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.challenge }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "6c8b5a9b-124b-405f-9030-9933a4b0abec",
+      "name": "Respond 200 Challenge",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        48,
+        -448
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"error\":\"verification failed\"}",
+        "options": {
+          "responseCode": 403
+        }
+      },
+      "id": "a5e09b17-55bd-4a60-bb3d-ef78f5a3dd00",
+      "name": "Respond 403",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        48,
+        -288
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "84d375d7-95f1-47b1-be66-406362850411",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "53636120-3f65-4e87-b1da-2fd5062c6e39",
+      "name": "Webhook Events POST",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        32
+      ],
+      "webhookId": "84d375d7-95f1-47b1-be66-406362850411"
+    },
+    {
+      "parameters": {
+        "jsCode": "const value = $json.body?.entry?.[0]?.changes?.[0]?.value || {};\nconst msg = value.messages?.[0] || null;\nconst statuses = value.statuses || [];\n\nif (!msg) {\n  return [{ json: {\n    route: statuses.length ? 'status' : 'ignore',\n    raw: $json.body,\n    value,\n    statuses\n  }}];\n}\n\nconst isFlowReply = msg.type === 'interactive' && msg.interactive?.type === 'nfm_reply';\nconst phoneNumberId = value.metadata?.phone_number_id || '';\nconst waId = value.contacts?.[0]?.wa_id || msg.from || '';\nconst profileName = value.contacts?.[0]?.profile?.name || '';\n$execution.customData.set(\"tipo\", isFlowReply ? 'flow' : 'normal');\nreturn [{ json: {\n  route: isFlowReply ? 'flow' : 'normal',\n  phone_number_id: phoneNumberId,\n  wa_id: waId,\n  profile_name: profileName,\n  message_id: msg.id || '',\n  timestamp: msg.timestamp || '',\n  flow_token: msg.interactive?.nfm_reply?.flow_token || '',\n  flow_name: msg.interactive?.nfm_reply?.name || '',\n  response_json: msg.interactive?.nfm_reply?.response_json || {},\n  msg,\n  raw: $json.body\n}}];"
+      },
+      "id": "f9154324-7e1b-47c7-b153-ec1f4791d2b6",
+      "name": "Classify Meta Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "12a",
+              "leftValue": "={{ $json.route }}",
+              "rightValue": "normal",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "3f781cc8-27c3-446e-909d-a41b137d3d1d",
+      "name": "If Normal Message",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -160,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CHATWOOT_WEBHOOK_INTERNAL_URL || 'http://chatwoot:3000/webhooks/whatsapp/+593998667257' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.raw }}",
+        "options": {}
+      },
+      "id": "f4027818-5721-4f49-96ad-c035a04d0eaf",
+      "name": "Forward Raw To Chatwoot Webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        528,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"ok\":true,\"route\":\"normal_forwarded\"}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "55832e47-1fcd-4883-9319-8bcd3667406f",
+      "name": "Respond 200 Normal",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        768,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "15a",
+              "leftValue": "={{ $json.route }}",
+              "rightValue": "flow",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e82943ca-599b-4bdd-94bc-9dda53259f9d",
+      "name": "If Flow Reply",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -160,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = JSON.parse(JSON.stringify($json));\n\nfunction parseResponseJson(value) {\n  if (!value) return {};\n  if (typeof value === 'object') return value;\n  try {\n    return JSON.parse(value);\n  } catch (e) {\n    return { raw_response_json: String(value) };\n  }\n}\n\nfunction formatValue(value) {\n  if (Array.isArray(value)) {\n    return value.join(', ');\n  }\n  if (value && typeof value === 'object') {\n    return JSON.stringify(value);\n  }\n  if (value === null || value === undefined || value === '') {\n    return '-';\n  }\n  return String(value);\n}\n\nconst data = parseResponseJson(item.response_json);\n\nconst lines = [];\nfor (const [key, value] of Object.entries(data)) {\n  lines.push(`${key}: ${formatValue(value)}`);\n}\n\nconst textBody = lines.join('\\n');\n\nconst msg = item.raw?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];\n\nif (!msg) {\n  throw new Error('No se encontró raw.entry[0].changes[0].value.messages[0]');\n}\n\n// mantener todo igual y cambiar SOLO messages[0]\nmsg.type = 'text';\nmsg.text = {\n  body: textBody\n};\n\n// quitar la parte interactiva\n// delete msg.interactive;\n// opcional: quitar context para que se parezca más al mensaje normal\n// delete msg.context;\n\nreturn [\n  {\n    json: item\n  }\n];"
+      },
+      "id": "d7b44c60-8b01-45d6-b40d-55c4664250bc",
+      "name": "Transform Flow To Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        144,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"ok\":true,\"route\":\"ignored\"}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "7ccaf585-d98a-4d2e-be1f-b008d9c7cca1",
+      "name": "Respond 200 Ignore",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        144,
+        416
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Verify GET": {
+      "main": [
+        [
+          {
+            "node": "Validate Verify Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Verify Token": {
+      "main": [
+        [
+          {
+            "node": "If Verify OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Verify OK": {
+      "main": [
+        [
+          {
+            "node": "Respond 200 Challenge",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 403",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Events POST": {
+      "main": [
+        [
+          {
+            "node": "Classify Meta Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Meta Event": {
+      "main": [
+        [
+          {
+            "node": "If Normal Message",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "If Flow Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Normal Message": {
+      "main": [
+        [
+          {
+            "node": "Forward Raw To Chatwoot Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Forward Raw To Chatwoot Webhook": {
+      "main": [
+        [
+          {
+            "node": "Respond 200 Normal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Flow Reply": {
+      "main": [
+        [
+          {
+            "node": "Transform Flow To Text",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 200 Ignore",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform Flow To Text": {
+      "main": [
+        [
+          {
+            "node": "Forward Raw To Chatwoot Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "bf9a428f-4dd2-5aa0-a7fc-c6990609a5a8",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

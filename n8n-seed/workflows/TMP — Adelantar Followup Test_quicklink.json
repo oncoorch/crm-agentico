@@ -1,0 +1,71 @@
+{
+  "id": "dvbea7xypHQUsuf5_quicklink",
+  "name": "TMP — Adelantar Followup Test_quicklink",
+  "nodes": [
+    {
+      "id": "wh-adv",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        100,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "adv-followup-test",
+        "responseMode": "lastNode"
+      },
+      "webhookId": "9faa2607-b592-43f5-9d42-b09d86b79bdc"
+    },
+    {
+      "id": "pg-adv",
+      "name": "PG — Adelantar Followup",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        340,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE scheduled_followups\nSET scheduled_at = now() - interval '5 minutes', status = 'PENDING'\nWHERE conversation_id = 'f9bfbb93-94be-4390-8756-888c594142a6'\n  AND tipo_followup = 'NO_CONTACTABLE'\n  AND status IN ('PENDING', 'SENT');\nSELECT id, tipo_followup, scheduled_at, status\nFROM scheduled_followups\nWHERE conversation_id = 'f9bfbb93-94be-4390-8756-888c594142a6'\nORDER BY created_at DESC LIMIT 5;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "PG — Adelantar Followup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "f9e1f26d-47d1-5d2b-81b9-e18a7abeb55a",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

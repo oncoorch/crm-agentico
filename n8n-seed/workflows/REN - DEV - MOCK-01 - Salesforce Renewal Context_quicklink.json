@@ -1,0 +1,245 @@
+{
+  "id": "liZAEk84bbdzyG5B_quicklink",
+  "name": "REN - DEV - MOCK-01 - Salesforce Renewal Context_quicklink",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "renov/dev/mock-salesforce-token",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wh-mock-token-001",
+      "name": "Webhook Mock Salesforce Token",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -896,
+        -224
+      ],
+      "webhookId": "f4457379-6fa7-47ca-98f8-d4fcbf73a106"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $json || {};\nconst body = input.body && typeof input.body === 'object' ? input.body : {};\nconst rawBody = typeof input.body === 'string' ? input.body : '';\nfunction parseForm(raw) {\n  const result = {};\n  for (const pair of String(raw || '').split('&')) {\n    if (!pair) continue;\n    const index = pair.indexOf('=');\n    const key = index >= 0 ? pair.slice(0, index) : pair;\n    const value = index >= 0 ? pair.slice(index + 1) : '';\n    result[decodeURIComponent(key.replace(/\\+/g, ' '))] = decodeURIComponent(value.replace(/\\+/g, ' '));\n  }\n  return result;\n}\nconst form = parseForm(rawBody);\nfunction env(name, fallback = '') { try { return $env[name] || fallback; } catch (e) { return fallback; } }\nfunction pick(name) { return body[name] || form[name] || input.query?.[name] || ''; }\nconst expectedClientId = env('SALESFORCE_DEV_CLIENT_ID', 'renov-dev-mock-client');\nconst expectedClientSecret = env('SALESFORCE_DEV_CLIENT_SECRET', '');\nconst clientId = String(pick('client_id') || '');\nconst clientSecret = String(pick('client_secret') || '');\nif (!expectedClientSecret || clientId !== expectedClientId || clientSecret !== expectedClientSecret) {\n  return [{ json: { http_status: 401, response: { error: 'invalid_client', mock: true } } }];\n}\nreturn [{ json: { http_status: 200, response: { access_token: 'dev-mock-salesforce-token', token_type: 'Bearer', instance_url: env('N8N_EDITOR_BASE_URL', 'https://quicklink.uat.bkn.aigentss.cloud'), issued_at: String(Date.now()), mock: true } } }];"
+      },
+      "id": "code-mock-token-001",
+      "name": "Code - Mock Token Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        -224
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.response) }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "respond-mock-token-001",
+      "name": "Respond - Mock Token",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -384,
+        -224
+      ]
+    },
+    {
+      "parameters": {
+        "path": "renov/dev/mock-salesforce-renewal-context",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wh-mock-renewal-001",
+      "name": "Webhook Mock Renewal Context",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -896,
+        64
+      ],
+      "webhookId": "f3dad3f0-9db0-4cc5-9c5b-43fadf8f23c7"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $json || {};\nconst headers = input.headers || {};\nconst query = input.query || {};\nfunction header(name) {\n  const target = name.toLowerCase();\n  for (const [key, value] of Object.entries(headers)) {\n    if (String(key).toLowerCase() === target) return Array.isArray(value) ? value[0] : value;\n  }\n  return '';\n}\nconst auth = String(header('authorization') || '');\nif (!/^Bearer\\s+dev-mock-salesforce-token$/i.test(auth)) {\n  return [{ json: { http_status: 401, response: { status: 'UNAUTHORIZED', error: 'missing_or_invalid_mock_token', mock: true } } }];\n}\nconst phone = String(query.phone || '').trim();\nconst accountId = String(query.accountId || '').trim();\nconst contractId = String(query.contractId || '').trim();\nreturn [{ json: { http_status: 200, response: { status: 'MATCHED', source: 'dev_mock_salesforce', mock: true, phone, accountId, contractId, commercial_context_available: false, renewal_allowed: false, price_info: 'NO_DISPONIBLE_DERIVAR', active_promotions: 'NO_DISPONIBLE_DERIVAR', gps_status: null, payment_methods: [], message: 'DEV mock: Salesforce renewal context endpoint is reachable, but prices/promotions are intentionally unavailable.' } } }];"
+      },
+      "id": "code-mock-renewal-001",
+      "name": "Code - Mock Renewal Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.response) }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "respond-mock-renewal-001",
+      "name": "Respond - Mock Renewal Context",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -384,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "PATCH",
+        "path": "renov/dev/mock-salesforce-handoff",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wh-mock-handoff-001",
+      "name": "Webhook Mock Handoff Patch",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -896,
+        352
+      ],
+      "webhookId": "824b4331-85d9-41fe-a3bc-c851b0f2a2da"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $json || {};\nconst headers = input.headers || {};\nconst body = input.body && typeof input.body === 'object' ? input.body : {};\nfunction header(name) {\n  const target = name.toLowerCase();\n  for (const [key, value] of Object.entries(headers)) {\n    if (String(key).toLowerCase() === target) return Array.isArray(value) ? value[0] : value;\n  }\n  return '';\n}\nconst auth = String(header('authorization') || '');\nif (!/^Bearer\\s+dev-mock-salesforce-token$/i.test(auth)) {\n  return [{ json: { http_status: 401, response: { success: false, status: 'UNAUTHORIZED', mock: true } } }];\n}\nreturn [{ json: { http_status: 200, response: { success: true, status: 'UPDATED', source: 'dev_mock_salesforce', mock: true, received: { phone: body.phone || null, salesforceOpportunityId: body.salesforceOpportunityId || null, handoffReason: body.handoffReason || null, opportunityStatus: body.opportunityStatus || null, chatwootConversationId: body.chatwootConversationId || null } } } }];"
+      },
+      "id": "code-mock-handoff-001",
+      "name": "Code - Mock Handoff Patch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.response) }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "respond-mock-handoff-001",
+      "name": "Respond - Mock Handoff Patch",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -384,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## REN - DEV - MOCK-01 - Salesforce Renewal Context\n\nDEV-only mock used while Salesforce sandbox credentials/endpoints are pending.\n\nEndpoints:\n- POST /webhook/renov/dev/mock-salesforce-token\n- GET /webhook/renov/dev/mock-salesforce-renewal-context\n- PATCH /webhook/renov/dev/mock-salesforce-handoff\n\nRules:\n- No real PII, prices, promotions or payment links.\n- Renewal context always returns NO_DISPONIBLE_DERIVAR for price/promotions.\n- Handoff PATCH only acknowledges receipt for workflow testing.\n\nReplace with real Salesforce DEV endpoints before enabling real customer traffic.",
+        "height": 600,
+        "width": 460
+      },
+      "id": "sticky-info-001",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1184,
+        -672
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Mock Salesforce Token": {
+      "main": [
+        [
+          {
+            "node": "Code - Mock Token Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Mock Token Response": {
+      "main": [
+        [
+          {
+            "node": "Respond - Mock Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Mock Renewal Context": {
+      "main": [
+        [
+          {
+            "node": "Code - Mock Renewal Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Mock Renewal Context": {
+      "main": [
+        [
+          {
+            "node": "Respond - Mock Renewal Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Mock Handoff Patch": {
+      "main": [
+        [
+          {
+            "node": "Code - Mock Handoff Patch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Mock Handoff Patch": {
+      "main": [
+        [
+          {
+            "node": "Respond - Mock Handoff Patch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "executionTimeout": 60,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "1524d91b-4efd-570d-af17-e68a770474f0",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

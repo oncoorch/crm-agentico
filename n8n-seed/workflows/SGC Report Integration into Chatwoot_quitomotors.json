@@ -1,0 +1,74 @@
+{
+  "id": "Q9mh34p8wrVxRqJU_quitomotors",
+  "name": "SGC Report Integration into Chatwoot_quitomotors",
+  "nodes": [
+    {
+      "id": "sgc-dashboard-webhook",
+      "name": "SGC Dashboard API",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "sgc-report-chatwoot",
+        "responseMode": "lastNode",
+        "responseData": "firstEntryJson",
+        "options": {}
+      },
+      "notes": "Public read-only dashboard endpoint. Returns aggregate metrics only.",
+      "webhookId": "3f4c489c-2278-49f5-a489-61f3f8150f22",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "fetch-sgc-dashboard-report",
+      "name": "Fetch SGC Dashboard Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://mcp_server:8000/api/reports/sgc-dashboard?account_id=2",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "notes": "Calls the MCP read-only report for account 2. The report window is fixed to the last seven calendar days.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    }
+  ],
+  "connections": {
+    "SGC Dashboard API": {
+      "main": [
+        [
+          {
+            "node": "Fetch SGC Dashboard Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "a7015f97-6c6e-59de-8093-d40245cefb63",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

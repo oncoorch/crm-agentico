@@ -1,0 +1,273 @@
+{
+  "id": "renDev05PayGate0808_quicklink",
+  "name": "REN - DEV - WF-05 - Payment Renewal Gate_quicklink",
+  "nodes": [
+    {
+      "id": "webhook-wf05-payment-001",
+      "name": "Webhook - Payment Gate",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        100
+      ],
+      "webhookId": "ren-dev-wf05-payment-gate",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "renov/dev/internal/payment-renewal",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "code-validate-wf05-payment-001",
+      "name": "Code - Validate Payment Gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        100
+      ],
+      "parameters": {
+        "jsCode": "const input = $json || {};\nconst headers = input.headers || {};\nconst body = input.body && typeof input.body === 'object' ? input.body : {};\nfunction readHeader(name) {\n  const key = Object.keys(headers).find((candidate) => candidate.toLowerCase() === name.toLowerCase());\n  return key ? String(headers[key] || '') : '';\n}\nfunction env(name) { try { return String($env[name] || ''); } catch (error) { return ''; } }\nfunction q(value) { return String(value ?? '').replace(/'/g, \"''\"); }\nfunction sqlText(value) { return value === null || value === undefined || value === '' ? 'NULL' : \"'\" + q(value) + \"'\"; }\nfunction fail(status, code, message) { return [{ json: { request_valid: false, http_status: status, code, message } }]; }\nconst expected = env('RENOV_INTERNAL_TOKEN');\nconst authorization = readHeader('authorization');\nconst bearer = authorization.match(/^Bearer\\s+(.+)$/i)?.[1] || '';\nconst provided = readHeader('x-internal-token') || bearer;\nif (!expected || provided !== expected) return fail(401, 'UNAUTHORIZED', 'Token interno invalido.');\nconst conversationId = String(body.conversation_id || '').trim();\nif (!/^[0-9a-f-]{36}$/i.test(conversationId)) return fail(400, 'INVALID_CONVERSATION_ID', 'conversation_id debe ser UUID.');\nconst sourceMessageId = String(body.source_message_id || '').trim();\nif (!sourceMessageId) return fail(400, 'SOURCE_MESSAGE_ID_REQUIRED', 'source_message_id es obligatorio para idempotencia.');\nfor (const forbidden of ['amount', 'price', 'payment_url', 'bendo_code', 'bank_account', 'qr']) {\n  if (body[forbidden] !== undefined && body[forbidden] !== null && body[forbidden] !== '') {\n    return fail(422, 'COMMERCIAL_DATA_NOT_ACCEPTED', 'WF-05 no acepta datos comerciales proporcionados por el caller.');\n  }\n}\nconst query = \"SET search_path TO renovation_dev, public;\\n\" +\n\"WITH input AS (SELECT '\" + q(conversationId) + \"'::uuid AS conversation_id, \" + sqlText(sourceMessageId) + \"::text AS source_message_id, \" + sqlText(body.sf_accountId) + \"::text AS sf_account_id, \" + sqlText(body.sf_vehicleId) + \"::text AS sf_vehicle_id, \" + sqlText(body.sf_contractId) + \"::text AS sf_contract_id),\\n\" +\n\"resolved AS (SELECT c.id AS conversation_id, c.customer_id, c.status::text AS conversation_status, c.identity_verified, a.salesforce_contact_id, v.salesforce_vehicle_id, v.salesforce_contract_id, v.gps_status::text AS gps_status, v.opportunity_closed FROM input i LEFT JOIN conversations c ON c.id = i.conversation_id LEFT JOIN quicklink_account_assignments a ON a.id = c.customer_id LEFT JOIN quicklink_vehicle_assignments v ON v.customer_id = a.id AND v.deleted_at IS NULL AND (i.sf_vehicle_id IS NULL OR v.salesforce_vehicle_id = i.sf_vehicle_id))\\n\" +\n\"SELECT i.*, r.conversation_id::text, r.customer_id::text, r.conversation_status, r.identity_verified, r.salesforce_contact_id, r.salesforce_vehicle_id, r.salesforce_contract_id, r.gps_status, r.opportunity_closed, count(r.salesforce_vehicle_id) OVER ()::integer AS vehicle_match_count FROM input i LEFT JOIN resolved r ON true LIMIT 1;\";\nreturn [{ json: { request_valid: true, http_status: 200, source_message_id: sourceMessageId, resolve_sql: query } }];"
+      }
+    },
+    {
+      "id": "if-valid-wf05-payment-001",
+      "name": "IF - Payment Request Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -220,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "request-valid",
+              "leftValue": "={{ $json.request_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "pg-resolve-wf05-payment-001",
+      "name": "Postgres - Resolve Payment Context",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        20,
+        40
+      ],
+      "alwaysOutputData": true,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.resolve_sql }}",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "code-decide-wf05-payment-001",
+      "name": "Code - Decide Payment Gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        40
+      ],
+      "parameters": {
+        "jsCode": "const row = $json;\nconst request = row;\nfunction result(status, code, action, reason, message) {\n  return { http_status: status, code, action, handoff_reason: reason, client_message: message, payment_available: false };\n}\nlet response;\nif (!row.conversation_id) response = result(404, 'CONVERSATION_NOT_FOUND', 'handoff', 'billing', 'Con gusto, voy a gestionar su solicitud con nuestro equipo.');\nelse if (row.conversation_status !== 'bot_active') response = result(409, 'CONVERSATION_NOT_ACTIVE', 'silent', null, '');\nelse if (!(row.identity_verified === true || row.identity_verified === 't')) response = result(409, 'IDENTITY_NOT_VERIFIED', 'reply', null, 'Para proteger su información, primero debemos verificar su identidad.');\nelse if (Number(row.vehicle_match_count || 0) !== 1) response = result(422, 'VEHICLE_SELECTION_REQUIRED', 'handoff', 'billing', 'Con gusto, voy a gestionar su solicitud con nuestro equipo.');\nelse if (row.opportunity_closed === true || row.opportunity_closed === 't') response = result(409, 'OPPORTUNITY_CLOSED', 'silent', null, '');\nelse if (row.gps_status !== 'active') response = result(200, 'TECHNICAL_CHECK_REQUIRED', 'handoff', 'tech_support', 'Antes de realizar el pago es obligatorio coordinar un chequeo técnico para revisar o reactivar el equipo.');\nelse response = result(200, 'COMMERCIAL_CONTEXT_UNAVAILABLE', 'handoff', 'billing', 'Con gusto, voy a gestionar su solicitud con nuestro equipo.');\nfunction q(value) { return String(value ?? '').replace(/'/g, \"''\"); }\nconst auditPayload = { workflow: 'REN-DEV-WF-05', code: response.code, payment_available: false, salesforce_account_id: row.salesforce_contact_id || null, salesforce_vehicle_id: row.salesforce_vehicle_id || null, salesforce_contract_id: row.salesforce_contract_id || null };\nconst logSql = \"SET search_path TO renovation_dev, public; INSERT INTO interaction_logs (customer_id, conversation_id, event_type, correlation_id, payload, success, error_message) SELECT \"\n  + (row.customer_id ? \"'\" + q(row.customer_id) + \"'::uuid\" : 'NULL') + \", \"\n  + (row.conversation_id ? \"'\" + q(row.conversation_id) + \"'::uuid\" : 'NULL') + \", 'wf05_payment_blocked', '\" + q(request.source_message_id) + \"', '\" + q(JSON.stringify(auditPayload)) + \"'::jsonb, true, NULL WHERE NOT EXISTS (SELECT 1 FROM interaction_logs WHERE event_type = 'wf05_payment_blocked' AND correlation_id = '\" + q(request.source_message_id) + \"') RETURNING id;\";\nreturn [{ json: { ...request, ...response, log_sql: logSql } }];"
+      }
+    },
+    {
+      "id": "pg-log-wf05-payment-001",
+      "name": "Postgres - Audit Payment Gate",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        500,
+        40
+      ],
+      "alwaysOutputData": true,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.log_sql }}",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "code-restore-wf05-payment-001",
+      "name": "Code - Restore Payment Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        740,
+        40
+      ],
+      "parameters": {
+        "jsCode": "const decision = $('Code - Decide Payment Gate').first().json;\nreturn [{ json: { ...decision, logged: Boolean($json.id) } }];"
+      }
+    },
+    {
+      "id": "respond-wf05-payment-001",
+      "name": "Respond - Payment Gate",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        980,
+        100
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { success: $json.http_status < 400, payment_available: false, code: $json.code, action: $json.action, handoff_reason: $json.handoff_reason || null, client_message: $json.client_message || \"\" } }}",
+        "options": {
+          "responseCode": "={{ $json.http_status || 200 }}"
+        }
+      }
+    },
+    {
+      "id": "note-wf05-payment-001",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -700,
+        -260
+      ],
+      "parameters": {
+        "width": 840,
+        "height": 240,
+        "content": "## Payment gate (fail closed)\nThis workflow never accepts prices, payment links, BENDO codes or bank details from callers. Until EOS supplies the commercial/BENDO contracts, every valid intent ends in a controlled handoff."
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Payment Gate": {
+      "main": [
+        [
+          {
+            "node": "Code - Validate Payment Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Validate Payment Gate": {
+      "main": [
+        [
+          {
+            "node": "IF - Payment Request Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Payment Request Valid?": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Resolve Payment Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond - Payment Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Resolve Payment Context": {
+      "main": [
+        [
+          {
+            "node": "Code - Decide Payment Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Decide Payment Gate": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Audit Payment Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Audit Payment Gate": {
+      "main": [
+        [
+          {
+            "node": "Code - Restore Payment Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Restore Payment Response": {
+      "main": [
+        [
+          {
+            "node": "Respond - Payment Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "bb518f63-e55e-5648-88b0-f6ab7c2ae50b",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

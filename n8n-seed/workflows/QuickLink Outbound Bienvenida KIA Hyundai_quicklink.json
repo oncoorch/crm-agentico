@@ -1,0 +1,233 @@
+{
+  "id": "2Myq75AXmYB8FoUi_quicklink",
+  "name": "QuickLink Outbound Bienvenida KIA Hyundai_quicklink",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "quicklink-lead-inbound",
+        "options": {}
+      },
+      "id": "wh1",
+      "name": "Webhook Outbound",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        304
+      ],
+      "webhookId": "126d3d59-4a77-44f0-a3e8-c4791f81fa46"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\nconst phone = String(body.phone || body.telefono_1 || '');\nconst marca = String(body.marca || 'KIA').toUpperCase();\n\nreturn [{\n  json: {\n    phone: phone,\n    marca: marca,\n    body: body\n  }\n}];"
+      },
+      "id": "c0",
+      "name": "Extraer Datos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://quicklink.spb.aigentss.cloud/rest/v1/leads_quicklink?telefono_1=eq.{{ $json.phone }}&marca=eq.{{ $json.marca }}&select=id,quicklink_id,nombre_cliente,modelo",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "${REDACTED_JWT}"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer ${REDACTED_TOKEN}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "h_get",
+      "name": "Obtener Lead de Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const leads = $json;\nconst lead = Array.isArray(leads) ? leads[0] : null;\n\nif (!lead) {\n  return [{ json: { error: 'lead_not_found', phone: $json.phone, marca: $json.marca } }];\n}\n\nreturn [{ json: {\n  phone: $json.phone,\n  marca: $json.marca,\n  lead_id: lead.id,\n  quicklink_id: lead.quicklink_id,\n  nombre_cliente: lead.nombre_cliente,\n  modelo: lead.modelo\n}}];"
+      },
+      "id": "c1",
+      "name": "Validar Lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://quicklink.spb.aigentss.cloud/rest/v1/conversaciones",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "${REDACTED_JWT}"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer ${REDACTED_TOKEN}"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates,return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"lead_id\": {{ $json.lead_id }},\n  \"marca\": \"{{ $json.marca }}\",\n  \"canal\": \"WHATSAPP\",\n  \"estado\": \"CONTACTO_1\",\n  \"intentos_realizados\": 1\n}",
+        "options": {}
+      },
+      "id": "h_post",
+      "name": "Crear Conversacion",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst marca   = String($json.marca || 'KIA').toUpperCase();\nconst nombre  = String($json.nombre_cliente || 'estimado/a cliente');\nconst modelo  = String($json.modelo || 'su vehiculo');\nconst msgDB   = String($json.mensaje_bienvenida || '');\n\n// Usar mensaje de configuracion_marcas si disponible (ya en usted con NOMBRE/MODELO)\nlet mensaje = msgDB\n  .replace(/NOMBRE/g, nombre)\n  .replace(/MODELO/g, modelo);\n\n// Fallback si no hay mensaje en DB\nif (!mensaje) {\n  const mensajes = {\n    KIA: 'Estimado/a ' + nombre + ', le saluda Cris, asesora de QuickLink Ecuador. Pensando en la seguridad de su ' + modelo + ', le presentamos Telemetria KIA. Desea conocer mas sobre este servicio? Por favor responda Si o No.',\n    HYUNDAI: 'Estimado/a ' + nombre + ', le saluda Cris de QuickLink Ecuador. Le presentamos My Hyundai Link para su ' + modelo + ': localizacion en tiempo real y asistencia ante emergencias. Desea conocer mas? Responda Si o No.'\n  };\n  mensaje = mensajes[marca] || ('Estimado/a ' + nombre + ', le saluda Cris de QuickLink. Tenemos una solucion de seguridad vehicular para su ' + modelo + '. Desea conocer mas? Si o No.');\n}\n\nreturn [{ json: { ...$json, mensaje_bienvenida_final: mensaje } }];\n"
+      },
+      "id": "c2",
+      "name": "Preparar Bienvenida",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v23.0/{{ $json.meta_phone_number_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.meta_access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"recipient_type\": \"individual\",\n  \"to\": \"{{ $json.to_phone }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"preview_url\": false,\n    \"body\": \"{{ $json.mensaje_bienvenida }}\"\n  }\n}",
+        "options": {}
+      },
+      "id": "h1",
+      "name": "Enviar WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1232,
+        304
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Outbound": {
+      "main": [
+        [
+          {
+            "node": "Extraer Datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer Datos": {
+      "main": [
+        [
+          {
+            "node": "Obtener Lead de Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obtener Lead de Supabase": {
+      "main": [
+        [
+          {
+            "node": "Validar Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar Lead": {
+      "main": [
+        [
+          {
+            "node": "Crear Conversacion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crear Conversacion": {
+      "main": [
+        [
+          {
+            "node": "Preparar Bienvenida",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Bienvenida": {
+      "main": [
+        [
+          {
+            "node": "Enviar WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "b0ab9fbb-fdbf-5a4c-9dbb-16c912d91acd",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

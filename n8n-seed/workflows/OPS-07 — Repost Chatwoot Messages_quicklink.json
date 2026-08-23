@@ -1,0 +1,139 @@
+{
+  "id": "IRVR1HVbMeWqN8gT_quicklink",
+  "name": "OPS-07 — Repost Chatwoot Messages_quicklink",
+  "nodes": [
+    {
+      "id": "repost-webhook-001",
+      "name": "Webhook Repost Chatwoot",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        120,
+        260
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cris-ops-repost-chatwoot-messages",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "0hYeKlozui5dMRDE_quicklink",
+          "name": "QL Sync Manual Webhook Token_QUICKLINK"
+        }
+      },
+      "webhookId": "cris-ops-repost-chatwoot-messages"
+    },
+    {
+      "id": "repost-normalize-001",
+      "name": "Code - Normalize Messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        260
+      ],
+      "parameters": {
+        "jsCode": "const src = $json.body || $json || {};\nconst rows = Array.isArray(src.messages) ? src.messages : [src];\n\nfunction normalizeLeakText(value) {\n  return String(value || '')\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '')\n    .toLowerCase();\n}\n\nfunction internalLeakReasons(value) {\n  const raw = String(value || '');\n  const text = normalizeLeakText(raw);\n  const checks = [\n    ['json_schema_parser_instruction', /you must format your output|json schema|schema instance|provided schema|parsed and type-checked|type-checked according to|trailing commas|enclosing markdown codeblock|well-formatted instance|annotate and validate json documents|declarative language/i],\n    ['structured_output_parser_instruction', /structured output parser|output parser|format instructions|must adhere to|adhere to the provided schema|include the enclosing markdown codeblock/i],\n    ['internal_prompt_leak', /system prompt|developer message|tool call|internal instruction|do not reveal|no reveles|mensaje del sistema/i],\n    ['schema_shape_leak', /[\"']\\$schema[\"']|[\"']required[\"']\\s*:\\s*\\[|[\"']properties[\"']\\s*:\\s*\\{|properties\\}\\}/i],\n  ];\n  return checks.filter(([, regex]) => regex.test(raw) || regex.test(text)).map(([reason]) => reason);\n}\n\nreturn rows.map((row, idx) => {\n  const conversationId = Number(row.conversation_id || row.chatwoot_conv_id || row.id || 0);\n  if (!conversationId) throw new Error('conversation_id is required at index ' + idx);\n  const content = String(row.content || '').trim();\n  if (!content) throw new Error('content is required at index ' + idx);\n  const privateMessage = row.private === true || String(row.private || '').toLowerCase() === 'true';\n  const leakReasons = privateMessage ? [] : internalLeakReasons(content);\n  if (leakReasons.length) {\n    throw new Error('public_content_blocked_internal_leak at index ' + idx + ': ' + leakReasons.join(','));\n  }\n  return {\n    json: {\n      conversation_id: conversationId,\n      account_id: Number(row.account_id || src.account_id || 2),\n      base_url: String(row.base_url || src.base_url || 'http://chatwoot:3000').replace(/\\/$/, ''),\n      content,\n      private: privateMessage,\n    }\n  };\n});"
+      }
+    },
+    {
+      "id": "repost-http-001",
+      "name": "HTTP - Post Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        740,
+        260
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.base_url + '/api/v1/accounts/' + $json.account_id + '/conversations/' + $json.conversation_id + '/messages' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.content, message_type: 'outgoing', private: $json.private }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "repost-summary-001",
+      "name": "Code - Summarize Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1060,
+        260
+      ],
+      "parameters": {
+        "jsCode": "const requests = $('Code - Normalize Messages').all().map(item => item.json || {});\nconst responses = $input.all();\nconst results = responses.map((item, index) => {\n  const request = requests[index] || {};\n  const response = item.json || {};\n  const body = response.body && typeof response.body === 'object' ? response.body : response;\n  const statusCode = Number(response.statusCode || response.status || body.statusCode || body.status || 0);\n  const ok = statusCode >= 200 && statusCode < 300 && !body.error;\n  return {\n    ok,\n    conversation_id: request.conversation_id || body.conversation_id || body.conversation?.id || body.data?.conversation_id || null,\n    message_id: body.id || body.data?.id || null,\n    private: request.private ?? body.private ?? body.data?.private ?? null,\n    http_status: statusCode || null,\n    status: body.status || body.data?.status || null,\n    error: body.error || body.message || null,\n  };\n});\nconst failed = results.filter(row => !row.ok);\nreturn [{ json: {\n  ok: failed.length === 0,\n  count: results.length,\n  sent_count: results.filter(row => row.ok).length,\n  failed_count: failed.length,\n  results,\n} }];"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Repost Chatwoot": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalize Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Normalize Messages": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Post Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Post Message": {
+      "main": [
+        [
+          {
+            "node": "Code - Summarize Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "4fd0aa9b-9b89-55ec-8cec-689964af822d",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

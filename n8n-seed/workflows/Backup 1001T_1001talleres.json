@@ -1,0 +1,326 @@
+{
+  "id": "vMTy1P1XPO3hBeHl_1001talleres",
+  "name": "Backup 1001T_1001talleres",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        -192
+      ],
+      "id": "f77cb2b4-28b9-4cc6-a391-a6621fe0a0b8",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-backup-credentials.backupCredential",
+      "typeVersion": 1,
+      "position": [
+        48,
+        -192
+      ],
+      "id": "d2eb408f-3cba-433b-9ada-d9f2bd4aa40e",
+      "name": "Backup credentials"
+    },
+    {
+      "parameters": {
+        "name": "=ba-credential-{{ $now.format('yyyy-MM-dd') }}-1001T.json",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "https://drive.google.com/drive/folders/1EElHhTiTwArxFClbqQwMwWSiB-AbSR_u",
+          "mode": "url"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        256,
+        -192
+      ],
+      "id": "2b95fef3-4d3b-403b-8206-2797b6031494",
+      "name": "Upload file",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "LfrC6oL28lsmXIvQ_1001talleres",
+          "name": "Google Drive account_1001TALLERES"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "backupWorkflows"
+      },
+      "type": "n8n-nodes-backup-credentials.backupCredential",
+      "typeVersion": 1,
+      "position": [
+        64,
+        16
+      ],
+      "id": "99fa3693-dd50-4e35-9905-8db2b13693f3",
+      "name": "Backup workflows"
+    },
+    {
+      "parameters": {
+        "name": "=ba-workflows-{{ $now.format('yyyy-MM-dd') }}-1001T.json",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "https://drive.google.com/drive/folders/1EElHhTiTwArxFClbqQwMwWSiB-AbSR_u",
+          "mode": "url"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        256,
+        16
+      ],
+      "id": "776d6a19-d0a3-482b-95e9-693476e7cf74",
+      "name": "Upload file1",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "LfrC6oL28lsmXIvQ_1001talleres",
+          "name": "Google Drive account_1001TALLERES"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Backup",
+        "height": 416,
+        "width": 688
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -224,
+        -256
+      ],
+      "typeVersion": 1,
+      "id": "a1eb75a3-f67a-40c8-84f3-b3a46d30bcd5",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {}
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -160,
+        16
+      ],
+      "id": "1ae50bda-6fe6-4ae3-876b-50261714c65c",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "formTitle": "Restore Credentials",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "data",
+              "fieldType": "file",
+              "multipleFiles": false,
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.3,
+      "position": [
+        -160,
+        272
+      ],
+      "id": "a88aa83b-8efe-4bf7-8212-0fc52b7b0fed",
+      "name": "On form submission",
+      "webhookId": "9fa278c9-d849-4c06-a0f2-22bf883c9f6d"
+    },
+    {
+      "parameters": {
+        "operation": "restoreCredentials"
+      },
+      "type": "n8n-nodes-backup-credentials.backupCredential",
+      "typeVersion": 1,
+      "position": [
+        64,
+        272
+      ],
+      "id": "4f27d44e-cfed-4171-86a5-ac89c2e89f03",
+      "name": "Restore credentials"
+    },
+    {
+      "parameters": {
+        "formTitle": "Restore Workflow",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "data",
+              "fieldType": "file",
+              "multipleFiles": false,
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.3,
+      "position": [
+        -160,
+        560
+      ],
+      "id": "38389f66-878c-43c3-883a-7b01ab15fbd9",
+      "name": "On form submission1",
+      "webhookId": "af211e39-baf7-4fca-80ab-ed6e0e9cca57"
+    },
+    {
+      "parameters": {
+        "operation": "restoreWorkflows"
+      },
+      "type": "n8n-nodes-backup-credentials.backupCredential",
+      "typeVersion": 1,
+      "position": [
+        64,
+        560
+      ],
+      "id": "dd6cbade-34d1-4054-9610-8286a7587642",
+      "name": "Restore workflows"
+    },
+    {
+      "parameters": {
+        "content": "## Restore Credentials",
+        "height": 240,
+        "width": 688
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -224,
+        192
+      ],
+      "typeVersion": 1,
+      "id": "a35a0785-b292-4ddf-81b1-72c4d237f87f",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Restore Workflows",
+        "height": 240,
+        "width": 688
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -224,
+        480
+      ],
+      "typeVersion": 1,
+      "id": "fa14c512-eef0-4916-bbb2-a9f918e43ffc",
+      "name": "Sticky Note2"
+    }
+  ],
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Backup credentials",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Backup workflows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Backup credentials": {
+      "main": [
+        [
+          {
+            "node": "Upload file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Backup workflows": {
+      "main": [
+        [
+          {
+            "node": "Upload file1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Backup workflows",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Backup credentials",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "Restore credentials",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On form submission1": {
+      "main": [
+        [
+          {
+            "node": "Restore workflows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "c67ea1a8-e6a9-5537-9c9d-74dc83f559eb",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

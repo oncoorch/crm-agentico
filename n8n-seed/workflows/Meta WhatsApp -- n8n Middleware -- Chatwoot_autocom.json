@@ -1,0 +1,478 @@
+{
+  "id": "YrTdonKwTfNKsuPl_autocom",
+  "name": "Meta WhatsApp -> n8n Middleware -> Chatwoot_autocom",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "meta-whatsapp-middleware",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "11280fbf-0762-418e-ab67-0d0cc79b6d3a",
+      "name": "Webhook Verify GET",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -688,
+        80
+      ],
+      "webhookId": "a182ad6f-2a80-4305-90c7-7a5fe7c2df4d"
+    },
+    {
+      "parameters": {
+        "jsCode": "const q = $json.query || {};\nconst mode = q['hub.mode'];\nconst token = q['hub.verify_token'];\nconst challenge = q['hub.challenge'];\nconst expected = $env.META_VERIFY_TOKEN || '0931234d935978f4527ec724e1a9c60e';\n\nif (mode === 'subscribe' && token === expected) {\n  return [{ json: { ok: true, challenge } }];\n}\n\nreturn [{ json: { ok: false, error: 'Verification token mismatch' } }];"
+      },
+      "id": "3f8cf83d-26da-475d-80ef-df7531c1a6f4",
+      "name": "Validate Verify Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -464,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2a",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "54b50c3b-c126-4248-aa53-34d1f808d724",
+      "name": "If Verify OK",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -240,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.challenge }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "c7a6d417-da06-4e22-b0dc-29031b2f5db3",
+      "name": "Respond 200 Challenge",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"error\":\"verification failed\"}",
+        "options": {
+          "responseCode": 403
+        }
+      },
+      "id": "534a9963-c52c-440f-8d9b-e77cf5216a38",
+      "name": "Respond 403",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "meta-whatsapp-middleware",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "d1b00c70-ef89-42c5-9c9a-d7939aef55e4",
+      "name": "Webhook Events POST",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -688,
+        480
+      ],
+      "webhookId": "93101755-2e57-4a12-acfd-32141dde10fa"
+    },
+    {
+      "parameters": {
+        "jsCode": "const value = $json.body?.entry?.[0]?.changes?.[0]?.value || {};\nconst msg = value.messages?.[0] || null;\nconst statuses = value.statuses || [];\n\nif (!msg) {\n  return [{ json: {\n    route: statuses.length ? 'status' : 'ignore',\n    raw: $json.body,\n    value,\n    statuses,\n  }}];\n}\n\nconst isFlowReply = msg.type === 'interactive' && msg.interactive?.type === 'nfm_reply';\nconst isButtonReply =\n  (msg.type === 'button' && !!msg.button?.payload) ||\n  (msg.type === 'interactive' && msg.interactive?.type === 'button_reply' && !!msg.interactive?.button_reply?.id) ||\n  (msg.type === 'interactive' && msg.interactive?.type === 'list_reply' && !!msg.interactive?.list_reply?.id);\n\nconst phoneNumberId = value.metadata?.phone_number_id || '';\nconst waId = value.contacts?.[0]?.wa_id || msg.from || '';\nconst profileName = value.contacts?.[0]?.profile?.name || '';\nconst buttonPayload = msg.button?.payload || msg.interactive?.button_reply?.id || msg.interactive?.list_reply?.id || '';\nconst buttonText = msg.button?.text || msg.interactive?.button_reply?.title || msg.interactive?.list_reply?.title || '';\n\nlet route = 'normal';\nif (isFlowReply) route = 'flow';\nelse if (isButtonReply) route = 'button_reply';\n\n$execution.customData.set('tipo', route);\n\nreturn [{ json: {\n  route,\n  phone_number_id: phoneNumberId,\n  wa_id: waId,\n  profile_name: profileName,\n  message_id: msg.id || '',\n  timestamp: msg.timestamp || '',\n  flow_token: msg.interactive?.nfm_reply?.flow_token || '',\n  flow_name: msg.interactive?.nfm_reply?.name || '',\n  response_json: msg.interactive?.nfm_reply?.response_json || {},\n  button_payload: buttonPayload,\n  button_text: buttonText,\n  msg,\n  raw: $json.body,\n}}];"
+      },
+      "id": "f4c36a0f-09c9-4cc3-b3ba-cce15562528b",
+      "name": "Classify Meta Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "12a",
+              "leftValue": "={{ $json.route }}",
+              "rightValue": "normal",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ec06dee0-3eb2-4232-885b-9521b0fef281",
+      "name": "If Normal Message",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -208,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CHATWOOT_WEBHOOK_INTERNAL_URL || 'http://chatwoot:3000/webhooks/whatsapp/+593998667257' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.raw }}",
+        "options": {}
+      },
+      "id": "faceafef-7cdd-4f15-b735-c76717bb483a",
+      "name": "Forward Raw To Chatwoot Webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"ok\":true,\"route\":\"normal_forwarded\"}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "f94a342a-4bc0-45f2-b9df-bd45e0dbfb9c",
+      "name": "Respond 200 Normal",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "15a",
+              "leftValue": "={{ $json.route }}",
+              "rightValue": "flow",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "408bc564-671d-4844-8157-1039981f15a5",
+      "name": "If Flow Reply",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -208,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = JSON.parse(JSON.stringify($json));\n\nfunction parseResponseJson(value) {\n  if (!value) return {};\n  if (typeof value === 'object') return value;\n  try {\n    return JSON.parse(value);\n  } catch (e) {\n    return { raw_response_json: String(value) };\n  }\n}\n\nfunction formatValue(value) {\n  if (Array.isArray(value)) {\n    return value.join(', ');\n  }\n  if (value && typeof value === 'object') {\n    return JSON.stringify(value);\n  }\n  if (value === null || value === undefined || value === '') {\n    return '-';\n  }\n  return String(value);\n}\n\nconst data = parseResponseJson(item.response_json);\n\nconst lines = [];\nfor (const [key, value] of Object.entries(data)) {\n  lines.push(`${key}: ${formatValue(value)}`);\n}\n\nconst textBody = lines.join('\\n');\n\nconst msg = item.raw?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];\n\nif (!msg) {\n  throw new Error('No se encontró raw.entry[0].changes[0].value.messages[0]');\n}\n\n// mantener todo igual y cambiar SOLO messages[0]\nmsg.type = 'text';\nmsg.text = {\n  body: textBody\n};\n\n// quitar la parte interactiva\n// delete msg.interactive;\n// opcional: quitar context para que se parezca más al mensaje normal\n// delete msg.context;\n\nreturn [\n  {\n    json: item\n  }\n];"
+      },
+      "id": "8d0af3e1-652e-449d-8d8c-18fa960bd6dc",
+      "name": "Transform Flow To Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        96,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"ok\":true,\"route\":\"ignored\"}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "90d81ea8-5c22-4ca5-954b-cdde86938c60",
+      "name": "Respond 200 Ignore",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        112,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "btn-route-check",
+              "leftValue": "={{ $json.route }}",
+              "rightValue": "button_reply",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "93be59f5-2ac4-451f-a04b-27b7dadaad99",
+      "name": "If Button Reply",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -208,
+        896
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = JSON.parse(JSON.stringify($json));\n\nconst msg = item.raw?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];\nif (!msg) {\n  throw new Error('No se encontró raw.entry[0].changes[0].value.messages[0]');\n}\n\nconst payload = String(item.button_payload || msg.button?.payload || msg.interactive?.button_reply?.id || msg.interactive?.list_reply?.id || '').trim();\nconst buttonText = String(item.button_text || msg.button?.text || msg.interactive?.button_reply?.title || msg.interactive?.list_reply?.title || '').trim();\nconst listDescription = String(msg.interactive?.list_reply?.description || '').trim();\nconst isListReply = msg.type === 'interactive' && msg.interactive?.type === 'list_reply';\n\nlet model = '';\nlet action = '';\n\nif (payload.includes('__')) {\n  const parts = payload.split('__');\n  model = String(parts[0] || '').trim();\n  action = String(parts.slice(1).join('__') || '').trim();\n}\n\nconst textLines = isListReply\n  ? [\n      'list_reply_id: ' + (payload || '-'),\n      'list_reply_title: ' + (buttonText || '-'),\n      'list_reply_description: ' + (listDescription || '-'),\n      'selected_establishment_name: ' + (buttonText || '-'),\n      'selected_establishment_id: ' + (payload.startsWith('est__') ? payload.slice(5) : '-'),\n      'button_payload: ' + (payload || '-'),\n    ]\n  : [\n      'button_action: ' + (action || '-'),\n      'model: ' + (model || '-'),\n      'button_text: ' + (buttonText || '-'),\n      'button_payload: ' + (payload || '-'),\n    ];\n\nconst textBody = textLines.join('\\n');\n\nmsg.type = 'text';\nmsg.text = { body: textBody };\ndelete msg.button;\nif (msg.interactive) delete msg.interactive;\n\nreturn [{ json: item }];"
+      },
+      "id": "6ad3e6f1-0287-4061-ad21-6bd8cc378ba6",
+      "name": "Transform Button To Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        112,
+        752
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Verify GET": {
+      "main": [
+        [
+          {
+            "node": "Validate Verify Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Verify Token": {
+      "main": [
+        [
+          {
+            "node": "If Verify OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Verify OK": {
+      "main": [
+        [
+          {
+            "node": "Respond 200 Challenge",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 403",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Events POST": {
+      "main": [
+        [
+          {
+            "node": "Classify Meta Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Meta Event": {
+      "main": [
+        [
+          {
+            "node": "If Normal Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Normal Message": {
+      "main": [
+        [
+          {
+            "node": "Forward Raw To Chatwoot Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If Flow Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Forward Raw To Chatwoot Webhook": {
+      "main": [
+        [
+          {
+            "node": "Respond 200 Normal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Flow Reply": {
+      "main": [
+        [
+          {
+            "node": "Transform Flow To Text",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If Button Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform Flow To Text": {
+      "main": [
+        [
+          {
+            "node": "Forward Raw To Chatwoot Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Button Reply": {
+      "main": [
+        [
+          {
+            "node": "Transform Button To Text",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 200 Ignore",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform Button To Text": {
+      "main": [
+        [
+          {
+            "node": "Forward Raw To Chatwoot Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "2a808f66-67ad-5f61-ba50-9f169a6cd9bd",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

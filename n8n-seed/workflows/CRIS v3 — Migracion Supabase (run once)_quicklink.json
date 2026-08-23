@@ -1,0 +1,292 @@
+{
+  "id": "k2AqKjVQuFXV8RRx_quicklink",
+  "name": "CRIS v3 — Migracion Supabase (run once)_quicklink",
+  "nodes": [
+    {
+      "id": "wh-1",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        200,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "cris-migration-v3-run",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "webhookId": "bf892a9b-d7db-487e-aa32-cbd5a662702b"
+    },
+    {
+      "id": "p1",
+      "name": "01 scheduled_followups",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"; CREATE TABLE IF NOT EXISTS scheduled_followups (id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), conversation_id UUID NOT NULL REFERENCES conversaciones(id) ON DELETE CASCADE, tipo_followup VARCHAR(50) NOT NULL, scheduled_at TIMESTAMPTZ NOT NULL, status VARCHAR(20) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'SENT', 'CANCELLED', 'FAILED')), processed_at TIMESTAMPTZ, error_msg TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now()); CREATE INDEX IF NOT EXISTS idx_followup_scheduled ON scheduled_followups(scheduled_at) WHERE status = 'PENDING'; CREATE INDEX IF NOT EXISTS idx_followup_conv ON scheduled_followups(conversation_id);",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "p2",
+      "name": "02 agent_decisions",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        680,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "CREATE TABLE IF NOT EXISTS agent_decisions (id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), conversation_id UUID NOT NULL REFERENCES conversaciones(id) ON DELETE CASCADE, estado_entrada VARCHAR(50), mensaje_usuario TEXT, tokens_input INTEGER, intent VARCHAR(100), sentiment VARCHAR(20), confidence DECIMAL(4,3), next_state VARCHAR(50), trigger_handoff BOOLEAN DEFAULT false, trigger_loss BOOLEAN DEFAULT false, response_text TEXT, full_response JSONB, latencia_ms INTEGER, tokens_output INTEGER, model_used VARCHAR(50) DEFAULT 'gpt-4.1', is_fallback BOOLEAN DEFAULT false, error_msg TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now()); CREATE INDEX IF NOT EXISTS idx_decisions_conv ON agent_decisions(conversation_id); CREATE INDEX IF NOT EXISTS idx_decisions_created ON agent_decisions(created_at DESC);",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "p3",
+      "name": "03 memory sync_queue",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        920,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "CREATE TABLE IF NOT EXISTS conversation_memory (id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), conversation_id UUID NOT NULL REFERENCES conversaciones(id) ON DELETE CASCADE UNIQUE, messages JSONB NOT NULL DEFAULT '[]'::jsonb, nombre_confirmado VARCHAR(200), plan_mostrado_interes VARCHAR(100), objeciones JSONB DEFAULT '[]'::jsonb, resumen_conversacion TEXT, nivel_interes VARCHAR(10), last_active_at TIMESTAMPTZ NOT NULL DEFAULT now(), created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()); CREATE TABLE IF NOT EXISTS sync_queue (id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), conversation_id UUID NOT NULL REFERENCES conversaciones(id), tipo_evento VARCHAR(50) NOT NULL, payload JSONB NOT NULL, status VARCHAR(20) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'SENT', 'FAILED')), intentos INTEGER NOT NULL DEFAULT 0, ultimo_intento_at TIMESTAMPTZ, error_msg TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now()); CREATE INDEX IF NOT EXISTS idx_sync_queue_pending ON sync_queue(created_at) WHERE status = 'PENDING';",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "p4",
+      "name": "04 ALTER conversaciones",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1160,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "ALTER TABLE conversaciones ADD COLUMN IF NOT EXISTS variante_mensaje CHAR(1); ALTER TABLE conversaciones ADD COLUMN IF NOT EXISTS objeciones_detectadas JSONB DEFAULT '[]'::jsonb; ALTER TABLE conversaciones ADD COLUMN IF NOT EXISTS plan_interes VARCHAR(100); ALTER TABLE conversaciones ADD COLUMN IF NOT EXISTS razon_perdida VARCHAR(50); ALTER TABLE conversaciones ADD COLUMN IF NOT EXISTS estado_anterior VARCHAR(50); ALTER TABLE conversaciones ADD COLUMN IF NOT EXISTS estado_updated_at TIMESTAMPTZ DEFAULT now(); ALTER TABLE conversaciones ADD COLUMN IF NOT EXISTS proxima_accion_at TIMESTAMPTZ; ALTER TABLE conversaciones ADD COLUMN IF NOT EXISTS chatwoot_contact_id INTEGER; ALTER TABLE conversaciones ADD COLUMN IF NOT EXISTS chatwoot_conv_id INTEGER; ALTER TABLE conversaciones ADD COLUMN IF NOT EXISTS quicklink_sync_status VARCHAR(50) DEFAULT 'PENDING'; ALTER TABLE conversaciones ADD COLUMN IF NOT EXISTS quicklink_synced_at TIMESTAMPTZ; ALTER TABLE conversaciones ADD COLUMN IF NOT EXISTS primera_respuesta_at TIMESTAMPTZ; ALTER TABLE conversaciones ADD COLUMN IF NOT EXISTS latencia_primera_respuesta_ms INTEGER; ALTER TABLE conversaciones ADD COLUMN IF NOT EXISTS total_mensajes_enviados INTEGER DEFAULT 0; ALTER TABLE conversaciones ADD COLUMN IF NOT EXISTS total_mensajes_recibidos INTEGER DEFAULT 0;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "p5",
+      "name": "05 configuracion_marcas",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1400,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "CREATE TABLE IF NOT EXISTS configuracion_marcas (id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), marca VARCHAR(50) NOT NULL UNIQUE, nombre_servicio VARCHAR(100) NOT NULL, activa BOOLEAN NOT NULL DEFAULT true, max_intentos INTEGER NOT NULL DEFAULT 3, timeout_espera_1_horas INTEGER NOT NULL DEFAULT 24, timeout_espera_2_horas INTEGER NOT NULL DEFAULT 24, timeout_espera_3_horas INTEGER NOT NULL DEFAULT 24, max_leads_por_minuto INTEGER NOT NULL DEFAULT 50, prompt_contexto_marca TEXT, prompt_inicial_a TEXT, prompt_inicial_b TEXT, prompt_inicial_c TEXT, prompt_inicial_d TEXT, prompt_followup_2 TEXT, prompt_followup_3 TEXT, confidence_handoff_threshold DECIMAL(3,2) DEFAULT 0.80, confidence_loss_threshold DECIMAL(3,2) DEFAULT 0.75, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()); INSERT INTO configuracion_marcas (marca, nombre_servicio) VALUES ('KIA', 'Telemetria KIA'), ('HYUNDAI', 'My Hyundai Link') ON CONFLICT (marca) DO UPDATE SET nombre_servicio = EXCLUDED.nombre_servicio, updated_at = now();",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "p6",
+      "name": "06 Triggers",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1640,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "CREATE OR REPLACE FUNCTION trigger_set_updated_at() RETURNS TRIGGER AS $func$ BEGIN NEW.updated_at = now(); RETURN NEW; END; $func$ LANGUAGE plpgsql; DROP TRIGGER IF EXISTS set_updated_at_conversaciones ON conversaciones; CREATE TRIGGER set_updated_at_conversaciones BEFORE UPDATE ON conversaciones FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at(); CREATE OR REPLACE FUNCTION trigger_log_estado_cambio() RETURNS TRIGGER AS $func$ BEGIN IF OLD.estado IS DISTINCT FROM NEW.estado THEN INSERT INTO eventos_conversacion (conversation_id, tipo_evento, estado_origen, estado_destino, actor, payload) VALUES (NEW.id, 'estado_cambiado', OLD.estado, NEW.estado, 'sistema', jsonb_build_object('estado_anterior', OLD.estado, 'estado_nuevo', NEW.estado, 'ts', now())); NEW.estado_anterior = OLD.estado; NEW.estado_updated_at = now(); END IF; RETURN NEW; END; $func$ LANGUAGE plpgsql; DROP TRIGGER IF EXISTS log_estado_cambio ON conversaciones; CREATE TRIGGER log_estado_cambio BEFORE UPDATE ON conversaciones FOR EACH ROW EXECUTE FUNCTION trigger_log_estado_cambio();",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "p7",
+      "name": "07 Vistas",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1880,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "CREATE OR REPLACE VIEW v_pipeline_actual AS SELECT marca, estado, COUNT(*) AS total FROM conversaciones GROUP BY marca, estado ORDER BY marca, total DESC; CREATE OR REPLACE VIEW v_conversaciones_activas AS SELECT c.id, c.nombre, c.marca, c.modelo, c.telefono, c.estado, c.proxima_accion_at, sf.tipo_followup AS followup_pendiente, sf.scheduled_at AS followup_at, c.updated_at AS ultima_actividad FROM conversaciones c LEFT JOIN scheduled_followups sf ON sf.conversation_id = c.id AND sf.status = 'PENDING' WHERE c.estado NOT IN ('GANADO', 'OPORTUNIDAD_PERDIDA', 'NO_CONTACTABLE', 'DESCARTADO') ORDER BY c.proxima_accion_at ASC NULLS LAST;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "p8",
+      "name": "08 Verificar",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2120,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT (SELECT COUNT(*) FROM scheduled_followups) as sf_rows, (SELECT COUNT(*) FROM agent_decisions) as ad_rows, (SELECT COUNT(*) FROM conversation_memory) as cm_rows, (SELECT COUNT(*) FROM sync_queue) as sq_rows, (SELECT COUNT(*) FROM configuracion_marcas) as config_rows, now()::text as migrated_at;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "01 scheduled_followups",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "01 scheduled_followups": {
+      "main": [
+        [
+          {
+            "node": "02 agent_decisions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "02 agent_decisions": {
+      "main": [
+        [
+          {
+            "node": "03 memory sync_queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "03 memory sync_queue": {
+      "main": [
+        [
+          {
+            "node": "04 ALTER conversaciones",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "04 ALTER conversaciones": {
+      "main": [
+        [
+          {
+            "node": "05 configuracion_marcas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "05 configuracion_marcas": {
+      "main": [
+        [
+          {
+            "node": "06 Triggers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "06 Triggers": {
+      "main": [
+        [
+          {
+            "node": "07 Vistas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "07 Vistas": {
+      "main": [
+        [
+          {
+            "node": "08 Verificar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "710c99b0-2ae5-59db-8187-37293b4d3867",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

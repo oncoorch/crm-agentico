@@ -30,12 +30,21 @@ Este archivo permite continuar el trabajo en otra conversacion.
 - `scripts/chatwoot_branding_assets.sh`: copia assets de marca autorizados al contenedor Chatwoot.
 - `scripts/install_maintenance_cron.sh`: instala cron para sync/branding.
 - `scripts/n8n_export_backup.sh`: exporta workflows y credenciales n8n a una carpeta privada local del servidor.
+- `scripts/n8n_seed_import.sh`: corre dentro del servicio `n8n_seed` para importar workflows/credenciales en cada despliegue.
+- `scripts/build_n8n_seed_credentials_bundle.py`: genera localmente `private/n8n-seed/N8N_SEED_CREDENTIALS_TGZ_B64.txt`.
 
 ## Manuales
 
 - `docs/mcp-connector.md`: funcionamiento e implementacion del conector MCP.
+- `docs/n8n-seed.md`: semilla reproducible de workflows y credenciales n8n.
 - `docs/dokploy-runbook.md`: despliegue Dokploy.
 - `docs/source-vps-inventory.md`: origen de la arquitectura.
+
+## Semilla n8n
+
+- `n8n-seed/workflows/`: 203 workflows renombrados como `name_hostname`.
+- Las credenciales reales no se suben a GitHub; se pasan por la variable secreta `N8N_SEED_CREDENTIALS_TGZ_B64`.
+- Para el n8n actual de `automation-crm.oncoorch.com`, el proyecto Personal observado es `Wxcc72mwXx2dIsJU`; usarlo en `N8N_SEED_PROJECT_ID`.
 
 ## Linea de seguridad
 

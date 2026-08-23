@@ -1,0 +1,205 @@
+{
+  "id": "UPx5gewJ4R9Uq9os_quicklink",
+  "name": "REN - DEV - OPS-05 - Release Migration Lock_quicklink",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "renov/dev/ops/release-migration-lock",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "ops05-webhook-001",
+      "name": "POST Release Lock",
+      "webhookId": "3f8c1d54-6a2b-4f19-9e73-2b7c4d905a11"
+    },
+    {
+      "parameters": {
+        "jsCode": "function env(name, fallback = '') {\n  try { return $env[name] || fallback; } catch (e) { return fallback; }\n}\n\nconst request = $input.first().json;\nconst headers = request.headers ?? {};\nconst body = request.body ?? {};\n\nfunction readHeader(name) {\n  const target = name.toLowerCase();\n  for (const [key, value] of Object.entries(headers)) {\n    if (String(key).toLowerCase() === target) {\n      return Array.isArray(value) ? value[0] : value;\n    }\n  }\n  return null;\n}\n\nconst expectedToken = env('RENOV_INTERNAL_TOKEN');\n\nif (!expectedToken) {\n  return [{ json: { authorized: false, statusCode: 503, error: 'RENOV_INTERNAL_TOKEN no está configurado en n8n.' } }];\n}\n\nconst bearer = readHeader('authorization') || '';\nconst provided = readHeader('x-internal-token')\n  || (bearer.startsWith('Bearer ') ? bearer.slice(7).trim() : '');\n\nif (provided !== expectedToken) {\n  return [{ json: { authorized: false, statusCode: 401, error: 'Token interno inválido o ausente.' } }];\n}\n\n// Which lock, and whose. Releasing is deliberately explicit: either name the\n// execution that holds it, or pass force to clear whoever holds it.\nconst ALLOWED_LOCKS = ['OPS-04:renovation_dev', 'OPS-04:renovation_uat', 'OPS-04:renovation'];\nconst lockName = String(body.lock_name || 'OPS-04:renovation_dev');\n\nif (!ALLOWED_LOCKS.includes(lockName)) {\n  return [{ json: { authorized: false, statusCode: 400, error: 'lock_name fuera de la lista permitida: ' + ALLOWED_LOCKS.join(', ') } }];\n}\n\nconst owner = body.owner === undefined || body.owner === null ? null : String(body.owner);\nconst force = body.force === true;\n\nif (!owner && !force) {\n  return [{ json: { authorized: false, statusCode: 400, error: 'Indica \"owner\" (el id de ejecución que dejó el lock tomado) o \"force\": true.' } }];\n}\n\nreturn [{\n  json: {\n    authorized: true,\n    statusCode: 200,\n    lock_name: lockName,\n    owner: owner,\n    force: force,\n  },\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "id": "ops05-guard-001",
+      "name": "Validate Request"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "authorized",
+              "leftValue": "={{ $json.authorized }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        0
+      ],
+      "id": "ops05-if-001",
+      "name": "IF Authorized"
+    },
+    {
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "=UPDATE public.ops_migration_mutex\nSET owner = NULL, locked_until = now()\nWHERE lock_name = '{{ $json.lock_name }}'\n  AND ({{ $json.force }} OR owner = '{{ $json.owner }}')\nRETURNING lock_name, owner AS owner_after, locked_until;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        720,
+        -96
+      ],
+      "id": "ops05-release-001",
+      "name": "Postgres - Release Lock",
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { released: $json.lock_name !== undefined, lock: $json } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        960,
+        -96
+      ],
+      "id": "ops05-respond-ok-001",
+      "name": "Respond Released"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { error: $json.error } }}",
+        "options": {
+          "responseCode": "={{ $json.statusCode }}"
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        720,
+        128
+      ],
+      "id": "ops05-respond-denied-001",
+      "name": "Respond Denied"
+    },
+    {
+      "parameters": {
+        "content": "## OPS-05 - Release Migration Lock\n\nValvula de escape para el mutex `public.ops_migration_mutex` de OPS-04.\n\nUna migracion que falla deja el lock tomado por su id de ejecucion y bloquea todo intento posterior. Este flujo lo libera de forma explicita y auditada.\n\n**No aplica DDL ni toca `flyway_schema_history`.**\n\nRequiere `RENOV_INTERNAL_TOKEN`. Body:\n\n```json\n{ \"lock_name\": \"OPS-04:renovation_dev\", \"owner\": \"57\" }\n```\n\nUsar `\"force\": true` solo cuando se confirmo que ninguna migracion esta corriendo.\n\nProcedimiento completo: `docs/wiki/05-RUNBOOK_DESPLIEGUE_ESQUEMA.md`.",
+        "height": 420,
+        "width": 420
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -480,
+        -160
+      ],
+      "id": "ops05-sticky-001",
+      "name": "Sticky Note"
+    }
+  ],
+  "connections": {
+    "POST Release Lock": {
+      "main": [
+        [
+          {
+            "node": "Validate Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Request": {
+      "main": [
+        [
+          {
+            "node": "IF Authorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Authorized": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Release Lock",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Denied",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Release Lock": {
+      "main": [
+        [
+          {
+            "node": "Respond Released",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "183fe66e-3334-5a43-acaa-68322358927d",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

@@ -1,0 +1,94 @@
+{
+  "id": "tVedUMJ9SfqCgP7U_quicklink",
+  "name": "CRIS QA - Apply V91_quicklink",
+  "nodes": [
+    {
+      "id": "qa-apply-v91-webhook-001",
+      "name": "Webhook Apply V91",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        120,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cris-qa-apply-v91",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "0hYeKlozui5dMRDE_quicklink",
+          "name": "QL Sync Manual Webhook Token_QUICKLINK"
+        }
+      },
+      "webhookId": "cris-qa-apply-v91-permanent"
+    },
+    {
+      "id": "qa-apply-v91-pg-001",
+      "name": "PG - Apply V91",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- ============================================================\n-- V91: CRIS QA test harness\n-- Stores reproducible n8n QA runs, cases, findings and shadow outbox.\n-- ============================================================\n\nCREATE OR REPLACE FUNCTION cris_qa_digits(p_phone text)\nRETURNS text\nLANGUAGE sql\nIMMUTABLE\nAS $$\n  SELECT regexp_replace(coalesce(p_phone, ''), '\\D', '', 'g')\n$$;\n\nCREATE OR REPLACE FUNCTION cris_qa_normalize_phone(p_phone text)\nRETURNS text\nLANGUAGE plpgsql\nIMMUTABLE\nAS $$\nDECLARE\n  d text := cris_qa_digits(p_phone);\nBEGIN\n  IF d = '' THEN\n    RETURN NULL;\n  END IF;\n\n  IF left(d, 3) = '593' THEN\n    RETURN '+' || d;\n  END IF;\n\n  IF left(d, 1) = '0' AND length(d) = 10 THEN\n    RETURN '+593' || substring(d from 2);\n  END IF;\n\n  IF left(d, 1) = '9' AND length(d) = 9 THEN\n    RETURN '+593' || d;\n  END IF;\n\n  RETURN '+' || d;\nEND;\n$$;\n\nCREATE TABLE IF NOT EXISTS cris_test_allowed_leads (\n  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n  phone_raw   text NOT NULL UNIQUE,\n  phone_e164  text GENERATED ALWAYS AS (cris_qa_normalize_phone(phone_raw)) STORED,\n  label       text,\n  active      boolean NOT NULL DEFAULT true,\n  notes       text,\n  created_at  timestamptz NOT NULL DEFAULT now(),\n  updated_at  timestamptz NOT NULL DEFAULT now()\n);\n\nCREATE UNIQUE INDEX IF NOT EXISTS uq_cris_test_allowed_leads_e164\n  ON cris_test_allowed_leads(phone_e164)\n  WHERE phone_e164 IS NOT NULL;\n\nCREATE OR REPLACE FUNCTION cris_qa_is_allowed_phone(p_phone text)\nRETURNS boolean\nLANGUAGE sql\nSTABLE\nAS $$\n  SELECT EXISTS (\n    SELECT 1\n    FROM cris_test_allowed_leads a\n    WHERE a.active = true\n      AND (\n        cris_qa_digits(a.phone_raw) = cris_qa_digits(p_phone)\n        OR a.phone_e164 = cris_qa_normalize_phone(p_phone)\n      )\n  )\n$$;\n\nCREATE TABLE IF NOT EXISTS cris_test_runs (\n  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n  run_key                text NOT NULL UNIQUE,\n  delivery_mode          text NOT NULL CHECK (delivery_mode IN ('shadow', 'live', 'hybrid')),\n  allow_public_messages  boolean NOT NULL DEFAULT false,\n  requested_windows      text[] NOT NULL DEFAULT ARRAY['3m']::text[],\n  scenario_groups        text[] NOT NULL DEFAULT ARRAY[]::text[],\n  input                  jsonb NOT NULL DEFAULT '{}'::jsonb,\n  summary                jsonb NOT NULL DEFAULT '{}'::jsonb,\n  status                 text NOT NULL DEFAULT 'RUNNING'\n                         CHECK (status IN ('RUNNING', 'PASSED', 'FAILED', 'PARTIAL', 'CANCELLED')),\n  created_by             text,\n  error                  text,\n  started_at             timestamptz NOT NULL DEFAULT now(),\n  finished_at            timestamptz,\n  created_at             timestamptz NOT NULL DEFAULT now(),\n  updated_at             timestamptz NOT NULL DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS idx_cris_test_runs_status\n  ON cris_test_runs(status, started_at DESC);\n\nCREATE TABLE IF NOT EXISTS cris_test_cases (\n  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n  run_id               uuid NOT NULL REFERENCES cris_test_runs(id) ON DELETE CASCADE,\n  scenario_id          text NOT NULL,\n  scenario_group       text NOT NULL,\n  window_profile       text NOT NULL CHECK (window_profile IN ('3m', '1h', '24h')),\n  delivery_mode        text NOT NULL CHECK (delivery_mode IN ('shadow', 'live')),\n  phone                text NOT NULL,\n  phone_e164           text,\n  lead_id              uuid,\n  conversation_id      uuid,\n  chatwoot_conv_id     integer,\n  chatwoot_contact_id  integer,\n  status               text NOT NULL DEFAULT 'PENDING'\n                       CHECK (status IN ('PENDING', 'RUNNING', 'PASSED', 'FAILED', 'SKIPPED', 'CLEANED')),\n  severity             text CHECK (severity IN ('P0', 'P1', 'P2', 'P3', 'P4')),\n  expected             jsonb NOT NULL DEFAULT '{}'::jsonb,\n  actual               jsonb NOT NULL DEFAULT '{}'::jsonb,\n  assertions           jsonb NOT NULL DEFAULT '[]'::jsonb,\n  execution_ids        jsonb NOT NULL DEFAULT '[]'::jsonb,\n  repro_payload        jsonb NOT NULL DEFAULT '{}'::jsonb,\n  snapshot_before      jsonb NOT NULL DEFAULT '{}'::jsonb,\n  snapshot_after       jsonb NOT NULL DEFAULT '{}'::jsonb,\n  cleanup_status       text,\n  error                text,\n  started_at           timestamptz,\n  finished_at          timestamptz,\n  created_at           timestamptz NOT NULL DEFAULT now(),\n  updated_at           timestamptz NOT NULL DEFAULT now(),\n  UNIQUE (run_id, scenario_id, window_profile, delivery_mode, phone)\n);\n\nCREATE INDEX IF NOT EXISTS idx_cris_test_cases_run\n  ON cris_test_cases(run_id, status);\n\nCREATE INDEX IF NOT EXISTS idx_cris_test_cases_conv\n  ON cris_test_cases(conversation_id)\n  WHERE conversation_id IS NOT NULL;\n\nCREATE TABLE IF NOT EXISTS cris_test_outbox (\n  id                       uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n  run_id                   uuid NOT NULL REFERENCES cris_test_runs(id) ON DELETE CASCADE,\n  case_id                  uuid REFERENCES cris_test_cases(id) ON DELETE CASCADE,\n  delivery_mode            text NOT NULL CHECK (delivery_mode IN ('shadow', 'live')),\n  channel                  text NOT NULL DEFAULT 'whatsapp',\n  target_phone             text,\n  target_conversation_id   uuid,\n  message_type             text,\n  would_send_payload       jsonb NOT NULL DEFAULT '{}'::jsonb,\n  sent                     boolean NOT NULL DEFAULT false,\n  external_status          text,\n  external_response        jsonb NOT NULL DEFAULT '{}'::jsonb,\n  created_at               timestamptz NOT NULL DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS idx_cris_test_outbox_case\n  ON cris_test_outbox(case_id, created_at DESC);\n\nCREATE TABLE IF NOT EXISTS cris_test_findings (\n  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n  run_id          uuid NOT NULL REFERENCES cris_test_runs(id) ON DELETE CASCADE,\n  case_id         uuid REFERENCES cris_test_cases(id) ON DELETE SET NULL,\n  severity        text NOT NULL CHECK (severity IN ('P0', 'P1', 'P2', 'P3', 'P4')),\n  title           text NOT NULL,\n  expected        jsonb NOT NULL DEFAULT '{}'::jsonb,\n  actual          jsonb NOT NULL DEFAULT '{}'::jsonb,\n  suspected_node  text,\n  evidence        jsonb NOT NULL DEFAULT '{}'::jsonb,\n  repro_payload   jsonb NOT NULL DEFAULT '{}'::jsonb,\n  status          text NOT NULL DEFAULT 'OPEN'\n                  CHECK (status IN ('OPEN', 'CONFIRMED', 'RESOLVED', 'WONTFIX')),\n  created_at      timestamptz NOT NULL DEFAULT now(),\n  updated_at      timestamptz NOT NULL DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS idx_cris_test_findings_run\n  ON cris_test_findings(run_id, severity, status);\n\nDROP TRIGGER IF EXISTS trg_cris_test_allowed_leads_updated_at ON cris_test_allowed_leads;\nCREATE TRIGGER trg_cris_test_allowed_leads_updated_at\n  BEFORE UPDATE ON cris_test_allowed_leads\n  FOR EACH ROW EXECUTE FUNCTION update_updated_at();\n\nDROP TRIGGER IF EXISTS trg_cris_test_runs_updated_at ON cris_test_runs;\nCREATE TRIGGER trg_cris_test_runs_updated_at\n  BEFORE UPDATE ON cris_test_runs\n  FOR EACH ROW EXECUTE FUNCTION update_updated_at();\n\nDROP TRIGGER IF EXISTS trg_cris_test_cases_updated_at ON cris_test_cases;\nCREATE TRIGGER trg_cris_test_cases_updated_at\n  BEFORE UPDATE ON cris_test_cases\n  FOR EACH ROW EXECUTE FUNCTION update_updated_at();\n\nDROP TRIGGER IF EXISTS trg_cris_test_findings_updated_at ON cris_test_findings;\nCREATE TRIGGER trg_cris_test_findings_updated_at\n  BEFORE UPDATE ON cris_test_findings\n  FOR EACH ROW EXECUTE FUNCTION update_updated_at();\n\nINSERT INTO cris_test_allowed_leads (phone_raw, label, notes)\nVALUES\n  ('0998299109', 'Luis Rocha QA', 'Default CRIS QA allowlist lead'),\n  ('21999910781', 'CRIS QA lead 2', 'Default CRIS QA allowlist lead')\nON CONFLICT (phone_raw) DO UPDATE\nSET active = true,\n    label = EXCLUDED.label,\n    notes = EXCLUDED.notes,\n    updated_at = now();\n\nCREATE OR REPLACE VIEW cris_test_run_summary AS\nSELECT\n  r.id AS run_id,\n  r.run_key,\n  r.delivery_mode,\n  r.status,\n  r.started_at,\n  r.finished_at,\n  count(DISTINCT c.id)::integer AS case_count,\n  count(DISTINCT c.id) FILTER (WHERE c.status = 'PASSED')::integer AS passed_count,\n  count(DISTINCT c.id) FILTER (WHERE c.status = 'FAILED')::integer AS failed_count,\n  count(DISTINCT c.id) FILTER (WHERE c.status = 'SKIPPED')::integer AS skipped_count,\n  count(DISTINCT f.id) FILTER (WHERE f.status IN ('OPEN', 'CONFIRMED'))::integer AS open_findings_count\nFROM cris_test_runs r\nLEFT JOIN cris_test_cases c ON c.run_id = r.id\nLEFT JOIN cris_test_findings f ON f.run_id = r.id\nGROUP BY r.id;\n\n\nINSERT INTO flyway_schema_history (installed_rank, version, description, type, script, checksum, installed_by, execution_time, success)\nSELECT COALESCE((SELECT MAX(installed_rank) FROM flyway_schema_history), 0) + 1, '91', 'cris_qa_test_harness', 'SQL', 'V91__cris_qa_test_harness.sql', 919748266, 'n8n-cris-qa', 0, true\nWHERE NOT EXISTS (SELECT 1 FROM flyway_schema_history WHERE version = '91');\n\nSELECT 'V91__cris_qa_test_harness.sql' AS script, EXISTS(SELECT 1 FROM flyway_schema_history WHERE version = '91' AND success = true) AS recorded;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "qa-apply-v91-note-001",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        120,
+        40
+      ],
+      "parameters": {
+        "content": "## CRIS QA - Apply V91\n\nProtected one-shot migration workflow.\nDeactivate after applying.",
+        "height": 200,
+        "width": 360
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Apply V91": {
+      "main": [
+        [
+          {
+            "node": "PG - Apply V91",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "31c353bc-c3d8-5160-ae8e-6a8c8c4757bb",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

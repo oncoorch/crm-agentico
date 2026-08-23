@@ -1,0 +1,254 @@
+{
+  "id": "qjqy6si54jlTnFjK_venekia",
+  "name": "Telegram Claude Bot - AIGENTS_venekia",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "8613542a-7e1c-4b23-96ac-187a356ef55c",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -512,
+        0
+      ],
+      "webhookId": "telegram-claude-bot"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "sec-1",
+              "leftValue": "={{ $json.message.chat.id }}",
+              "rightValue": "={{ $vars.TELEGRAM_OWNER_CHAT_ID }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d2eba99c-0ccd-411d-9233-46bd07cd3df7",
+      "name": "Solo Owner",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -272,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.message.text || $json.message.caption || 'El usuario envió contenido no textual.' }}",
+        "options": {
+          "systemMessage": "=Eres el asistente personal de Aníbal (Hannibal) Molano, COO de AIGENTS SOLUTIONS. Operas dentro de un bot de Telegram privado, solo para él.\n\nTu rol:\n- Ayudarle a gestionar y consultar sus clientes y agentes (datos en Supabase).\n- Buscar información actual en la web cuando sea necesario (Brave Search).\n- Generar documentos o gráficos cuando los pida (devuelve el contenido estructurado y claro; si necesita archivo, indícalo).\n\nEstilo:\n- Responde en español, conciso y directo, con formato limpio para Telegram (usa *negritas* y listas cuando ayuden).\n- No inventes datos de clientes: si no están en Supabase, dilo.\n- Para consultas a Supabase, usa la herramienta correspondiente. Para info actual o externa, usa búsqueda web.\n- Cuando te pida un gráfico, genera la especificación de datos clara para que el sistema construya el archivo.\n\nContexto: AIGENTS construye agentes conversacionales y de voz para LatAm. Stack: n8n, Supabase, Chatwoot, WABA, VAPI, MCP.\n\nFecha actual: {{ $now.format('yyyy-MM-dd') }}",
+          "maxIterations": 10
+        }
+      },
+      "id": "59f9ea1f-8572-4f08-9353-5f75e047869d",
+      "name": "Claude Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        -32,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "model": "claude-opus-4-8",
+        "options": {
+          "maxTokensToSample": 2048,
+          "temperature": 0.4
+        }
+      },
+      "id": "7277c48d-bb7e-4d8b-87a5-7afc375c3500",
+      "name": "Anthropic Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        -128,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "contextWindowLength": 15
+      },
+      "id": "36378d94-3f5a-4ef1-8985-a4353ddbf310",
+      "name": "Window Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        32,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Busca información actual en la web usando Brave Search. Úsala para noticias, datos recientes, precios, o cualquier información que no esté en Supabase.",
+        "url": "https://api.search.brave.com/res/v1/web/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "options": {}
+      },
+      "id": "b0b30721-7465-4d87-8844-b74795ff142c",
+      "name": "Brave Search",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        272,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "name": "generar_grafico",
+        "description": "Genera un gráfico y devuelve una URL de imagen. Úsala cuando el usuario pida un gráfico o visualización. Recibe la configuración del gráfico en formato Chart.js.",
+        "jsCode": "// El modelo provee la config Chart.js como JSON\nconst chartConfig = $fromAI('chart_config', 'Configuración del gráfico en formato Chart.js (type, data, options)', 'string');\nconst encoded = encodeURIComponent(typeof chartConfig === 'string' ? chartConfig : JSON.stringify(chartConfig));\nconst url = `https://quickchart.io/chart?c=${encoded}&backgroundColor=white&width=600&height=400`;\nreturn `Gráfico generado. URL de imagen lista para enviar: ${url}`;"
+      },
+      "id": "14d0df10-ea5e-4f50-9290-fd7ca96959de",
+      "name": "Generar Gráfico",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.1,
+      "position": [
+        416,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "={{ $json.output }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "8f0a0eea-34de-4ec7-8c7f-f44350a5542c",
+      "name": "Responder Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        400,
+        -16
+      ],
+      "webhookId": "40e5a61c-08e8-4efa-90dd-0b3dc6004235"
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Solo Owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Solo Owner": {
+      "main": [
+        [
+          {
+            "node": "Claude Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Agent": {
+      "main": [
+        [
+          {
+            "node": "Responder Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Claude Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Claude Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Brave Search": {
+      "ai_tool": [
+        [
+          {
+            "node": "Claude Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generar Gráfico": {
+      "ai_tool": [
+        [
+          {
+            "node": "Claude Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "50371ecd-9252-5f64-a2a6-ba39e7ea7a5e",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

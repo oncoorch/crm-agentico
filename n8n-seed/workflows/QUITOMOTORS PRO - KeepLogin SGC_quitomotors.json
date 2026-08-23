@@ -1,0 +1,91 @@
+{
+  "id": "P7pxySVhlNo34iLs_quitomotors",
+  "name": "QUITOMOTORS PRO - KeepLogin SGC_quitomotors",
+  "nodes": [
+    {
+      "id": "schedule-trigger-keep-login-sgc",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -420,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "http-keep-login-sgc",
+      "name": "HTTP KeepLogin SGC",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -120,
+        0
+      ],
+      "parameters": {
+        "url": "http://mcp_server:8000/api/sgc/keep-alive",
+        "options": {}
+      }
+    },
+    {
+      "id": "format-keep-login-result",
+      "name": "Format KeepLogin Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        180,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const result = $json || {};\nreturn [{ json: {\n  ok: Boolean(result.ok),\n  message: result.message || result.error || null,\n  raw: result,\n} }];"
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP KeepLogin SGC",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP KeepLogin SGC": {
+      "main": [
+        [
+          {
+            "node": "Format KeepLogin Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "98962150-8dc7-5b31-a819-051335fd31ba",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

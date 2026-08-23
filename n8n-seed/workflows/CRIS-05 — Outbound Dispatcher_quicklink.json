@@ -1,0 +1,203 @@
+{
+  "id": "Ac99HApyQHbt3Pb8_quicklink",
+  "name": "CRIS-05 — Outbound Dispatcher_quicklink",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30,45 9 * * *"
+            },
+            {
+              "field": "cronExpression",
+              "expression": "*/15 10-15 * * *"
+            },
+            {
+              "field": "cronExpression",
+              "expression": "0 16 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-outbound-dispatcher-001",
+      "name": "Dispatch Cada 15min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "outbound-dispatch-manual",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "id": "webhook-outbound-dispatcher-001",
+      "name": "Webhook Dispatch Manual",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        432
+      ],
+      "webhookId": "outbound-dispatch-manual-permanent",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "0hYeKlozui5dMRDE_quicklink",
+          "name": "QL Sync Manual Webhook Token_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || {};\nconst isManual = Boolean($json.headers || $json.query || $json.params || $json.body);\nconst execute = body.execute === true || body.execute === 'true';\nconst force = body.force === true || body.force === 'true';\nconst limit = Number.parseInt(body.limit || '', 10);\nconst brand = String(body.brand || '').trim().toUpperCase();\n\nreturn [{ json: {\n  source: isManual ? 'manual' : 'schedule',\n  dry_run: isManual ? !execute : false,\n  force,\n  limit: Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : '',\n  brand: ['KIA', 'HYUNDAI'].includes(brand) ? brand : ''\n} }];"
+      },
+      "id": "code-build-dispatch-config-001",
+      "name": "Code - Build Dispatch Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        528,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH params AS (\n  SELECT\n    '{{ $json.dry_run ? \"true\" : \"false\" }}'::boolean AS dry_run,\n    '{{ $json.force ? \"true\" : \"false\" }}'::boolean AS force_dispatch,\n    CASE\n      WHEN NULLIF('{{ $json.limit || \"\" }}', '') ~ '^[0-9]+$'\n        THEN LEAST(GREATEST(NULLIF('{{ $json.limit || \"\" }}', '')::integer, 1), 100)\n      ELSE LEAST(GREATEST(get_system_config_int('campaign.outbound.dispatch-batch-size', 100), 1), 100)\n    END AS batch_limit,\n    NULLIF('{{ $json.brand || \"\" }}', '') AS brand,\n    COALESCE(NULLIF('{{ $json.source || \"\" }}', ''), 'schedule') AS source\n), gate AS (\n  SELECT\n    p.*,\n    get_system_config_bool('campaign.outbound.dispatch-enabled', false) AS dispatch_enabled\n  FROM params p\n), pending AS (\n  SELECT\n    l.id AS lead_id,\n    l.quicklink_id,\n    l.marca::text AS marca,\n    l.nombre_cliente,\n    l.telefono_1,\n    COALESCE(NULLIF(to_jsonb(l)->>'telefono_agente', ''), l.telefono_1) AS telefono_agente,\n    l.modelo,\n    l.sincronizado_at,\n    l.created_at\n  FROM leads_quicklink l\n  CROSS JOIN gate g\n  WHERE (g.dry_run OR g.force_dispatch OR g.dispatch_enabled)\n    AND l.estado_agente = 'PENDIENTE'\n    AND l.conversacion_id IS NULL\n    AND NULLIF(COALESCE(NULLIF(to_jsonb(l)->>'telefono_agente', ''), l.telefono_1), '') IS NOT NULL\n    AND length(regexp_replace(COALESCE(NULLIF(to_jsonb(l)->>'telefono_agente', ''), l.telefono_1), '\\D', '', 'g')) BETWEEN 9 AND 15\n    AND (g.brand IS NULL OR l.marca::text = g.brand)\n  ORDER BY l.sincronizado_at ASC, l.created_at ASC\n  LIMIT (SELECT batch_limit FROM gate)\n)\nSELECT\n  g.dry_run,\n  g.force_dispatch,\n  g.dispatch_enabled,\n  g.batch_limit,\n  g.brand,\n  g.source,\n  COALESCE(jsonb_agg(to_jsonb(p) ORDER BY p.sincronizado_at ASC, p.created_at ASC) FILTER (WHERE p.lead_id IS NOT NULL), '[]'::jsonb) AS leads,\n  COUNT(p.lead_id)::integer AS lead_count\nFROM gate g\nLEFT JOIN pending p ON true\nGROUP BY g.dry_run, g.force_dispatch, g.dispatch_enabled, g.batch_limit, g.brand, g.source;",
+        "options": {}
+      },
+      "id": "pg-fetch-pending-leads-001",
+      "name": "PG - Fetch Pending Leads",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        768,
+        304
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $input.first()?.json || {};\n\nfunction asArray(value) {\n  if (Array.isArray(value)) return value;\n  if (typeof value === 'string' && value.trim()) {\n    try {\n      const parsed = JSON.parse(value);\n      return Array.isArray(parsed) ? parsed : [];\n    } catch (error) {\n      return [];\n    }\n  }\n  return [];\n}\n\nconst leads = asArray(row.leads);\nconst dispatches = asArray(row.dispatches);\nconst dispatchByLeadId = new Map(\n  dispatches\n    .filter(dispatch => dispatch && dispatch.lead_id)\n    .map(dispatch => [String(dispatch.lead_id), dispatch])\n);\nconst dryRun = row.dry_run === true || String(row.dry_run) === 'true';\nconst force = row.force_dispatch === true || String(row.force_dispatch) === 'true';\nconst enabled = row.dispatch_enabled === true || String(row.dispatch_enabled) === 'true';\nconst outboundUrl = 'http://localhost:5678/webhook/quicklink-lead-inbound';\nconst sleepMs = 100;\nconst maxRunMs = 240000;\nconst httpTimeoutMs = 15000;\nconst dispatchConcurrency = 2;\nconst startedAtMs = Date.now();\nconst results = [];\nconst helpers = this.helpers;\n\nconst SAFETY_REAL_SENDS_ENABLED = true;\nconst SEND_TIME_ZONE = 'America/Guayaquil';\nconst SEND_WINDOW_LABEL = '09:30-16:00 America/Guayaquil';\nconst SEND_WINDOW_START_MINUTES = 9 * 60 + 30;\nconst SEND_WINDOW_END_MINUTES = 16 * 60;\n\nfunction normalizeDigits(value) {\n  return String(value || '').replace(/\\D/g, '');\n}\n\nfunction ecuadorMinutesNow() {\n  const parts = new Intl.DateTimeFormat('en-US', {\n    timeZone: SEND_TIME_ZONE,\n    hour12: false,\n    hour: '2-digit',\n    minute: '2-digit',\n  }).formatToParts(new Date());\n  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));\n  const hour = Number(values.hour === '24' ? '0' : values.hour);\n  const minute = Number(values.minute || '0');\n  return hour * 60 + minute;\n}\n\nfunction elapsedMs() {\n  return Date.now() - startedAtMs;\n}\n\nfunction remainingMs() {\n  return maxRunMs - elapsedMs();\n}\n\nfunction hasTimeForAnotherSend() {\n  return dryRun || remainingMs() > httpTimeoutMs + sleepMs + 5000;\n}\n\nfunction resultBase(lead, requestId, batchKey) {\n  return {\n    quicklink_id: lead.quicklink_id,\n    marca: lead.marca,\n    request_id: requestId || null,\n    batch_key: batchKey || null,\n  };\n}\n\nconst currentEcuadorMinutes = ecuadorMinutesNow();\nconst insideSendWindow = currentEcuadorMinutes >= SEND_WINDOW_START_MINUTES && currentEcuadorMinutes <= SEND_WINDOW_END_MINUTES;\n\nif (!dryRun && !SAFETY_REAL_SENDS_ENABLED) {\n  return [{ json: {\n    status: 'dispatch_safety_blocked',\n    reason: 'real_sends_disabled_while_resolving_error',\n    dry_run: dryRun,\n    dispatch_enabled: enabled,\n    force_dispatch: force,\n    send_window: SEND_WINDOW_LABEL,\n    lead_count: leads.length,\n    sent_count: 0,\n    failed_count: 0,\n    skipped_count: leads.length,\n    deferred_count: 0,\n    max_run_ms: maxRunMs,\n    http_timeout_ms: httpTimeoutMs,\n    results: leads.slice(0, 20).map(lead => ({\n      quicklink_id: lead.quicklink_id,\n      marca: lead.marca,\n      status: 'safety_blocked',\n    })),\n  } }];\n}\n\nif (!dryRun && !insideSendWindow) {\n  return [{ json: {\n    status: 'dispatch_window_blocked',\n    reason: 'outside_ecuador_send_window',\n    dry_run: dryRun,\n    dispatch_enabled: enabled,\n    force_dispatch: force,\n    send_window: SEND_WINDOW_LABEL,\n    lead_count: leads.length,\n    sent_count: 0,\n    failed_count: 0,\n    skipped_count: leads.length,\n    deferred_count: 0,\n    max_run_ms: maxRunMs,\n    http_timeout_ms: httpTimeoutMs,\n  } }];\n}\n\nif (!dryRun && !enabled && !force) {\n  return [{ json: {\n    status: 'dispatch_blocked',\n    reason: 'campaign.outbound.dispatch-enabled=false',\n    dry_run: dryRun,\n    dispatch_enabled: enabled,\n    force_dispatch: force,\n    lead_count: 0,\n    sent_count: 0,\n    failed_count: 0,\n    skipped_count: 0,\n    deferred_count: 0,\n    max_run_ms: maxRunMs,\n    http_timeout_ms: httpTimeoutMs,\n  } }];\n}\n\nconst delay = ms => new Promise(resolve => setTimeout(resolve, ms));\nlet stoppedByTimeBudget = false;\nlet nextLeadIndex = 0;\n\nasync function dispatchLead(lead) {\n  const leadId = String(lead.lead_id || lead.id || '').trim();\n  const dispatch = dispatchByLeadId.get(leadId) || {};\n  const requestId = String(dispatch.request_id || '').trim();\n  const batchKey = String(row.batch_key || '').trim();\n  const base = resultBase(lead, requestId, batchKey);\n  const agentPhone = String(lead.telefono_agente || '').trim();\n  const agentDigits = normalizeDigits(agentPhone);\n\n  if (!dryRun && !hasTimeForAnotherSend()) {\n    stoppedByTimeBudget = true;\n    results.push({\n      ...base,\n      status: 'deferred',\n      error: 'dispatch_time_budget_exhausted',\n      elapsed_ms: elapsedMs(),\n    });\n    return;\n  }\n\n  if (agentDigits.length < 9 || agentDigits.length > 15) {\n    results.push({\n      ...base,\n      status: 'skipped',\n      error: agentPhone ? 'invalid_agent_phone' : 'missing_agent_phone',\n    });\n    return;\n  }\n\n  const payload = {\n    phone: agentPhone,\n    marca: lead.marca,\n    quicklink_id: lead.quicklink_id,\n    nombre_cliente: lead.nombre_cliente,\n    modelo: lead.modelo,\n    source: 'outbound-dispatcher',\n    request_id: requestId,\n    batch_key: batchKey\n  };\n\n  if (dryRun) {\n    results.push({\n      ...base,\n      status: 'dry_run',\n    });\n    return;\n  }\n\n  if (!requestId) {\n    results.push({\n      ...base,\n      status: 'failed',\n      error: 'missing_dispatch_request_id',\n    });\n    return;\n  }\n\n  try {\n    const timeout = Math.min(httpTimeoutMs, Math.max(1000, remainingMs() - 3000));\n    const response = await helpers.httpRequest({\n      method: 'POST',\n      url: outboundUrl,\n      headers: { 'Content-Type': 'application/json' },\n      body: JSON.stringify(payload),\n      timeout,\n      ignoreHttpStatusErrors: true\n    });\n    results.push({ ...base, status: 'sent', response: String(response).slice(0, 120), elapsed_ms: elapsedMs() });\n  } catch (error) {\n    results.push({ ...base, status: 'failed', error: String(error?.message || error).slice(0, 180), elapsed_ms: elapsedMs() });\n  }\n\n  if (sleepMs > 0) await delay(sleepMs);\n}\n\nasync function worker() {\n  while (nextLeadIndex < leads.length) {\n    const currentIndex = nextLeadIndex;\n    nextLeadIndex += 1;\n    await dispatchLead(leads[currentIndex]);\n  }\n}\n\nconst workerCount = dryRun ? 1 : Math.min(dispatchConcurrency, leads.length);\nif (workerCount > 0) {\n  await Promise.all(Array.from({ length: workerCount }, () => worker()));\n}\n\nconst sentCount = results.filter(r => r.status === 'sent').length;\nconst failedCount = results.filter(r => r.status === 'failed').length;\nconst skippedCount = results.filter(r => r.status === 'skipped').length;\nconst deferredCount = results.filter(r => r.status === 'deferred').length;\nconst status = dryRun\n  ? 'dispatch_dry_run'\n  : (stoppedByTimeBudget || deferredCount ? 'dispatch_deferred' : (failedCount ? 'dispatch_partial' : 'dispatch_ok'));\n\nreturn [{ json: {\n  status,\n  dry_run: dryRun,\n  dispatch_enabled: enabled,\n  force_dispatch: force,\n  source: row.source,\n  brand: row.brand || null,\n  batch_key: row.batch_key || null,\n  batch_limit: row.batch_limit,\n  send_window: SEND_WINDOW_LABEL,\n  lead_count: leads.length,\n  dispatch_count: dispatches.length,\n  sent_count: sentCount,\n  failed_count: failedCount,\n  skipped_count: skippedCount,\n  deferred_count: deferredCount,\n  dispatch_concurrency: dispatchConcurrency,\n  max_run_ms: maxRunMs,\n  http_timeout_ms: httpTimeoutMs,\n  elapsed_ms: elapsedMs(),\n  results: results.slice(0, 20)\n} }];"
+      },
+      "id": "code-dispatch-leads-001",
+      "name": "Code - Dispatch Leads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1136,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH src AS (\n  SELECT\n    '{{ $json.dry_run ? \"true\" : \"false\" }}'::boolean AS dry_run,\n    '{{ $json.force_dispatch ? \"true\" : \"false\" }}'::boolean AS force_dispatch,\n    '{{ $json.dispatch_enabled ? \"true\" : \"false\" }}'::boolean AS dispatch_enabled,\n    {{ Number($json.batch_limit || 0) }}::integer AS batch_limit,\n    NULLIF('{{ String($json.brand || \"\").replace(/'/g, \"''\") }}', '') AS brand,\n    COALESCE(NULLIF('{{ String($json.source || \"\").replace(/'/g, \"''\") }}', ''), 'schedule') AS source,\n    $leads${{ JSON.stringify($json.leads || []) }}$leads$::jsonb AS leads,\n    $dispatch_leads${{ JSON.stringify(($json.leads || []).map(lead => ({\n      id: lead.lead_id,\n      quicklink_id: lead.quicklink_id,\n      marca: lead.marca,\n      phone: lead.telefono_agente || lead.telefono_1 || ''\n    }))) }}$dispatch_leads$::jsonb AS dispatch_leads,\n    (\n      (EXTRACT(HOUR FROM now() AT TIME ZONE 'America/Guayaquil')::integer * 60)\n      + EXTRACT(MINUTE FROM now() AT TIME ZONE 'America/Guayaquil')::integer\n    ) BETWEEN 570 AND 960 AS inside_send_window\n), opened AS (\n  SELECT o.*\n  FROM src s\n  CROSS JOIN LATERAL open_outbound_dispatch_batch(\n    'cris05:' || '{{ $execution.id }}',\n    s.source,\n    s.dispatch_leads\n  ) o\n  WHERE NOT s.dry_run\n    AND (s.dispatch_enabled OR s.force_dispatch)\n    AND s.inside_send_window\n    AND jsonb_array_length(s.dispatch_leads) > 0\n)\nSELECT\n  s.dry_run,\n  s.force_dispatch,\n  s.dispatch_enabled,\n  s.batch_limit,\n  s.brand,\n  s.source,\n  s.leads,\n  jsonb_array_length(s.leads)::integer AS lead_count,\n  s.inside_send_window,\n  o.batch_id,\n  o.batch_key,\n  o.status_token,\n  COALESCE(o.dispatches, '[]'::jsonb) AS dispatches\nFROM src s\nLEFT JOIN opened o ON true;",
+        "options": {}
+      },
+      "id": "pg-open-dispatch-batch-001",
+      "name": "PG - Open Dispatch Batch",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        944,
+        304
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Dispatch Cada 15min": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Dispatch Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Dispatch Manual": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Dispatch Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Dispatch Config": {
+      "main": [
+        [
+          {
+            "node": "PG - Fetch Pending Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Fetch Pending Leads": {
+      "main": [
+        [
+          {
+            "node": "PG - Open Dispatch Batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Open Dispatch Batch": {
+      "main": [
+        [
+          {
+            "node": "Code - Dispatch Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "664d4a29-14a7-5425-8c44-9b553473035a",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

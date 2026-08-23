@@ -1,0 +1,157 @@
+{
+  "id": "J7MxZ0sOrCVek4fO_quicklink",
+  "name": "CRIS · 07 · Outbound Dispatcher_quicklink",
+  "nodes": [
+    {
+      "id": "schedule-outbound-dispatcher-001",
+      "name": "Dispatch Cada 15min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        180
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/15 * * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "webhook-outbound-dispatcher-001",
+      "name": "Webhook Dispatch Manual",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        420
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "outbound-dispatch-manual",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "0hYeKlozui5dMRDE_quicklink",
+          "name": "QL Sync Manual Webhook Token_QUICKLINK"
+        }
+      },
+      "webhookId": "outbound-dispatch-manual-permanent"
+    },
+    {
+      "id": "code-build-dispatch-config-001",
+      "name": "Code - Build Dispatch Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const body = $json.body || {};\nconst isManual = Boolean($json.headers || $json.query || $json.params || $json.body);\nconst execute = body.execute === true || body.execute === 'true';\nconst force = body.force === true || body.force === 'true';\nconst limit = Number.parseInt(body.limit || '', 10);\nconst brand = String(body.brand || '').trim().toUpperCase();\n\nreturn [{ json: {\n  source: isManual ? 'manual' : 'schedule',\n  dry_run: !execute,\n  force,\n  limit: Number.isInteger(limit) && limit > 0 ? Math.min(limit, 500) : '',\n  brand: ['KIA', 'HYUNDAI'].includes(brand) ? brand : ''\n} }];"
+      }
+    },
+    {
+      "id": "pg-fetch-pending-leads-001",
+      "name": "PG - Fetch Pending Leads",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        800,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH params AS (\n  SELECT\n    '{{ $json.dry_run ? \"true\" : \"false\" }}'::boolean AS dry_run,\n    '{{ $json.force ? \"true\" : \"false\" }}'::boolean AS force_dispatch,\n    CASE\n      WHEN NULLIF('{{ $json.limit || \"\" }}', '') ~ '^[0-9]+$'\n        THEN LEAST(GREATEST(NULLIF('{{ $json.limit || \"\" }}', '')::integer, 1), 500)\n      ELSE LEAST(GREATEST(get_system_config_int('campaign.outbound.dispatch-batch-size', 50), 1), 500)\n    END AS batch_limit,\n    NULLIF('{{ $json.brand || \"\" }}', '') AS brand,\n    COALESCE(NULLIF('{{ $json.source || \"\" }}', ''), 'schedule') AS source\n), gate AS (\n  SELECT\n    p.*,\n    get_system_config_bool('campaign.outbound.dispatch-enabled', false) AS dispatch_enabled\n  FROM params p\n), pending AS (\n  SELECT\n    l.id AS lead_id,\n    l.quicklink_id,\n    l.marca::text AS marca,\n    l.nombre_cliente,\n    l.telefono_1,\n    l.telefono_agente,\n    l.modelo,\n    l.sincronizado_at,\n    l.created_at\n  FROM leads_quicklink l\n  CROSS JOIN gate g\n  WHERE (g.dry_run OR g.force_dispatch OR g.dispatch_enabled)\n    AND l.estado_agente = 'PENDIENTE'\n    AND l.conversacion_id IS NULL\n    AND NULLIF(l.telefono_agente, '') IS NOT NULL\n    AND length(regexp_replace(l.telefono_agente, '\\D', '', 'g')) BETWEEN 9 AND 15\n    AND (g.brand IS NULL OR l.marca::text = g.brand)\n  ORDER BY l.sincronizado_at ASC, l.created_at ASC\n  LIMIT (SELECT batch_limit FROM gate)\n)\nSELECT\n  g.dry_run,\n  g.force_dispatch,\n  g.dispatch_enabled,\n  g.batch_limit,\n  g.brand,\n  g.source,\n  COALESCE(jsonb_agg(to_jsonb(p) ORDER BY p.sincronizado_at ASC, p.created_at ASC) FILTER (WHERE p.lead_id IS NOT NULL), '[]'::jsonb) AS leads,\n  COUNT(p.lead_id)::integer AS lead_count\nFROM gate g\nLEFT JOIN pending p ON true\nGROUP BY g.dry_run, g.force_dispatch, g.dispatch_enabled, g.batch_limit, g.brand, g.source;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "code-dispatch-leads-001",
+      "name": "Code - Dispatch Leads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const row = $input.first()?.json || {};\nconst leads = Array.isArray(row.leads) ? row.leads : [];\nconst dryRun = row.dry_run === true || String(row.dry_run) === 'true';\nconst force = row.force_dispatch === true || String(row.force_dispatch) === 'true';\nconst enabled = row.dispatch_enabled === true || String(row.dispatch_enabled) === 'true';\nconst outboundUrl = 'http://localhost:5678/webhook/quicklink-lead-inbound';\nconst sleepMs = 500;\nconst results = [];\n\nif (!dryRun && !enabled && !force) {\n  return [{ json: {\n    status: 'dispatch_blocked',\n    reason: 'campaign.outbound.dispatch-enabled=false',\n    dry_run: dryRun,\n    dispatch_enabled: enabled,\n    force_dispatch: force,\n    lead_count: 0,\n    sent_count: 0,\n    failed_count: 0\n  } }];\n}\n\nconst delay = ms => new Promise(resolve => setTimeout(resolve, ms));\n\nfor (const lead of leads) {\n  const payload = {\n    phone: lead.telefono_agente,\n    marca: lead.marca,\n    quicklink_id: lead.quicklink_id,\n    nombre_cliente: lead.nombre_cliente,\n    modelo: lead.modelo,\n    source: 'outbound-dispatcher'\n  };\n\n  if (dryRun) {\n    results.push({ quicklink_id: lead.quicklink_id, marca: lead.marca, status: 'dry_run' });\n    continue;\n  }\n\n  try {\n    const response = await this.helpers.httpRequest({\n      method: 'POST',\n      url: outboundUrl,\n      headers: { 'Content-Type': 'application/json' },\n      body: JSON.stringify(payload),\n      timeout: 30000,\n      ignoreHttpStatusErrors: true\n    });\n    results.push({ quicklink_id: lead.quicklink_id, marca: lead.marca, status: 'sent', response: String(response).slice(0, 120) });\n  } catch (error) {\n    results.push({ quicklink_id: lead.quicklink_id, marca: lead.marca, status: 'failed', error: String(error?.message || error).slice(0, 180) });\n  }\n  await delay(sleepMs);\n}\n\nconst sentCount = results.filter(r => r.status === 'sent').length;\nconst failedCount = results.filter(r => r.status === 'failed').length;\nreturn [{ json: {\n  status: dryRun ? 'dispatch_dry_run' : (failedCount ? 'dispatch_partial' : 'dispatch_ok'),\n  dry_run: dryRun,\n  dispatch_enabled: enabled,\n  force_dispatch: force,\n  source: row.source,\n  brand: row.brand || null,\n  batch_limit: row.batch_limit,\n  lead_count: leads.length,\n  sent_count: sentCount,\n  failed_count: failedCount,\n  results: results.slice(0, 20)\n} }];"
+      }
+    }
+  ],
+  "connections": {
+    "Dispatch Cada 15min": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Dispatch Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Dispatch Manual": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Dispatch Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Dispatch Config": {
+      "main": [
+        [
+          {
+            "node": "PG - Fetch Pending Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Fetch Pending Leads": {
+      "main": [
+        [
+          {
+            "node": "Code - Dispatch Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "83416b0b-f8b0-585e-a493-28387534e75b",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

@@ -1,0 +1,746 @@
+{
+  "id": "RiwOcpnAqneT9uDv_quicklink",
+  "name": "CRIS-06 — Chatwoot Tag Manager_quicklink",
+  "nodes": [
+    {
+      "id": "n0",
+      "name": "Sticky - WF09",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        180
+      ],
+      "parameters": {
+        "content": "## WF-09 — QL-CHATWOOT-TAG-MANAGER\n\n**Objetivo:** Autoridad unica de labels CRIS en Chatwoot.\n\n**Fuente de verdad:** ConversationState en Supabase. Chatwoot es solo proyeccion visual reconstruible.\n\n**CRON:** cada 5 minutos (reconciliador)\n**Webhook:** POST /cris-tags-sync para sincronizacion inmediata por conversacion\n\n**Flujo:**\n1. Lee conversaciones con chatwoot_conv_id\n2. Trae metadata backend: estado, marca, source, ventana, plan\n3. GET labels actuales desde Chatwoot\n4. Calcula labels deseadas desde ConversationState\n5. Valida exclusividad por categoria y limpia aliases legacy\n6. Preserva tags externos\n7. Si cambiaron -> POST labels completas + evento TAG_CHANGE\n\n**Regla:** ningun otro workflow debe hacer POST directo de labels CRIS.\n**Version:** 2026-06-22",
+        "height": 320,
+        "width": 500,
+        "color": 5
+      }
+    },
+    {
+      "id": "n1",
+      "name": "CRON - Cada 5 Min",
+      "disabled": true,
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        560,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "n2",
+      "name": "PG - Get Active Convs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        780,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\n\nSELECT\n  c.id                           AS conv_id,\n  c.estado::text                 AS estado,\n  c.marca::text                  AS marca,\n  c.modelo::text                 AS modelo,\n  c.quicklink_id::text           AS quicklink_id,\n  c.chatwoot_conv_id::integer    AS chatwoot_conv_id,\n  c.chatwoot_contact_id::integer AS chatwoot_contact_id,\n  c.intentos_realizados,\n  COALESCE(lm.source, 'outbound') AS source,\n  lm.last_inbound_message_at,\n  lm.selected_plan,\n  lm.selected_plan_name,\n  lm.selected_plan_duration,\n  COALESCE(cc.active_model, c.modelo)::text AS active_model,\n  COALESCE(cc.active_brand, c.marca::text)::text AS active_brand,\n  cc.active_vehicle_id,\n  cc.multi_vehicle_mode,\n  cc.vehicle_count,\n  evaluate_conversation_window(lm.last_inbound_message_at) AS window_eval\nFROM conversaciones c\nLEFT JOIN LATERAL (\n  SELECT lm.*\n  FROM lead_memory lm\n  WHERE lm.conversation_id = c.id\n     OR lm.chatwoot_conv_id = c.chatwoot_conv_id\n  ORDER BY lm.updated_at DESC\n  LIMIT 1\n) lm ON true\nLEFT JOIN conversation_context cc\n  ON cc.chatwoot_conv_id = c.chatwoot_conv_id\nWHERE c.chatwoot_conv_id IS NOT NULL\n  AND c.chatwoot_contact_id IS NOT NULL\n  AND c.estado::text <> 'NEW_LEAD'\nORDER BY c.updated_at DESC\nLIMIT 20\n",
+        "options": {}
+      }
+    },
+    {
+      "id": "n3",
+      "name": "Loop - Each Conv",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1000,
+        300
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "n4",
+      "name": "No Op - Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1220,
+        180
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "n5",
+      "name": "HTTP - GET Labels",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1220,
+        420
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      },
+      "parameters": {
+        "method": "GET",
+        "url": "=http://chatwoot:3000/api/v1/accounts/2/conversations/{{ $json.chatwoot_conv_id }}/labels",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "n6",
+      "name": "Code - Compute Tags",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        420
+      ],
+      "parameters": {
+        "jsCode": "// WF-09 TagManager v2\n// Chatwoot labels are a visual projection of backend ConversationState.\nconst conv = $('Code - Target Conv').item.json;\nconst syncCaller = conv.sync_caller || null;\nconst payload = $input.first().json?.payload;\nconst currentTags = Array.isArray(payload)\n  ? payload.map(t => String(t || '').trim()).filter(Boolean)\n  : [];\nconst currentUnique = [...new Set(currentTags)];\n\nconst BRAND_TAGS = ['kia', 'hyundai'];\nconst ORIGIN_TAGS = ['outbound', 'inbound'];\nconst ATTEMPT_TAGS = ['primer_contacto', 'segundo_contacto', 'tercer_contacto'];\nconst COMMERCIAL_TAGS = [\n  'interesado', 'calificacion', 'cotizacion', 'objeciones', 'humano',\n  'ganado', 'perdido', 'no_contactable', 'descartado'\n];\nconst WINDOW_TAGS = ['ventana_abierta', 'ventana_cerrada'];\nconst PLAN_TAGS = ['plan_selected', 'plan_1_year', 'plan_2_year', 'plan_3_year'];\n\nconst CANONICAL_MANAGED = new Set([\n  ...BRAND_TAGS,\n  ...ORIGIN_TAGS,\n  ...ATTEMPT_TAGS,\n  ...COMMERCIAL_TAGS,\n  ...WINDOW_TAGS,\n  ...PLAN_TAGS,\n]);\n\nconst DEPRECATED_MANAGED = new Set([\n  'contacto-1', 'espera-1', 'contacto-2', 'espera-2', 'contacto-3', 'espera-3',\n  'oferta-presentada', 'transferido-humano', 'oportunidad-perdida', 'no-contactable',\n  'multi_vehicle', 'vehicle_selected',\n  'window:open', 'window:expired', 'window:closed',\n  'handoff', 'handoff-humano', 'handoff-human', 'transferido',\n  'new_lead', 'new-lead', 'pendiente', 'contacted_1', 'contacted_2', 'contacted_3',\n  'engaged', 'vehicle_selection', 'value_presented', 'quoted', 'objection',\n  'handoff_human', 'won', 'lost', 'not_contactable', 'discarded',\n  'contacto_1', 'contacto_2', 'contacto_3', 'espera_1', 'espera_2', 'espera_3',\n  'interes_confirmado', 'seleccion_vehiculo', 'presentacion_solucion',\n  'presentacion_beneficios', 'necesidad_identificada', 'calificacion_gps',\n  'calificacion_problema', 'calificacion_decisor', 'calificacion_urgencia',\n  'calificacion_completa', 'transferido_humano', 'oportunidad_perdida',\n]);\n\nfunction isManaged(tag) {\n  return CANONICAL_MANAGED.has(tag)\n    || DEPRECATED_MANAGED.has(tag)\n    || String(tag || '').startsWith('vehicle_');\n}\n\nfunction normalizeState(raw) {\n  const key = String(raw || '').trim().toUpperCase();\n  const aliases = {\n    PENDIENTE: 'NEW_LEAD',\n    CONTACTO_1: 'CONTACTED_1', ESPERA_1: 'CONTACTED_1', CONTACT_1_SENT: 'CONTACTED_1',\n    CONTACTO_2: 'CONTACTED_2', ESPERA_2: 'CONTACTED_2', CONTACT_2_SENT: 'CONTACTED_2',\n    CONTACTO_3: 'CONTACTED_3', ESPERA_3: 'CONTACTED_3', CONTACT_3_SENT: 'CONTACTED_3',\n    INTERESADO: 'ENGAGED', INTERES_CONFIRMADO: 'ENGAGED', INTEREST_DETECTED: 'ENGAGED',\n    SELECCION_VEHICULO: 'VEHICLE_SELECTION', CALIFICACION_VEHICULOS: 'VEHICLE_SELECTION',\n    CALIFICACION: 'VALUE_PRESENTED', CALIFICACION_GPS: 'VALUE_PRESENTED',\n    CALIFICACION_PROBLEMA: 'VALUE_PRESENTED', CALIFICACION_DECISOR: 'VALUE_PRESENTED',\n    CALIFICACION_URGENCIA: 'VALUE_PRESENTED', CALIFICACION_COMPLETA: 'VALUE_PRESENTED',\n    NECESIDAD_IDENTIFICADA: 'VALUE_PRESENTED', PRESENTACION_SOLUCION: 'VALUE_PRESENTED',\n    PRESENTACION_BENEFICIOS: 'VALUE_PRESENTED', PRESENTAR_BENEFICIOS: 'VALUE_PRESENTED',\n    COTIZACION: 'QUOTED', MOSTRAR_PRECIOS: 'QUOTED', PRICE_REQUESTED: 'QUOTED',\n    PLAN_SELECCIONADO: 'PLAN_SELECTED',\n    OBJECIONES: 'OBJECTION', ESPERAR_PREGUNTA: 'OBJECTION',\n    TRANSFERIDO_HUMANO: 'HANDOFF_HUMAN', TRANSFERIR_ASESOR: 'HANDOFF_HUMAN',\n    HANDOFF_DESCUENTO: 'HANDOFF_HUMAN', HUMAN_HANDOFF: 'HANDOFF_HUMAN',\n    GANADO: 'WON', CIERRE: 'WON', CLOSED_WON: 'WON',\n    OPORTUNIDAD_PERDIDA: 'LOST', PERDIDO: 'LOST', CLOSED_LOST: 'LOST',\n    NO_CONTACTABLE: 'NOT_CONTACTABLE',\n    DESCARTADO: 'DISCARDED',\n  };\n  return aliases[key] || key;\n}\n\nfunction parseJsonMaybe(value) {\n  if (!value) return null;\n  if (typeof value === 'object') return value;\n  try { return JSON.parse(value); } catch (e) { return null; }\n}\n\nfunction slugVehicle(model) {\n  const slug = String(model || '')\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '')\n    .toLowerCase()\n    .replace(/[^a-z0-9]+/g, '_')\n    .replace(/^_+|_+$/g, '');\n  return slug ? 'vehicle_' + slug : null;\n}\n\nfunction slugPlan(plan) {\n  const key = String(plan || '').trim().toUpperCase();\n  const map = {\n    PLAN_1_YEAR: 'plan_1_year', PLAN_2_YEAR: 'plan_2_year', PLAN_3_YEAR: 'plan_3_year',\n    '1': 'plan_1_year', '2': 'plan_2_year', '3': 'plan_3_year',\n    '12': 'plan_1_year', '24': 'plan_2_year', '36': 'plan_3_year',\n  };\n  return map[key] || null;\n}\n\nfunction categoryTags(tags, category) {\n  const sets = {\n    brand: BRAND_TAGS,\n    origin: ORIGIN_TAGS,\n    attempt: ATTEMPT_TAGS,\n    commercial_state: COMMERCIAL_TAGS,\n    window: WINDOW_TAGS,\n    plan: PLAN_TAGS,\n    vehicle: tags.filter(t => String(t || '').startsWith('vehicle_')),\n  };\n  if (category === 'vehicle') return sets.vehicle || [];\n  const allowed = new Set(sets[category] || []);\n  return tags.filter(t => allowed.has(t));\n}\n\nconst desired = [];\nfunction add(tag) {\n  if (tag && !desired.includes(tag)) desired.push(tag);\n}\n\nconst estadoRaw = String(conv.estado || '').trim();\nconst estado = normalizeState(estadoRaw);\nconst marca = String(conv.marca || '').trim().toUpperCase();\nconst source = String(conv.source || conv.origen || 'outbound').trim().toLowerCase();\nconst windowEval = parseJsonMaybe(conv.window_eval);\nconst attemptsDone = Number(conv.intentos_realizados || 0);\nconst validationErrors = [];\n\nif (marca === 'KIA') add('kia');\nelse if (marca === 'HYUNDAI') add('hyundai');\nelse validationErrors.push({ code: 'MISSING_OR_INVALID_BRAND', value: conv.marca || null });\n\nadd(source.startsWith('inbound') ? 'inbound' : 'outbound');\n\nconst terminalCommercialStates = new Set(['HANDOFF_HUMAN', 'WON', 'LOST', 'NOT_CONTACTABLE', 'DISCARDED']);\nconst ATTEMPT_BY_STATE = {\n  CONTACTED_1: 'primer_contacto',\n  CONTACTED_2: 'segundo_contacto',\n  CONTACTED_3: 'tercer_contacto',\n};\nlet attemptTag = terminalCommercialStates.has(estado) ? null : ATTEMPT_BY_STATE[estado];\nif (!attemptTag && !terminalCommercialStates.has(estado) && attemptsDone > 0) {\n  if (attemptsDone >= 3) attemptTag = 'tercer_contacto';\n  else if (attemptsDone === 2) attemptTag = 'segundo_contacto';\n  else attemptTag = 'primer_contacto';\n}\nadd(attemptTag);\n\nconst selectedPlan = conv.selected_plan || null;\nconst selectedPlanTag = slugPlan(selectedPlan || conv.selected_plan_duration);\n\nconst COMMERCIAL_BY_STATE = {\n  ENGAGED: 'interesado',\n  VEHICLE_SELECTION: 'calificacion',\n  VALUE_PRESENTED: 'calificacion',\n  QUOTED: 'cotizacion',\n  PLAN_SELECTED: 'cotizacion',\n  OBJECTION: 'objeciones',\n  HANDOFF_HUMAN: 'humano',\n  WON: 'ganado',\n  LOST: 'perdido',\n  NOT_CONTACTABLE: 'no_contactable',\n  DISCARDED: 'descartado',\n};\nlet commercialTag = COMMERCIAL_BY_STATE[estado];\nif (selectedPlan && !terminalCommercialStates.has(estado)) commercialTag = 'cotizacion';\nadd(commercialTag);\n\nif (!COMMERCIAL_BY_STATE[estado] && !ATTEMPT_BY_STATE[estado] && estado !== 'NEW_LEAD') {\n  validationErrors.push({ code: 'UNMAPPED_STATE', value: estadoRaw || null, normalized: estado });\n}\n\nif (estado === 'PLAN_SELECTED' || selectedPlan) add('plan_selected');\nif (selectedPlanTag) add(selectedPlanTag);\n\nconst activeVehicleTag = slugVehicle(conv.active_model);\nif (activeVehicleTag) add(activeVehicleTag);\n\nlet windowActive = null;\nif (typeof windowEval?.window_active === 'boolean') windowActive = windowEval.window_active;\nelse if (typeof windowEval?.window_expired === 'boolean') windowActive = !windowEval.window_expired;\nelse if (conv.last_inbound_message_at) windowActive = true;\nelse if (currentUnique.includes('ventana_abierta') || currentUnique.includes('window:open')) windowActive = true;\nelse windowActive = false;\nadd(windowActive ? 'ventana_abierta' : 'ventana_cerrada');\n\nconst externalTags = currentUnique.filter(tag => !isManaged(tag));\nconst desiredManaged = [...new Set(desired)];\nconst newTags = [...new Set([...externalTags, ...desiredManaged])];\n\nconst desiredSet = new Set(newTags);\nconst currentSet = new Set(currentUnique);\nconst added = newTags.filter(tag => !currentSet.has(tag));\nconst removed = currentUnique.filter(tag => !desiredSet.has(tag));\nconst deprecatedFound = currentUnique.filter(tag => DEPRECATED_MANAGED.has(tag));\nconst managedRemoved = currentUnique.filter(tag => isManaged(tag) && !desiredManaged.includes(tag));\nconst corrections = [];\n\nfor (const category of ['brand', 'origin', 'attempt', 'commercial_state', 'window', 'plan', 'vehicle']) {\n  const before = categoryTags(currentUnique, category);\n  const after = categoryTags(desiredManaged, category);\n  if (before.length > 1 || before.sort().join(',') !== after.sort().join(',')) {\n    corrections.push({ category, before, after });\n  }\n}\nif (deprecatedFound.length) corrections.push({ category: 'deprecated', before: deprecatedFound, after: [] });\nif (managedRemoved.length) corrections.push({ category: 'managed_removed', before: managedRemoved, after: [] });\n\nconst currentSorted = [...currentUnique].sort().join(',');\nconst newSorted = [...newTags].sort().join(',');\nconst changed = currentSorted !== newSorted;\n\nconst logEntry = {\n  event: 'TAG_CHANGE',\n  conversation_id: conv.conv_id,\n  chatwoot_conv_id: conv.chatwoot_conv_id,\n  before: currentUnique,\n  after: newTags,\n  added,\n  removed,\n  reason: 'SYNC_FROM_CONVERSATION_STATE',\n  actor: 'WF-09',\n  source_of_truth: 'ConversationState',\n  state: estado,\n  raw_state: estadoRaw,\n  brand: marca || null,\n  origin: source.startsWith('inbound') ? 'inbound' : 'outbound',\n  window: windowActive ? 'ventana_abierta' : 'ventana_cerrada',\n  selected_plan: selectedPlan,\n  active_vehicle: conv.active_model || null,\n  intentos_realizados: attemptsDone,\n  corrections,\n  validation_errors: validationErrors,\n  preserved_external: externalTags,\n  sync_source: conv.sync_source || 'cron',\n  sync_caller: syncCaller,\n  timestamp: new Date().toISOString(),\n};\n\nif (changed) console.log(JSON.stringify(logEntry));\n\nreturn [{\n  json: {\n    conv_id: conv.conv_id,\n    chatwoot_conv_id: conv.chatwoot_conv_id,\n    sync_source: conv.sync_source || 'cron',\n    sync_caller: syncCaller,\n    new_tags: newTags,\n    labels_body: JSON.stringify({ labels: newTags }),\n    chatwoot_contact_id: conv.chatwoot_contact_id,\n    contact_attrs_body: JSON.stringify({\n      additional_attributes: Object.fromEntries(Object.entries({\n        marca: marca || undefined,\n        modelo: conv.active_model || conv.modelo || undefined,\n        quicklink_id: conv.quicklink_id || undefined,\n        estado_cris: estado || undefined,\n      }).filter(([, value]) => value !== undefined && value !== null && String(value) !== ''))\n    }),\n    changed,\n    event_type: 'tag_change',\n    evento_payload: JSON.stringify(logEntry).replace(/'/g, \"''\"),\n    estado,\n    marca,\n    origin: source.startsWith('inbound') ? 'inbound' : 'outbound',\n    validation_errors: validationErrors,\n    corrections,\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "n20",
+      "name": "HTTP - PATCH Contact Attrs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1660,
+        560
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      },
+      "parameters": {
+        "method": "PATCH",
+        "url": "=http://chatwoot:3000/api/v1/accounts/2/contacts/{{ $('Code - Compute Tags').item.json.chatwoot_contact_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Code - Compute Tags').item.json.contact_attrs_body }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000,
+          "allowUnauthorizedCerts": false
+        },
+        "onError": "continueRegularOutput"
+      },
+      "onError": "continueRegularOutput",
+      "notes": "Syncs Chatwoot contact additional_attributes from CRIS ConversationState; labels remain managed by WF-09 label path."
+    },
+    {
+      "id": "n7",
+      "name": "IF - Tags Changed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1660,
+        420
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $('Code - Compute Tags').item.json.changed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n8",
+      "name": "HTTP - POST Labels",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1880,
+        320
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "=http://chatwoot:3000/api/v1/accounts/2/conversations/{{ $('Code - Compute Tags').item.json.chatwoot_conv_id }}/labels",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Code - Compute Tags').item.json.labels_body }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000,
+          "allowUnauthorizedCerts": false
+        },
+        "onError": "continueRegularOutput"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "n9",
+      "name": "PG - Log Tag Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2100,
+        320
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SET search_path TO sales_prod, public, extensions;\nINSERT INTO eventos_conversacion (conversation_id, tipo_evento, actor, payload)\nSELECT NULLIF('{{ $('Code - Compute Tags').item.json.conv_id }}','')::uuid,\n       COALESCE(NULLIF('{{ $('Code - Compute Tags').item.json.event_type }}',''), 'tag_change'),\n       'WF-09',\n       COALESCE(NULLIF('{{ $('Code - Compute Tags').item.json.evento_payload }}','')::jsonb, '{}'::jsonb)\nWHERE NULLIF('{{ $('Code - Compute Tags').item.json.conv_id }}','') IS NOT NULL",
+        "options": {}
+      }
+    },
+    {
+      "id": "n10",
+      "name": "Webhook - Sync Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        560,
+        620
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cris-tags-sync",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "webhookId": "9cdd7ed8-d97f-4a97-a832-15ce1cc43aa7"
+    },
+    {
+      "id": "n11",
+      "name": "Code - Normalize Sync Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        620
+      ],
+      "parameters": {
+        "jsCode": "const item = $input.first().json || {};\nconst body = item.body || item || {};\nconst rawConvId = String(body.conv_id || body.conversation_id || '').trim();\nconst rawChatwootConvId = String(body.chatwoot_conv_id || body.chatwoot_conversation_id || body.conversation?.id || '').trim();\nconst syncCaller = String(body.source || body.sync_caller || body.sync_reason || '').trim();\nconst UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nconst requestedConvId = UUID_REGEX.test(rawConvId) ? rawConvId : null;\nconst requestedChatwootConvId = /^\\d+$/.test(rawChatwootConvId) ? rawChatwootConvId : null;\n\nreturn [{\n  json: {\n    ...item,\n    requested_conv_id: requestedConvId,\n    requested_chatwoot_conv_id: requestedChatwootConvId,\n    sync_source: 'webhook',\n    sync_caller: syncCaller || null,\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "n12",
+      "name": "PG - Get Target Conv",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1000,
+        620
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH req AS (\n  SELECT NULLIF($1, '')::uuid AS conv_id,\n         NULLIF($2, '')::integer AS chatwoot_conv_id\n), matched AS (\n  SELECT\n    c.id                           AS conv_id,\n    c.estado::text                 AS estado,\n    c.marca::text                  AS marca,\n    c.modelo::text                 AS modelo,\n    c.quicklink_id::text           AS quicklink_id,\n    c.chatwoot_conv_id::integer    AS chatwoot_conv_id,\n    c.chatwoot_contact_id::integer AS chatwoot_contact_id,\n    c.intentos_realizados::integer AS intentos_realizados,\n    COALESCE(lm.source, 'outbound')::text AS source,\n    lm.last_inbound_message_at,\n    lm.selected_plan::text,\n    lm.selected_plan_name::text,\n    lm.selected_plan_duration::text,\n    COALESCE(cc.active_model, c.modelo)::text AS active_model,\n    COALESCE(cc.active_brand, c.marca::text)::text AS active_brand,\n    cc.active_vehicle_id::text,\n    cc.multi_vehicle_mode::boolean,\n    cc.vehicle_count::integer,\n    evaluate_conversation_window(lm.last_inbound_message_at)::jsonb AS window_eval,\n    'webhook'::text AS sync_source,\n    'target_found'::text AS sync_status\n  FROM req\n  JOIN conversaciones c\n    ON (req.conv_id IS NOT NULL AND c.id = req.conv_id)\n    OR (req.chatwoot_conv_id IS NOT NULL AND c.chatwoot_conv_id = req.chatwoot_conv_id)\n  LEFT JOIN LATERAL (\n    SELECT lm.*\n    FROM lead_memory lm\n    WHERE lm.conversation_id = c.id\n       OR lm.chatwoot_conv_id = c.chatwoot_conv_id\n    ORDER BY lm.updated_at DESC\n    LIMIT 1\n  ) lm ON true\n  LEFT JOIN conversation_context cc\n    ON cc.chatwoot_conv_id = c.chatwoot_conv_id\n  WHERE c.chatwoot_conv_id IS NOT NULL\n    AND c.chatwoot_contact_id IS NOT NULL\n    AND c.estado::text <> 'NEW_LEAD'\n  LIMIT 1\n)\nSELECT * FROM matched\nUNION ALL\nSELECT\n  req.conv_id                      AS conv_id,\n  NULL::text                       AS estado,\n  NULL::text                       AS marca,\n  NULL::text                       AS modelo,\n  NULL::text                       AS quicklink_id,\n  req.chatwoot_conv_id::integer    AS chatwoot_conv_id,\n  NULL::integer                    AS chatwoot_contact_id,\n  NULL::integer                    AS intentos_realizados,\n  'outbound'::text                 AS source,\n  NULL::timestamp with time zone   AS last_inbound_message_at,\n  NULL::text                       AS selected_plan,\n  NULL::text                       AS selected_plan_name,\n  NULL::text                       AS selected_plan_duration,\n  NULL::text                       AS active_model,\n  NULL::text                       AS active_brand,\n  NULL::text                       AS active_vehicle_id,\n  NULL::boolean                    AS multi_vehicle_mode,\n  NULL::integer                    AS vehicle_count,\n  NULL::jsonb                      AS window_eval,\n  'webhook'::text                  AS sync_source,\n  'target_not_found'::text         AS sync_status\nFROM req\nWHERE NOT EXISTS (SELECT 1 FROM matched)\n",
+        "options": {
+          "queryReplacement": "={{ [$json.requested_conv_id || '', $json.requested_chatwoot_conv_id || ''] }}"
+        }
+      }
+    },
+    {
+      "id": "n13",
+      "name": "Code - Target Conv",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1220,
+        620
+      ],
+      "parameters": {
+        "jsCode": "const item = $input.first().json || {};\nlet syncSource = item.sync_source || 'cron';\nlet syncCaller = item.sync_caller || null;\ntry {\n  const req = $('Code - Normalize Sync Request').first().json;\n  if (req?.sync_source) syncSource = req.sync_source;\n  if (req?.sync_caller) syncCaller = req.sync_caller;\n} catch (e) {}\n\nreturn [{\n  json: {\n    ...item,\n    sync_source: syncSource,\n    sync_caller: syncCaller,\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "n14",
+      "name": "Code - Finalize Sync",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2320,
+        420
+      ],
+      "parameters": {
+        "jsCode": "let computed = {};\ntry { computed = $('Code - Compute Tags').item.json || {}; } catch (e) {}\nconst changed = computed.changed === true;\nreturn [{\n  json: {\n    success: true,\n    sync_status: changed ? 'labels_updated' : 'labels_unchanged',\n    sync_source: computed.sync_source || 'cron',\n    sync_caller: computed.sync_caller || null,\n    conv_id: computed.conv_id || null,\n    chatwoot_conv_id: computed.chatwoot_conv_id || null,\n    changed,\n    new_tags: computed.new_tags || [],\n    validation_errors: computed.validation_errors || [],\n    corrections: computed.corrections || [],\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "n15",
+      "name": "Code - Sync Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        620
+      ],
+      "parameters": {
+        "jsCode": "let target = {};\ntry { target = $('Code - Target Conv').item.json || {}; } catch (e) {}\nconst err = $input.first().json || {};\nreturn [{\n  json: {\n    success: false,\n    sync_status: 'labels_get_failed',\n    sync_source: target.sync_source || 'cron',\n    sync_caller: target.sync_caller || null,\n    conv_id: target.conv_id || null,\n    chatwoot_conv_id: target.chatwoot_conv_id || null,\n    error: err.error?.message || err.message || err.error || 'get_labels_failed',\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "n16",
+      "name": "IF - Cron Continue?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2540,
+        420
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "cron-source",
+              "leftValue": "={{ $json.sync_source }}",
+              "rightValue": "cron",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n17",
+      "name": "IF - Has Target Conv?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        620
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "has-target",
+              "leftValue": "={{ !!$json.chatwoot_conv_id && !!$json.chatwoot_contact_id && $json.sync_status !== 'target_not_found' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n18",
+      "name": "Code - Target Not Found",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1660,
+        760
+      ],
+      "parameters": {
+        "jsCode": "const target = $input.first().json || {};\nreturn [{\n  json: {\n    success: false,\n    sync_status: 'target_not_found',\n    sync_source: target.sync_source || 'webhook',\n    sync_caller: target.sync_caller || null,\n    conv_id: target.conv_id || null,\n    chatwoot_conv_id: target.chatwoot_conv_id || null,\n    error: 'target_conversation_not_found',\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "n19",
+      "name": "Code - Webhook Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2760,
+        600
+      ],
+      "parameters": {
+        "jsCode": "const item = $input.first().json || {};\nreturn [{ json: item }];\n"
+      }
+    },
+    {
+      "id": "cris06-cron-runtime-guard-001",
+      "name": "Code - Cron Runtime Guard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        180
+      ],
+      "parameters": {
+        "jsCode": "const data = $getWorkflowStaticData('global');\nconst now = Date.now();\nconst ttlMs = 10 * 60 * 1000;\nconst until = Number(data.cris06_cron_lock_until || 0);\nif (until && until > now) {\n  return [];\n}\ndata.cris06_cron_lock_until = now + ttlMs;\ndata.cris06_cron_lock_started_at = new Date(now).toISOString();\nreturn $input.all().map(item => ({ json: { ...(item.json || {}), sync_source: 'cron', cron_lock_acquired: true } }));\n"
+      }
+    },
+    {
+      "id": "cris06-cron-runtime-release-001",
+      "name": "Code - Release Cron Runtime Guard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1220,
+        80
+      ],
+      "parameters": {
+        "jsCode": "const data = $getWorkflowStaticData('global');\ndelete data.cris06_cron_lock_until;\ndata.cris06_cron_lock_released_at = new Date().toISOString();\nreturn [{ json: { success: true, sync_status: 'cron_finished', sync_source: 'cron' } }];\n"
+      }
+    }
+  ],
+  "connections": {
+    "CRON - Cada 5 Min": {
+      "main": [
+        [
+          {
+            "node": "Code - Cron Runtime Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Get Active Convs": {
+      "main": [
+        [
+          {
+            "node": "Loop - Each Conv",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop - Each Conv": {
+      "main": [
+        [
+          {
+            "node": "Code - Release Cron Runtime Guard",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Target Conv",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - GET Labels": {
+      "main": [
+        [
+          {
+            "node": "Code - Compute Tags",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Sync Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Compute Tags": {
+      "main": [
+        [
+          {
+            "node": "HTTP - PATCH Contact Attrs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Tags Changed?": {
+      "main": [
+        [
+          {
+            "node": "HTTP - POST Labels",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Finalize Sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - POST Labels": {
+      "main": [
+        [
+          {
+            "node": "PG - Log Tag Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Log Tag Event": {
+      "main": [
+        [
+          {
+            "node": "Code - Finalize Sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Sync Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalize Sync Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Normalize Sync Request": {
+      "main": [
+        [
+          {
+            "node": "PG - Get Target Conv",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Get Target Conv": {
+      "main": [
+        [
+          {
+            "node": "Code - Target Conv",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Target Conv": {
+      "main": [
+        [
+          {
+            "node": "IF - Has Target Conv?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Sync Error": {
+      "main": [
+        [
+          {
+            "node": "IF - Cron Continue?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Finalize Sync": {
+      "main": [
+        [
+          {
+            "node": "IF - Cron Continue?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Cron Continue?": {
+      "main": [
+        [
+          {
+            "node": "Loop - Each Conv",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Has Target Conv?": {
+      "main": [
+        [
+          {
+            "node": "HTTP - GET Labels",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Target Not Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Target Not Found": {
+      "main": [
+        [
+          {
+            "node": "IF - Cron Continue?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - PATCH Contact Attrs": {
+      "main": [
+        [
+          {
+            "node": "IF - Tags Changed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Cron Runtime Guard": {
+      "main": [
+        [
+          {
+            "node": "PG - Get Active Convs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Release Cron Runtime Guard": {
+      "main": [
+        [
+          {
+            "node": "No Op - Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "none"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "5c6390ab-dfe2-51c7-b96d-f102638aff1c",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

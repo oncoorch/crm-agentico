@@ -1,0 +1,143 @@
+{
+  "id": "XpUmPN30ELBUo2a0_quicklink",
+  "name": "REN - DEV - TEMP-01 - Clean renovation_dev Schema_quicklink",
+  "nodes": [
+    {
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -760,
+        180
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "renov/dev/temp/clean-renovation-dev-schema",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "97ae01e0-5eae-4884-a8b3-daf89e2872f7"
+    },
+    {
+      "id": "code-confirm",
+      "name": "Code - Confirm Clean",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -500,
+        180
+      ],
+      "parameters": {
+        "jsCode": "const body = $json.body ?? $json ?? {};\nconst confirm = String(body.confirm ?? '').trim();\n\nif (confirm !== 'CLEAN_RENOVATION_DEV_SCHEMA') {\n  throw new Error('Confirmation mismatch. Send confirm=CLEAN_RENOVATION_DEV_SCHEMA to clean renovation_dev.');\n}\n\nreturn [{\n  json: {\n    confirmed: true,\n    schema: 'renovation_dev',\n    requested_at: new Date().toISOString()\n  }\n}];\n"
+      }
+    },
+    {
+      "id": "postgres-clean",
+      "name": "Postgres - Clean renovation_dev Schema",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -220,
+        180
+      ],
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "DROP SCHEMA IF EXISTS renovation_dev CASCADE;\nCREATE SCHEMA renovation_dev;\n\nSELECT 'tables_after_clean' AS metric, count(*)::integer AS value\nFROM pg_class c\nJOIN pg_namespace n ON n.oid = c.relnamespace\nWHERE n.nspname = 'renovation_dev'\n  AND c.relkind IN ('r','p')\nUNION ALL\nSELECT 'views_after_clean', count(*)::integer\nFROM pg_class c\nJOIN pg_namespace n ON n.oid = c.relnamespace\nWHERE n.nspname = 'renovation_dev'\n  AND c.relkind IN ('v','m')\nUNION ALL\nSELECT 'types_after_clean', count(*)::integer\nFROM pg_type t\nJOIN pg_namespace n ON n.oid = t.typnamespace\nWHERE n.nspname = 'renovation_dev'\nORDER BY metric;",
+        "options": {
+          "queryBatching": "transaction"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "respond-result",
+      "name": "Respond - Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        60,
+        180
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, schema: 'renovation_dev', metrics: $input.all().map(item => item.json) }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "sticky-note",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -820,
+        -220
+      ],
+      "parameters": {
+        "content": "## TEMP - Clean renovation_dev Schema\n\nDestructive maintenance workflow for migration testing.\n\nRequires payload:\n`{ \"confirm\": \"CLEAN_RENOVATION_DEV_SCHEMA\" }`\n\nAction:\n- DROP SCHEMA renovation_dev CASCADE\n- CREATE SCHEMA renovation_dev\n\nKeep inactive except while testing OPS-04.",
+        "height": 360,
+        "width": 420
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code - Confirm Clean",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Confirm Clean": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Clean renovation_dev Schema",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Clean renovation_dev Schema": {
+      "main": [
+        [
+          {
+            "node": "Respond - Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "executionTimeout": 60,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "c308674c-18fa-5e95-8015-111500d793db",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

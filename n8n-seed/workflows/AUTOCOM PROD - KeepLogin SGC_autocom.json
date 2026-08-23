@@ -1,0 +1,63 @@
+{
+  "id": "p6bDSuJzpmUiD8D9_autocom",
+  "name": "AUTOCOM PROD - KeepLogin SGC_autocom",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "66cd4fd9-11b3-41d9-844f-d6378afe1d9a",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "url": "=http://mcp_server_prod:8000/api/sgc/keep-alive",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        208,
+        0
+      ],
+      "id": "430119ab-6dfb-4dbf-b531-952c9c9c560e",
+      "name": "HTTP Request"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "a0b33b8f-4e16-5910-b463-414985c671c8",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

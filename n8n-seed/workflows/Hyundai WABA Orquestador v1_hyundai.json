@@ -1,0 +1,892 @@
+{
+  "id": "b2bwEGtEoyTNBtSR_hyundai",
+  "name": "Hyundai WABA Orquestador v1_hyundai",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "hyundai_waba_orchestrator",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "888f5e2c-2580-43a0-9e23-7dd1e6ffb20e",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -2064,
+        -64
+      ],
+      "webhookId": "hyundai-waba_orchestrator"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || {}\nconst msg = body?.conversation?.messages?.[0] || {}\nconst contact = body?.conversation?.meta?.sender || body?.conversation?.contact || {}\nconst sourcePhone = body?.conversation?.contact_inbox?.source_id || body?.source_id || ''\nconst content = msg.content || ''\n\nreturn [{\n  json: {\n    raw: body,\n    event: body.event || '',\n    message_type: body.message_type || '',\n    sender_type: (msg.sender_type || '').toLowerCase(),\n    conversation_id: body?.conversation?.id || null,\n    account_id: body?.account?.id || null,\n    inbox_id: body?.inbox?.id || null,\n    content,\n    source_number_phone: sourcePhone,\n    user_name_from_contact: contact?.name || '',\n    user_email_from_contact: contact?.email || '',\n    custom_attributes: body?.conversation?.contact?.custom_attributes || {},\n    contact_id: body?.conversation?.meta?.sender?.id || body?.conversation?.contact?.id || null\n  }\n}]"
+      },
+      "id": "1c408474-513d-4a73-943e-2ece7117df57",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1856,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.event }}",
+              "rightValue": "message_created",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "leftValue": "={{ $json.sender_type }}",
+              "rightValue": "contact",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0f57d23b-a911-4225-87fd-9e1659fe613c",
+      "name": "Only User Messages",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1632,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "contact_state",
+              "value": "={{ { name: $json.custom_attributes.name || $json.user_name_from_contact || '', identifier: $json.custom_attributes.identifier || '', email: $json.custom_attributes.email || $json.user_email_from_contact || '', phone_number: $json.custom_attributes.phone_number || $json.source_number_phone || '', city: $json.custom_attributes.city || '', dealer: $json.custom_attributes.dealer || '' } }}",
+              "type": "object"
+            },
+            {
+              "name": "lead_state",
+              "value": "={{ { vehicle_model: $json.custom_attributes.vehicle_model || '', test_drive_datetime: $json.custom_attributes.test_drive_datetime || '', tentative_purchase_date: $json.custom_attributes.tentative_purchase_date || '', purchase_temperature: $json.custom_attributes.purchase_temperature || '' } }}",
+              "type": "object"
+            },
+            {
+              "name": "conversation_state",
+              "value": "={{ { current_stage: $json.custom_attributes.current_stage || 'discovery', current_intent: $json.custom_attributes.current_intent || '', waiting_for_flow_response: $json.custom_attributes.waiting_for_flow_response || false, last_flow_sent: $json.custom_attributes.last_flow_sent || '', last_flow_status: $json.custom_attributes.last_flow_status || '' } }}",
+              "type": "object"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "6a2141b9-2781-4924-a1b1-0e81bc1f719f",
+      "name": "Build State",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1408,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = ($json.content || '').trim()\nconst looksLikeFlowReply = /(name\\s*:|identifier\\s*:|email\\s*:|city\\s*:|dealer\\s*:|flow_token\\s*:)/i.test(text)\nconst isCommercialIntent = /(cotiz|precio|financia|cr[eé]dito|asesor|contact|compr|test drive|agend|cita|veh[ií]culo|modelo|concesionario|sucursal)/i.test(text)\nconst wantsSchedule = /(agend|test drive|cita|visita|ma[ñn]ana|hoy|hora|fecha)/i.test(text)\nconst missingBasic = []\nconst missingPhase6 = []\nconst c = $json.contact_state || {}\nconst l = $json.lead_state || {}\nfor (const f of ['name','identifier','email','phone_number','city','dealer']) {\n  const v = c[f]\n  if (v === null || v === undefined || String(v).trim() === '') missingBasic.push(f)\n}\nfor (const f of ['vehicle_model','test_drive_datetime','tentative_purchase_date']) {\n  const v = l[f]\n  if (v === null || v === undefined || String(v).trim() === '') missingPhase6.push(f)\n}\nreturn [{\n  json: {\n    ...$json,\n    flow_guard: { looksLikeFlowReply, isCommercialIntent, wantsSchedule },\n    data_eval: {\n      missing_basic: missingBasic,\n      missing_phase6: missingPhase6,\n      contact_complete_basic: missingBasic.length === 0,\n      phase6_ready: missingPhase6.length === 0\n    }\n  }\n}]"
+      },
+      "id": "1a754350-ff68-455e-856e-9397ea8b8068",
+      "name": "Evaluate Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1184,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Mensaje del usuario:\n{{ $json.content }}\n\nContact State:\n{{ JSON.stringify($json.contact_state) }}\n\nLead State:\n{{ JSON.stringify($json.lead_state) }}\n\nConversation State:\n{{ JSON.stringify($json.conversation_state) }}",
+        "hasOutputParser": true,
+        "messages": {
+          "messageValues": [
+            {
+              "message": "Eres un clasificador de intención para Hyundai en WhatsApp.\nResponde SOLO JSON con esta forma:\n{\n  \"intent\": \"product_info|corporate_info|dealership_info|schedule_phase4|schedule_phase6|fallback\",\n  \"confidence\": 0.0,\n  \"entities\": {\"city\":\"\",\"dealer\":\"\",\"model\":\"\"}\n}\nReglas:\n- schedule_phase6 si el usuario quiere agendar test drive, cita, visita o fecha/hora.\n- schedule_phase4 si quiere cotización, seguimiento, que le contacten o avanzar comercialmente, pero sin pedir fecha/hora.\n- product_info para preguntas de modelos, características, precio o disponibilidad sin intención clara de agendar.\n- corporate_info para preguntas corporativas.\n- dealership_info para sucursales, concesionarios, direcciones u horarios.\n- fallback si no es claro.\n- No agregues texto fuera del JSON."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "id": "83d6243e-3f4a-4f45-8686-d87cf55329c9",
+      "name": "Intent Classifier",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        -976,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-5.4-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-5.4-mini"
+        },
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "id": "7abe227c-d59b-4303-8104-57415f2bec24",
+      "name": "LLM Intent",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -976,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"intent\": \"product_info\",\n  \"confidence\": 0.93,\n  \"entities\": {\"city\":\"Quito\",\"dealer\":\"\",\"model\":\"Tucson\"}\n}"
+      },
+      "id": "08b6ef05-ecf9-4d91-b885-89ceaa9e0c23",
+      "name": "Intent Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        -976,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const intent = $json.output?.intent || 'fallback'\nconst data = $json.data_eval || {}\nconst guard = $json.flow_guard || {}\nconst waiting = Boolean($json.conversation_state?.waiting_for_flow_response)\n\nlet send_flow = false\nlet flow_type = 'none'\nlet reason = 'no_flow_needed'\nlet missing_fields = []\nlet next_stage = $json.conversation_state?.current_stage || 'discovery'\n\nif (guard.looksLikeFlowReply || waiting) {\n  send_flow = false\n  reason = guard.looksLikeFlowReply ? 'flow_reply_detected' : 'waiting_for_flow_response'\n} else if (intent === 'schedule_phase6') {\n  if (!data.contact_complete_basic) {\n    send_flow = true\n    flow_type = 'contact_basic'\n    missing_fields = data.missing_basic\n    reason = 'missing_basic_for_schedule'\n    next_stage = 'phase4'\n  } else if (!data.phase6_ready) {\n    send_flow = true\n    flow_type = data.missing_phase6.length <= 2 ? 'missing_fields' : 'phase6'\n    missing_fields = data.missing_phase6\n    reason = 'missing_phase6_fields'\n    next_stage = 'phase6'\n  } else {\n    send_flow = false\n    reason = 'ready_to_schedule'\n    next_stage = 'scheduled'\n  }\n} else if (intent === 'schedule_phase4' && guard.isCommercialIntent) {\n  if (!data.contact_complete_basic) {\n    send_flow = true\n    flow_type = 'contact_basic'\n    missing_fields = data.missing_basic\n    reason = 'missing_basic_fields'\n    next_stage = 'phase4'\n  }\n} else {\n  send_flow = false\n  reason = 'informational_turn'\n}\n\nreturn [{ json: { ...$json, routing: { intent, send_flow, flow_type, reason, missing_fields, next_stage } } }]"
+      },
+      "id": "1a0d43d5-4d43-46ff-9411-cdeaa7fd352e",
+      "name": "Flow Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -704,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.routing.send_flow }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  },
+                  {
+                    "leftValue": "={{ $json.routing.flow_type }}",
+                    "rightValue": "contact_basic",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "contact_basic"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.routing.send_flow }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  },
+                  {
+                    "leftValue": "={{ $json.routing.flow_type }}",
+                    "rightValue": "phase6",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "phase6"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.routing.send_flow }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  },
+                  {
+                    "leftValue": "={{ $json.routing.flow_type }}",
+                    "rightValue": "missing_fields",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "missing_fields"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b6e92a2b-e544-40db-9623-573363508bce",
+      "name": "Route Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -384,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "meta_phone_number_id",
+              "value": "1068832682978135",
+              "type": "string"
+            },
+            {
+              "name": "meta_access_token",
+              "value": "REPLACE_WITH_META_TOKEN",
+              "type": "string"
+            },
+            {
+              "name": "meta_flow_id",
+              "value": "REPLACE_WITH_FLOW_ID_CONTACT_BASIC",
+              "type": "string"
+            },
+            {
+              "name": "flow_cta",
+              "value": "Completar datos",
+              "type": "string"
+            },
+            {
+              "name": "flow_copy",
+              "value": "Para continuar con tu solicitud necesito completar tus datos de contacto y concesionario.",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "c3330c9f-0b7b-4c9b-ad30-a1df21d583b6",
+      "name": "Set Contact Flow Meta",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -144,
+        -256
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "meta_phone_number_id",
+              "value": "1068832682978135",
+              "type": "string"
+            },
+            {
+              "name": "meta_access_token",
+              "value": "REPLACE_WITH_META_TOKEN",
+              "type": "string"
+            },
+            {
+              "name": "meta_flow_id",
+              "value": "REPLACE_WITH_FLOW_ID_PHASE6",
+              "type": "string"
+            },
+            {
+              "name": "flow_cta",
+              "value": "Agendar test drive",
+              "type": "string"
+            },
+            {
+              "name": "flow_copy",
+              "value": "Perfecto. Para dejar tu test drive listo, completa estos datos.",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "de10f250-b7e6-491b-b394-bad1eebadcf5",
+      "name": "Set Phase6 Flow Meta",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -144,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "meta_phone_number_id",
+              "value": "1068832682978135",
+              "type": "string"
+            },
+            {
+              "name": "meta_access_token",
+              "value": "REPLACE_WITH_META_TOKEN",
+              "type": "string"
+            },
+            {
+              "name": "meta_flow_id",
+              "value": "REPLACE_WITH_FLOW_ID_MISSING_FIELDS",
+              "type": "string"
+            },
+            {
+              "name": "flow_cta",
+              "value": "Completar faltantes",
+              "type": "string"
+            },
+            {
+              "name": "flow_copy",
+              "value": "Solo me faltan algunos datos para avanzar con tu solicitud.",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "79187220-f3ae-45ab-8734-c1d5c9aa2000",
+      "name": "Set Missing Fields Flow Meta",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -144,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v23.0/{{ $json.meta_phone_number_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.meta_access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"recipient_type\": \"individual\",\n  \"to\": \"{{ $json.source_number_phone }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"preview_url\": false,\n    \"body\": \"{{ $json.flow_copy }}\"\n  }\n}",
+        "options": {}
+      },
+      "id": "63be2650-b96a-4cf1-8986-3d3ebba949c6",
+      "name": "Send Pre Flow Text",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        96,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v23.0/{{ $json.meta_phone_number_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.meta_access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"recipient_type\": \"individual\",\n  \"to\": \"{{ $json.source_number_phone }}\",\n  \"type\": \"interactive\",\n  \"interactive\": {\n    \"type\": \"flow\",\n    \"header\": { \"type\": \"text\", \"text\": \"Formulario\" },\n    \"body\": { \"text\": \"{{ $json.flow_copy }}\" },\n    \"footer\": { \"text\": \"Hyundai\" },\n    \"action\": {\n      \"name\": \"flow\",\n      \"parameters\": {\n        \"flow_token\": \"{{ $json.routing.flow_type }}-{{ $json.source_number_phone }}-{{ $json.conversation_id }}\",\n        \"flow_id\": \"{{ $json.meta_flow_id }}\",\n        \"flow_cta\": \"{{ $json.flow_cta }}\",\n        \"flow_action\": \"navigate\"\n      }\n    }\n  }\n}",
+        "options": {}
+      },
+      "id": "303b3937-db0f-464b-b98b-570da8a15e35",
+      "name": "Send WhatsApp Flow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        320,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=http://chatwoot:3000/api/v1/accounts/{{ $json.account_id }}/contacts/{{ $json.contact_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "REPLACE_WITH_CHATWOOT_TOKEN"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"custom_attributes\": {\n    \"waiting_for_flow_response\": true,\n    \"last_flow_sent\": \"{{ $json.routing.flow_type }}\",\n    \"last_flow_status\": \"sent\",\n    \"current_intent\": \"{{ $json.routing.intent }}\",\n    \"current_stage\": \"{{ $json.routing.next_stage }}\"\n  }\n}",
+        "options": {}
+      },
+      "id": "2e904895-33d4-44d5-92e2-c852952fe640",
+      "name": "Update Contact After Flow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        544,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Mensaje del usuario:\n{{ $json.content }}\n\nIntent detectada:\n{{ $json.routing.intent }}\n\nContact State:\n{{ JSON.stringify($json.contact_state) }}\n\nLead State:\n{{ JSON.stringify($json.lead_state) }}\n\nRouting:\n{{ JSON.stringify($json.routing) }}",
+        "hasOutputParser": true,
+        "messages": {
+          "messageValues": [
+            {
+              "message": "Eres el redactor final de Hyundai en WhatsApp.\nReglas:\n- Responde como un asesor humano, natural y breve.\n- Si routing.reason es informational_turn, responde la consulta y no pidas formulario.\n- Si routing.reason es ready_to_schedule, confirma que ya tienes lo necesario y di que procederás con el agendamiento.\n- Si routing.send_flow es false, no menciones formularios.\n- No inventes precios ni disponibilidad.\n- Responde SOLO JSON con forma {\"reply\":{\"text\":\"...\",\"channel_hints\":{\"attachments\":[]}}}."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "id": "2aa4d503-2861-4c9b-8e6d-6a1713b7fbc0",
+      "name": "Conversation Writer",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        -288,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-5.4-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-5.4-mini"
+        },
+        "options": {
+          "temperature": 0.4
+        }
+      },
+      "id": "bd4a0872-a5dd-4371-8da4-563ef47eec72",
+      "name": "LLM Writer",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -288,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"reply\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"text\": { \"type\": \"string\" },\n        \"channel_hints\": {\n          \"type\": \"object\",\n          \"properties\": {\n            \"attachments\": {\n              \"type\": \"array\",\n              \"items\": {\n                \"type\": \"object\",\n                \"properties\": {\n                  \"type\": { \"type\": \"string\" },\n                  \"url\": { \"type\": \"string\" }\n                },\n                \"required\": [\"type\",\"url\"]\n              }\n            }\n          },\n          \"required\": [\"attachments\"]\n        }\n      },\n      \"required\": [\"text\",\"channel_hints\"]\n    }\n  },\n  \"required\": [\"reply\"]\n}"
+      },
+      "id": "1ca3427a-33a5-407a-b66d-b22e25727a7e",
+      "name": "Writer Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        -288,
+        784
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://chatwoot:3000/api/v1/accounts/{{ $json.account_id }}/conversations/{{ $json.conversation_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "REPLACE_WITH_CHATWOOT_TOKEN"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content",
+              "value": "={{ $json.output.reply.text }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "617b1ddb-91a4-4a79-98ca-2af510d8c404",
+      "name": "Send Chat Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -16,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"ok\": true, \"conversation_id\": $json.conversation_id || null, \"routing\": $json.routing || null }",
+        "options": {}
+      },
+      "id": "af2b6b97-5db6-40ab-a3ae-b0163d95bd5d",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -1680,
+        640
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Only User Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Only User Messages": {
+      "main": [
+        [
+          {
+            "node": "Build State",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build State": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Data": {
+      "main": [
+        [
+          {
+            "node": "Intent Classifier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Intent": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Intent Classifier",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intent Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Intent Classifier",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intent Classifier": {
+      "main": [
+        [
+          {
+            "node": "Flow Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flow Decision": {
+      "main": [
+        [
+          {
+            "node": "Route Action",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Conversation Writer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Action": {
+      "main": [
+        [
+          {
+            "node": "Set Contact Flow Meta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set Phase6 Flow Meta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set Missing Fields Flow Meta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Contact Flow Meta": {
+      "main": [
+        [
+          {
+            "node": "Send Pre Flow Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Phase6 Flow Meta": {
+      "main": [
+        [
+          {
+            "node": "Send Pre Flow Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Missing Fields Flow Meta": {
+      "main": [
+        [
+          {
+            "node": "Send Pre Flow Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Pre Flow Text": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Flow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp Flow": {
+      "main": [
+        [
+          {
+            "node": "Update Contact After Flow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Contact After Flow": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Writer": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Conversation Writer",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Writer Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Conversation Writer",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conversation Writer": {
+      "main": [
+        [
+          {
+            "node": "Send Chat Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Chat Response": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "74f42c4c-5b23-53f5-a8ac-dcc78ae8b621",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

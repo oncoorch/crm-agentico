@@ -1,0 +1,245 @@
+{
+  "id": "CIRF8aKJuVFJJuBZ_quicklink",
+  "name": "REN - DEV - UTIL-02 - Routing Lookup API_quicklink",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "renov/dev/v1/routing/lookup",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "rl-webhook",
+      "name": "GET Routing Lookup",
+      "webhookId": "4d8c2f61-9b73-4e05-a2f8-6c1b7d3e9084"
+    },
+    {
+      "parameters": {
+        "jsCode": "const providerOAuthCrypto = require('crypto');\nconst PROVIDER_OAUTH_REQUIRED_SCOPE = 'salesforce.integration';\nconst PROVIDER_OAUTH_TOKEN_TTL_SECONDS = 900;\n\nfunction providerOAuthEnv(name) {\n  try { return String($env[name] || ''); } catch (error) { return ''; }\n}\n\nfunction providerOAuthHeader(headers, name) {\n  const target = name.toLowerCase();\n  for (const [key, value] of Object.entries(headers || {})) {\n    if (String(key).toLowerCase() === target) return Array.isArray(value) ? value[0] : value;\n  }\n  return '';\n}\n\nfunction providerOAuthScopes(value) {\n  return [...new Set(String(value || '').trim().split(/\\s+/).filter(Boolean))];\n}\n\nfunction providerOAuthBase64Url(value) {\n  return Buffer.from(value).toString('base64').replace(/=/g, '').replace(/\\+/g, '-').replace(/\\//g, '_');\n}\n\nfunction providerOAuthDecodeSegment(segment) {\n  if (!/^[A-Za-z0-9_-]+$/.test(String(segment || ''))) throw new Error('invalid base64url');\n  const padding = (4 - (segment.length % 4)) % 4;\n  const decoded = Buffer.from(segment + '='.repeat(padding), 'base64');\n  if (providerOAuthBase64Url(decoded) !== segment) throw new Error('non-canonical base64url');\n  return decoded;\n}\n\nfunction providerOAuthFailure(statusCode, error, description) {\n  return { ok: false, statusCode, body: { error, error_description: description } };\n}\n\nfunction providerOAuthInvalidToken() {\n  return providerOAuthFailure(401, 'invalid_token', 'The access token is invalid or expired.');\n}\n\nfunction validateProviderBearerJwt(request) {\n  const jwtSecret = providerOAuthEnv('RENOV_OAUTH_JWT_SECRET');\n  const issuer = providerOAuthEnv('RENOV_OAUTH_ISSUER');\n  const audience = providerOAuthEnv('RENOV_OAUTH_AUDIENCE');\n  const configuredClientId = providerOAuthEnv('RENOV_OAUTH_CLIENT_ID');\n  const configuredScopes = providerOAuthScopes(providerOAuthEnv('RENOV_OAUTH_SCOPE'));\n  const allowedClientIds = providerOAuthEnv('RENOV_PROVIDER_CLIENT_IDS')\n    .split(',')\n    .map((value) => value.trim().toLowerCase())\n    .filter(Boolean);\n\n  if (!jwtSecret || !issuer || !audience || !configuredClientId\n      || !configuredScopes.includes(PROVIDER_OAUTH_REQUIRED_SCOPE)\n      || allowedClientIds.length === 0) {\n    return providerOAuthFailure(503, 'server_error', 'OAuth server configuration is unavailable.');\n  }\n\n  const headers = request && request.headers && typeof request.headers === 'object' ? request.headers : {};\n  const authorization = String(providerOAuthHeader(headers, 'authorization') || '');\n  const bearerMatch = authorization.match(/^Bearer[ \\t]+([^ \\t]+)[ \\t]*$/i);\n  const xClientId = String(providerOAuthHeader(headers, 'x-client-id') || '').trim().toLowerCase();\n  if (!bearerMatch || !xClientId || !allowedClientIds.includes(xClientId)) return providerOAuthInvalidToken();\n\n  const token = bearerMatch[1];\n  const parts = token.split('.');\n  if (parts.length !== 3) return providerOAuthInvalidToken();\n\n  let header;\n  let payload;\n  let signature;\n  try {\n    header = JSON.parse(providerOAuthDecodeSegment(parts[0]).toString('utf8'));\n    payload = JSON.parse(providerOAuthDecodeSegment(parts[1]).toString('utf8'));\n    signature = providerOAuthDecodeSegment(parts[2]);\n  } catch (error) {\n    return providerOAuthInvalidToken();\n  }\n  if (!header || typeof header !== 'object' || Array.isArray(header) || header.alg !== 'HS256') {\n    return providerOAuthInvalidToken();\n  }\n  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return providerOAuthInvalidToken();\n\n  const expectedSignature = providerOAuthCrypto\n    .createHmac('sha256', jwtSecret)\n    .update(parts[0] + '.' + parts[1], 'utf8')\n    .digest();\n  if (signature.length !== expectedSignature.length\n      || !providerOAuthCrypto.timingSafeEqual(signature, expectedSignature)) {\n    return providerOAuthInvalidToken();\n  }\n\n  if (payload.iss !== issuer || payload.aud !== audience\n      || typeof payload.sub !== 'string' || typeof payload.client_id !== 'string'\n      || payload.sub !== configuredClientId || payload.client_id !== configuredClientId\n      || payload.sub !== payload.client_id) {\n    return providerOAuthInvalidToken();\n  }\n\n  const tokenScopes = providerOAuthScopes(payload.scope);\n  if (!tokenScopes.includes(PROVIDER_OAUTH_REQUIRED_SCOPE)\n      || !tokenScopes.every((scope) => configuredScopes.includes(scope))) {\n    return providerOAuthFailure(403, 'insufficient_scope', 'The access token lacks the required scope.');\n  }\n\n  const numericDatesAreValid = Number.isSafeInteger(payload.iat)\n    && Number.isSafeInteger(payload.nbf)\n    && Number.isSafeInteger(payload.exp);\n  const now = Math.floor(Date.now() / 1000);\n  if (!numericDatesAreValid\n      || payload.nbf !== payload.iat\n      || payload.exp - payload.iat !== PROVIDER_OAUTH_TOKEN_TTL_SECONDS\n      || payload.iat > now\n      || payload.nbf > now\n      || payload.exp <= now) {\n    return providerOAuthInvalidToken();\n  }\n\n  return {\n    ok: true,\n    clientId: payload.client_id,\n    providerClientId: xClientId,\n    scope: tokenScopes.join(' '),\n    claims: payload,\n  };\n}\n\nconst providerOAuthRequest = $input.first().json || {};\nconst providerOAuthAuth = validateProviderBearerJwt(providerOAuthRequest);\nif (!providerOAuthAuth.ok) {\n  return [{ json: { statusCode: providerOAuthAuth.statusCode, body: providerOAuthAuth.body, authorized: false } }];\n}\n\nfunction env(name, fallback = '') {\n  try { return $env[name] || fallback; } catch (e) { return fallback; }\n}\n\nconst request = $input.first().json;\nconst headers = request.headers ?? {};\nconst query = request.query ?? {};\n\n// =====================================================================\n// REUSABLE SNIPPET — kept identical to AUTH-01 / Validate Provider API Key.\n// Contract: docs/CONTRATO_API_SALESFORCE.md, \"Autenticacion (T-1.17)\".\n// =====================================================================\nfunction response(statusCode, body) {\n  return [{ json: { statusCode, body } }];\n}\nfunction apiError(statusCode, code, message, details = []) {\n  return response(statusCode, { code, message, details });\n}\nfunction readHeader(name) {\n  const target = name.toLowerCase();\n  for (const [key, value] of Object.entries(headers)) {\n    if (String(key).toLowerCase() === target) return Array.isArray(value) ? value[0] : value;\n  }\n  return '';\n}\n// ======================= end of reusable snippet =======================\n\n// Same E.164 normalisation as the sync endpoints (T-1.16).\nfunction normalisePhone(raw) {\n  let value = String(raw ?? '').trim();\n  if (!value) return null;\n  const hadPlus = value.startsWith('+');\n  value = value.replace(/[^0-9]/g, '');\n  if (!value) return null;\n  if (!hadPlus) {\n    if (value.startsWith('00')) value = value.slice(2);\n    else if (value.startsWith('593')) { /* already the country code */ }\n    else if (value.startsWith('0')) value = '593' + value.slice(1);\n    else if (value.length === 9) value = '593' + value;\n  }\n  const candidate = '+' + value;\n  return /^\\+[1-9][0-9]{7,14}$/.test(candidate) ? candidate : null;\n}\n\nconst phone = normalisePhone(query.phone);\nif (!phone) {\n  return apiError(422, 'INVALID_PHONE', 'El parametro phone debe ser normalizable a E.164.');\n}\n\n// Reconciliation only: Salesforce remains the source of truth of the\n// assignment. This answers the three questions of section 7.2 of the functional\n// document so both sides can detect drift.\nreturn [{\n  json: {\n    statusCode: 200,\n    ok: true,\n    phone: phone,\n    sql: 'SELECT * FROM renovation_dev.resolve_inbound_advisor($1)',\n    query_params: [phone],\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "id": "rl-validate",
+      "name": "Validate Routing Lookup"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ok",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        0
+      ],
+      "id": "rl-if",
+      "name": "IF Lookup Accepted"
+    },
+    {
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": {
+          "queryReplacement": "={{ $json.query_params }}",
+          "queryBatching": "single"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        720,
+        -96
+      ],
+      "id": "rl-query",
+      "name": "Postgres - Resolve Advisor",
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Shapes the routing lookup response defined in\n// docs/CONTRATO_API_SALESFORCE.md, \"Extensiones fuera del contrato comprometido\".\nconst requested = $('Validate Routing Lookup').first().json;\nconst row = $input.first().json ?? {};\n\nconst matched = row.matched === true;\nconst routesTo = row.routes_to ?? 'unrouted';\n\nreturn [{\n  json: {\n    statusCode: 200,\n    body: {\n      phone: requested.phone,\n      matched: matched,\n      multiMatch: row.multi_match === true,\n      isAssigned: row.is_assigned === true,\n      customerId: row.customer_id ?? null,\n      fullName: row.full_name ?? null,\n      advisor: row.salesforce_user_id\n        ? {\n            salesforceUserId: row.salesforce_user_id,\n            fullName: row.advisor_name ?? null,\n            isSupervisor: row.is_supervisor === true,\n          }\n        : null,\n      routesTo: routesTo,\n    },\n  },\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        -96
+      ],
+      "id": "rl-shape",
+      "name": "Shape Lookup Response"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.statusCode }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1200,
+        -96
+      ],
+      "id": "rl-respond",
+      "name": "Respond Lookup"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.statusCode }}"
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        720,
+        128
+      ],
+      "id": "rl-denied",
+      "name": "Respond Lookup Rejected"
+    },
+    {
+      "parameters": {
+        "content": "## UTIL-02 - Routing Lookup API\n\n`GET /webhook/renov/dev/v1/routing/lookup?phone=+593...`\n\nResponde las tres preguntas que el documento funcional 7.2 marca como **dato critico**: si el telefono pertenece a un cliente, si esta asignado y a que asesor.\n\nEs de **reconciliacion**: Salesforce sigue siendo la fuente de verdad de la asignacion. Sirve para que ambos lados detecten desincronizacion y para diagnosticar ruteo.\n\nUn telefono ambiguo devuelve `multiMatch: true` y `routesTo: supervisor`, sin elegir cuenta (T-1.16).\n\nSLA objetivo: **<200 ms** (T-1.21).\n\nAuth: el mismo snippet de AUTH-01.",
+        "height": 400,
+        "width": 420
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -480,
+        -220
+      ],
+      "id": "rl-sticky",
+      "name": "Sticky Note"
+    }
+  ],
+  "connections": {
+    "GET Routing Lookup": {
+      "main": [
+        [
+          {
+            "node": "Validate Routing Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Routing Lookup": {
+      "main": [
+        [
+          {
+            "node": "IF Lookup Accepted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Lookup Accepted": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Resolve Advisor",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Lookup Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Resolve Advisor": {
+      "main": [
+        [
+          {
+            "node": "Shape Lookup Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Lookup Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "18a9127f-a7ab-5dfd-b7f3-1678854fdc45",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

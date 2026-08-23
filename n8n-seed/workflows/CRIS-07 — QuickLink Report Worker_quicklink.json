@@ -1,0 +1,342 @@
+{
+  "id": "DtSBV7F3R0wxyyu4_quicklink",
+  "name": "CRIS-07 — QuickLink Report Worker_quicklink",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "schedule-quicklink-report-worker-001",
+      "name": "Schedule - Auto Report Worker",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "quicklink-report-worker",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-quicklink-report-worker-001",
+      "name": "Webhook Report Worker",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        320
+      ],
+      "webhookId": "quicklink-report-worker-permanent",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "0hYeKlozui5dMRDE_quicklink",
+          "name": "QL Sync Manual Webhook Token_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || {};\nconst query = $json.query || {};\nconst isWebhook = Boolean($json.body || $json.query || $json.headers);\nconst source = isWebhook ? 'manual' : 'schedule';\nconst rawLimit = body.limit ?? query.limit ?? '';\nconst parsedLimit = Number.parseInt(rawLimit, 10);\nconst requestedLimit = Number.isInteger(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 100) : null;\nconst queueId = String(body.queue_id || query.queue_id || '').trim();\nconst requestedDryRun = isWebhook\n  ? !(body.dry_run === false || body.dry_run === 'false' || body.execute === true || body.execute === 'true')\n  : false;\nconst realPostRequested = !requestedDryRun;\n\nlet limit;\nlet realPostLimitGuard = 'ok';\nif (!realPostRequested) {\n  limit = requestedLimit || 25;\n} else if (source === 'schedule') {\n  limit = 5;\n  realPostLimitGuard = 'schedule_batch_5';\n} else {\n  limit = 1;\n  realPostLimitGuard = requestedLimit && requestedLimit !== 1 ? 'manual_forced_to_1' : 'manual_limit_1';\n}\n\nconst workerId = `cris08-${source}-${Date.now()}-${Math.random().toString(16).slice(2)}`;\n\nreturn [{ json: {\n  source,\n  dry_run: requestedDryRun,\n  requested_dry_run: requestedDryRun,\n  real_post_requested: realPostRequested,\n  requested_limit: requestedLimit,\n  limit,\n  real_post_limit_guard: realPostLimitGuard,\n  worker_id: workerId,\n  claim_ttl_minutes: 10,\n  max_attempts: 3,\n  queue_id: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(queueId) ? queueId : ''\n} }];"
+      },
+      "id": "code-normalize-report-request-001",
+      "name": "Code - Normalize Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        464,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ (() => {\n  const prefix = `SET search_path TO sales_prod, public, extensions;\n`;\n  const limit = Math.max(1, Math.min(Number($json.limit || 1), 100));\n  const workerId = String($json.worker_id || 'cris08-worker').replace(/'/g, \"''\").slice(0, 120);\n  const queueId = String($json.queue_id || '').trim();\n  const queueFilter = queueId\n    ? `AND r.id = '${queueId.replace(/'/g, \"''\")}'::uuid`\n    : '';\n  const queueArg = queueId\n    ? `'${queueId.replace(/'/g, \"''\")}'::uuid`\n    : 'NULL::uuid';\n  const claimTtl = Math.max(1, Math.min(Number($json.claim_ttl_minutes || 10), 60));\n  const maxAttempts = Math.max(1, Math.min(Number($json.max_attempts || 3), 10));\n  const source = String($json.source || 'manual').replace(/'/g, \"''\");\n  const guard = String($json.real_post_limit_guard || '').replace(/'/g, \"''\");\n\n  if ($json.real_post_requested === true || String($json.real_post_requested) === 'true') {\n    return `${prefix}WITH selected AS (\n  SELECT *\n  FROM claim_quicklink_reports(${limit}, '${workerId}', interval '${claimTtl} minutes', ${maxAttempts}, ${queueArg})\n)\nSELECT\n  false::boolean AS dry_run,\n  true::boolean AS real_post_requested,\n  '${source}'::text AS source,\n  ${limit}::integer AS batch_limit,\n  '${workerId}'::text AS worker_id,\n  '${guard}'::text AS real_post_limit_guard,\n  COUNT(s.id)::integer AS report_count,\n  COALESCE(jsonb_agg(to_jsonb(s) ORDER BY s.created_at ASC, s.id ASC) FILTER (WHERE s.id IS NOT NULL), '[]'::jsonb) AS reports\nFROM selected s;`;\n  }\n\n  return `${prefix}WITH selected AS (\n  SELECT r.*\n  FROM v_quicklink_report_pending r\n  WHERE true ${queueFilter}\n  ORDER BY r.created_at ASC, r.id ASC\n  LIMIT ${limit}\n)\nSELECT\n  true::boolean AS dry_run,\n  false::boolean AS real_post_requested,\n  '${source}'::text AS source,\n  ${limit}::integer AS batch_limit,\n  '${workerId}'::text AS worker_id,\n  '${guard}'::text AS real_post_limit_guard,\n  COUNT(s.id)::integer AS report_count,\n  COALESCE(jsonb_agg(to_jsonb(s) ORDER BY s.created_at ASC, s.id ASC) FILTER (WHERE s.id IS NOT NULL), '[]'::jsonb) AS reports\nFROM selected s;`;\n})() }}",
+        "options": {}
+      },
+      "id": "pg-fetch-or-claim-quicklink-reports-001",
+      "name": "PG - Fetch or Claim Reports",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        688,
+        224
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $input.first()?.json || {};\nconst reports = Array.isArray(row.reports) ? row.reports : [];\nconst realPostRequested = row.real_post_requested === true || String(row.real_post_requested) === 'true';\n\nif (!realPostRequested) {\n  const results = reports.map(report => ({\n    queue_id: report.id,\n    conversation_id: report.conversation_id,\n    lead_id: report.lead_id,\n    quicklink_id: report.quicklink_id,\n    marca: report.marca,\n    endpoint: report.endpoint,\n    payload: report.payload,\n    status: 'dry_run_ready'\n  }));\n\n  return [{ json: {\n    route: 'response',\n    status: 'dry_run_ok',\n    dry_run: true,\n    real_post_requested: false,\n    source: row.source || 'manual',\n    worker_id: row.worker_id,\n    report_count: reports.length,\n    would_post_count: reports.length,\n    sent_count: 0,\n    failed_count: 0,\n    reports: results\n  } }];\n}\n\nif (reports.length === 0) {\n  return [{ json: {\n    route: 'response',\n    status: 'no_pending_reports',\n    dry_run: false,\n    real_post_requested: true,\n    source: row.source || 'schedule',\n    worker_id: row.worker_id,\n    report_count: 0,\n    sent_count: 0,\n    failed_count: 0,\n    reports: []\n  } }];\n}\n\nreturn reports.map(report => ({ json: {\n  route: 'real_post',\n  dry_run: false,\n  real_post_requested: true,\n  source: row.source || 'schedule',\n  worker_id: row.worker_id,\n  real_post_limit_guard: row.real_post_limit_guard,\n  queue_id: report.id,\n  conversation_id: report.conversation_id,\n  lead_id: report.lead_id,\n  quicklink_id: report.quicklink_id,\n  marca: report.marca,\n  endpoint: report.endpoint,\n  payload: report.payload,\n  status: 'claimed_ready_to_post',\n  processing_worker_id: report.processing_worker_id,\n  processing_expires_at: report.processing_expires_at,\n} }));"
+      },
+      "id": "code-route-report-worker-001",
+      "name": "Code - Route Report Worker",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        912,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "route-real-post",
+              "leftValue": "={{ $json.route }}",
+              "rightValue": "real_post",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-should-post-quicklink-001",
+      "name": "IF - Should POST QuickLink",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1136,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.endpoint }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "http-post-quicklink-update-001",
+      "name": "HTTP - POST QuickLink Update",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1360,
+        128
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "XhQ9xLnmEt7Qr9Np_quicklink",
+          "name": "QuickLink Leads API Key_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const httpItems = $input.all();\nlet reports = [];\ntry {\n  reports = $('Code - Route Report Worker').all().map(item => item.json || {});\n} catch (e) {\n  reports = [];\n}\n\nfunction esc(value) {\n  return String(value == null ? '' : value).replace(/'/g, \"''\");\n}\n\nfunction parseBody(body) {\n  if (typeof body !== 'string') return body;\n  try { return JSON.parse(body); } catch (e) { return body; }\n}\n\nfunction businessError(body) {\n  body = parseBody(body);\n  if (body == null) return '';\n  if (typeof body !== 'object') return '';\n  if (body.error) {\n    return typeof body.error === 'string' ? body.error : JSON.stringify(body.error);\n  }\n  if (body.status && String(body.status).toLowerCase() === 'error') {\n    return JSON.stringify(body).slice(0, 1000);\n  }\n  return '';\n}\n\nfunction isRetryableQuickLinkBusinessError(body, bizError) {\n  const parsed = parseBody(body);\n  const errorCode = String(parsed?.error?.code || '').toLowerCase();\n  const errorText = String(bizError || parsed?.error?.message || '').toLowerCase();\n  return errorCode === 'resourcemodified'\n    || (errorText.includes('resourcemodified') && errorText.includes('etag'))\n    || errorText.includes('etag mismatch');\n}\n\nreturn httpItems.map((item, index) => {\n  const report = reports[index] || {};\n  const http = item.json || {};\n  const statusCode = Number(http.statusCode || http.status || http.code || 0);\n  const body = http.body ?? http.data ?? http;\n  const bizError = businessError(body);\n  const ok = statusCode >= 200 && statusCode < 300 && !bizError;\n  const response = {\n    statusCode: statusCode || null,\n    headers: http.headers || null,\n    body,\n  };\n\n  const responseJson = esc(JSON.stringify(response).slice(0, 20000));\n  const queueId = esc(report.queue_id);\n  let dbQuery;\n  let errorMsg = null;\n  const retry = isRetryableQuickLinkBusinessError(body, bizError)\n    || (!bizError && (statusCode >= 500 || statusCode === 0));\n  if (ok) {\n    dbQuery = `SELECT * FROM complete_quicklink_report_success('${queueId}'::uuid, '${responseJson}'::jsonb);`;\n  } else {\n    errorMsg = esc(`HTTP ${statusCode || 'unknown'} ${bizError ? 'business_error ' + bizError : JSON.stringify(body).slice(0, 700)}`);\n    dbQuery = `SELECT * FROM fail_quicklink_report('${queueId}'::uuid, '${errorMsg}'::text, '${responseJson}'::jsonb, ${retry ? 'true' : 'false'});`;\n  }\n\n  return { json: {\n    ...report,\n    http_status_code: statusCode || null,\n    post_ok: ok,\n    retry,\n    db_query: dbQuery,\n    error_msg: errorMsg,\n    quicklink_response: response,\n  } };\n});"
+      },
+      "id": "code-build-completion-query-001",
+      "name": "Code - Build Completion Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1584,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ \"SET search_path TO sales_prod, public, extensions;\\n\" + ($json.db_query) }}",
+        "options": {}
+      },
+      "id": "pg-complete-or-fail-report-001",
+      "name": "PG - Complete or Fail Report",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1808,
+        128
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const dbItems = $input.all();\nlet completions = [];\ntry {\n  completions = $('Code - Build Completion Query').all().map(item => item.json || {});\n} catch (e) {\n  completions = [];\n}\n\nconst results = dbItems.map((item, index) => {\n  const src = completions[index] || {};\n  const db = item.json || {};\n  return {\n    status: src.post_ok ? 'real_post_sent' : 'real_post_failed',\n    dry_run: false,\n    real_post_requested: true,\n    source: src.source || 'schedule',\n    worker_id: src.worker_id,\n    queue_id: src.queue_id,\n    conversation_id: src.conversation_id,\n    lead_id: src.lead_id,\n    quicklink_id: src.quicklink_id,\n    marca: src.marca,\n    endpoint: src.endpoint,\n    http_status_code: src.http_status_code,\n    queue_status: src.post_ok ? 'SENT' : (src.retry ? 'PENDING' : 'FAILED'),\n    db_result: db,\n  };\n});\n\nconst sentCount = results.filter(r => r.status === 'real_post_sent').length;\nconst failedCount = results.length - sentCount;\n\nreturn [{ json: {\n  status: failedCount ? 'real_post_partial_or_failed' : 'real_post_batch_sent',\n  dry_run: false,\n  real_post_requested: true,\n  report_count: results.length,\n  sent_count: sentCount,\n  failed_count: failedCount,\n  results,\n} }];"
+      },
+      "id": "code-build-real-response-001",
+      "name": "Code - Build Real Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2032,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: $input.first().json }];"
+      },
+      "id": "code-build-nonpost-response-001",
+      "name": "Code - Build Non-Post Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        320
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule - Auto Report Worker": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalize Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Report Worker": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalize Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Normalize Request": {
+      "main": [
+        [
+          {
+            "node": "PG - Fetch or Claim Reports",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Fetch or Claim Reports": {
+      "main": [
+        [
+          {
+            "node": "Code - Route Report Worker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Route Report Worker": {
+      "main": [
+        [
+          {
+            "node": "IF - Should POST QuickLink",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Should POST QuickLink": {
+      "main": [
+        [
+          {
+            "node": "HTTP - POST QuickLink Update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Build Non-Post Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - POST QuickLink Update": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Completion Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Completion Query": {
+      "main": [
+        [
+          {
+            "node": "PG - Complete or Fail Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Complete or Fail Report": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Real Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "c2fd736a-690f-58a1-9b7c-2759969d9593",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

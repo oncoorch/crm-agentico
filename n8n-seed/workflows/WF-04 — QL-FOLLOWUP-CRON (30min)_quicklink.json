@@ -1,0 +1,619 @@
+{
+  "id": "vO8bTOTFbcDCsbM9_quicklink",
+  "name": "WF-04 — QL-FOLLOWUP-CRON (30min)_quicklink",
+  "nodes": [
+    {
+      "id": "cron-1",
+      "name": "CRON 30min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        100,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "pg-get-pending",
+      "name": "GET — Followups PENDING",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        320,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "\nSELECT\n  sf.id            AS followup_id,\n  sf.conversation_id,\n  sf.tipo_followup,\n  sf.scheduled_at,\n  c.estado,\n  c.marca,\n  c.intentos_realizados,\n  lq.nombre_cliente,\n  lq.telefono_1    AS telefono,\n  lq.modelo,\n  cfg.mensaje_bienvenida,\n  cfg.mensaje_intento_2,\n  cfg.mensaje_oferta,\n  COALESCE(cfg.mensajes_intento, '[]'::jsonb) as mensajes_intento,\n  COALESCE(cfg.mensajes_cierre, '[]'::jsonb) as mensajes_cierre,\n  COALESCE(cfg.servicio_marca, '') as servicio_marca\nFROM scheduled_followups sf\nJOIN conversaciones c    ON c.id = sf.conversation_id\nJOIN leads_quicklink lq  ON lq.id = c.lead_id\nJOIN configuracion_marcas cfg ON cfg.marca = c.marca\nWHERE sf.status = 'PENDING'\n  AND sf.scheduled_at <= now()\n  AND cfg.activo = true\nORDER BY sf.scheduled_at ASC\nLIMIT 100;\n",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "if-has-items",
+      "name": "IF — Hay followups?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        540,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $items().length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "loop-1",
+      "name": "Loop — Por Followup",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        760,
+        180
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "if-respondio",
+      "name": "IF — Usuario respondio?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        980,
+        180
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.estado }}",
+              "rightValue": "ESPERA",
+              "operator": {
+                "type": "string",
+                "operation": "notContains"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "pg-cancel",
+      "name": "PG — Cancelar followup",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1200,
+        80
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE scheduled_followups SET status='CANCELLED', processed_at=now() WHERE id='{{ $json.followup_id }}'; SELECT 'cancelled' as action;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "switch-tipo",
+      "name": "SWITCH — Tipo followup",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1200,
+        280
+      ],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "c1",
+                    "leftValue": "={{ $json.tipo_followup }}",
+                    "rightValue": "CONTACTO_2",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": false
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "c2",
+                    "leftValue": "={{ $json.tipo_followup }}",
+                    "rightValue": "NO_CONTACTABLE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": false
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "c3",
+                    "leftValue": "={{ $json.tipo_followup }}",
+                    "rightValue": "CONTACTO_3",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "code-msg2",
+      "name": "Code — Mensaje CONTACTO_2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1420,
+        160
+      ],
+      "parameters": {
+        "jsCode": "\n// CRIS v2.3 — Mensaje CONTACTO_2 — selección aleatoria 3 opciones\nconst item = $input.first().json;\nfunction toTitleCase(s) { return String(s||'').toLowerCase().replace(/\\b\\w/g, c => c.toUpperCase()); }\nconst nombre  = toTitleCase(item.nombre_cliente || 'estimado/a cliente');\nconst modelo  = toTitleCase(item.modelo || 'su vehiculo');\nconst marca   = (item.marca || 'KIA').toUpperCase();\nconst marcaNombre = marca === 'HYUNDAI' ? 'Hyundai' : 'KIA';\nconst servicioMarca = item.servicio_marca || (marca === 'HYUNDAI' ? 'My Hyundai Link' : 'Telemetría KIA');\nconst telefonoWa = item.telefono.startsWith('593') ? item.telefono : ('593' + item.telefono.replace(/^0/, ''));\n\nfunction applyVars(t) {\n  return t\n    .replace(/\\{nombre_cliente\\}/g, nombre)\n    .replace(/\\{modelo\\}/g, modelo)\n    .replace(/\\{marca\\}/g, marcaNombre)\n    .replace(/\\{servicio_marca\\}/g, servicioMarca)\n    .replace(/NOMBRE/g, nombre)\n    .replace(/MODELO/g, modelo);\n}\n\nlet opciones = [];\ntry {\n  const raw = item.mensajes_intento;\n  if (Array.isArray(raw)) opciones = raw;\n  else if (typeof raw === 'string' && raw.startsWith('[')) opciones = JSON.parse(raw);\n} catch(e) {}\n\nlet msgRaw = '';\nif (opciones.length > 0) {\n  msgRaw = opciones[Math.floor(Math.random() * opciones.length)];\n} else {\n  const single = String(item.mensaje_intento_2 || '');\n  if (single.length > 10) msgRaw = single;\n}\n\nlet mensaje = msgRaw ? applyVars(msgRaw) : '';\n\nif (!mensaje) {\n  const fb = {\n    KIA: [\n      `¡Hola ${nombre}! 🤝\\nSoy Cris nuevamente y quería saber si tuviste oportunidad de revisar mi mensaje anterior.\\nEn menos de 5 minutos podemos mostrarte cómo aprovechar funcionalidades de seguridad y conectividad disponibles desde la aplicación oficial de KIA.\\n¿Te interesa conocerlas?\\n✅ Sí, quiero saber más\\n❌ No por el momento`,\n      `¡Hola ${nombre}! 🤝✨\\nEspero que estés disfrutando tu nuevo ${modelo}. 🚗\\nQuería compartirte que la aplicación oficial de KIA fue creada para que aproveches aún más la experiencia.\\n¿Te gustaría que te cuente más?\\n✅ Cuéntame más\\n❌ No por el momento`,\n      `¡Hola ${nombre}! 🤝\\nSoy Cris nuevamente.\\n¿Sabías que desde tu celular puedes acceder a distintas herramientas de monitoreo y control para tu KIA?\\n¿Te gustaría descubrir algunas de estas funcionalidades?\\n✅ Quiero conocerlas\\n❌ No por el momento`\n    ],\n    HYUNDAI: [\n      `¡Hola ${nombre}! 🤝\\nSoy Cris nuevamente y quería saber si tuviste oportunidad de revisar mi mensaje anterior.\\nEn menos de 5 minutos podemos mostrarte cómo aprovechar funcionalidades de seguridad y conectividad disponibles desde My Hyundai Link.\\n¿Te interesa conocerlas?\\n✅ Sí, quiero saber más\\n❌ No por el momento`,\n      `¡Hola ${nombre}! 🤝✨\\nEspero que estés disfrutando tu nuevo ${modelo}. 🚗\\nQuería compartirte que My Hyundai Link fue creada para que aproveches aún más la experiencia.\\n¿Te gustaría que te cuente más?\\n✅ Cuéntame más\\n❌ No por el momento`,\n      `¡Hola ${nombre}! 🤝\\nSoy Cris nuevamente.\\n¿Sabías que desde tu celular puedes acceder a distintas herramientas de monitoreo y control para tu Hyundai?\\n¿Te gustaría descubrir algunas de estas funcionalidades?\\n✅ Quiero conocerlas\\n❌ No por el momento`\n    ]\n  };\n  mensaje = (fb[marca] || fb['KIA'])[Math.floor(Math.random() * 3)];\n}\n\nreturn [{json: {\n  ...item,\n  mensaje_texto: mensaje,\n  mensaje_texto_escaped: JSON.stringify(mensaje).slice(1,-1),\n  telefono_wa: telefonoWa,\n  next_estado:        'ESPERA_2',\n  next_intentos:      (parseInt(item.intentos_realizados) || 0) + 1,\n  next_followup_tipo: 'CONTACTO_3',\n  next_followup_hours: 24\n}}];\n"
+      }
+    },
+    {
+      "id": "code-nc",
+      "name": "Code — NO_CONTACTABLE",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1420,
+        400
+      ],
+      "parameters": {
+        "jsCode": "\n// CRIS v2.3 — NO_CONTACTABLE — selección aleatoria + mensaje cierre (Fase 1C)\nconst item = $input.first().json;\nfunction toTitleCase(s) { return String(s||'').toLowerCase().replace(/\\b\\w/g, c => c.toUpperCase()); }\nconst nombre  = toTitleCase(item.nombre_cliente || 'estimado/a cliente');\nconst modelo  = toTitleCase(item.modelo || 'su vehiculo');\nconst telefono = item.telefono || '';\nconst marca   = (item.marca || 'KIA').toUpperCase();\nconst marcaNombre = marca === 'HYUNDAI' ? 'Hyundai' : 'KIA';\nconst servicioMarca = item.servicio_marca || (marca === 'HYUNDAI' ? 'My Hyundai Link' : 'Telemetría KIA');\n\nfunction applyVars(t) {\n  return t\n    .replace(/\\{nombre_cliente\\}/g, nombre)\n    .replace(/\\{modelo\\}/g, modelo)\n    .replace(/\\{marca\\}/g, marcaNombre)\n    .replace(/\\{servicio_marca\\}/g, servicioMarca)\n    .replace(/NOMBRE/g, nombre)\n    .replace(/MODELO/g, modelo);\n}\n\nlet opcionesCierre = [];\ntry {\n  const raw = item.mensajes_cierre;\n  if (Array.isArray(raw)) opcionesCierre = raw;\n  else if (typeof raw === 'string' && raw.startsWith('[')) opcionesCierre = JSON.parse(raw);\n} catch(e) {}\n\nlet msgRaw = opcionesCierre.length > 0\n  ? opcionesCierre[Math.floor(Math.random() * opcionesCierre.length)]\n  : '';\nlet msgCierre = msgRaw ? applyVars(msgRaw) : (item.mensaje_cierre || '').replace(/NOMBRE/g, nombre).replace(/MODELO/g, modelo);\n\nif (!msgCierre) {\n  const fallbacks = {\n    KIA:     `¡Hola ${nombre}! 🤝\\nCris por aquí nuevamente. 😊\\nSolo quería dejarte saber que, si en algún momento tienes dudas o deseas conocer más sobre el servicio oficial de conectividad, seguridad y protección para tu KIA, estaré encantado de ayudarte.\\nPuedes escribirme cuando lo necesites y con gusto te mostraré todas las funcionalidades disponibles para tu vehículo. 🚗 📲\\n✨ ¡Que disfrutes tu nuevo ${modelo}!`,\n    HYUNDAI: `¡Hola ${nombre}! 🤝\\nCris por aquí nuevamente. 😊\\nSolo quería dejarte saber que, si en algún momento tienes dudas o deseas conocer más sobre My Hyundai Link para tu ${modelo}, estaré encantado de ayudarte.\\nPuedes escribirme cuando lo necesites y con gusto te mostraré todas las funcionalidades disponibles. 🚗 📲\\n✨ ¡Que disfrutes tu Hyundai!`\n  };\n  msgCierre = fallbacks[marca] ||\n    `¡Hola ${nombre}! 🤝\\nCris por aquí nuevamente. 😊\\nSi en algún momento deseas conocer más sobre el servicio de conectividad y seguridad para tu ${modelo}, estaré disponible para ayudarte. ¡Que disfrutes tu vehículo! 🚗 📲`;\n}\n\n\nreturn [{json: {\n  ...item,\n  next_estado: 'NO_CONTACTABLE',\n  loss_reason: 'SIN_RESPUESTA',\n  cierre_enviado: false\n}}];\n"
+      }
+    },
+    {
+      "id": "http-wa",
+      "name": "HTTP — WhatsApp Followup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1640,
+        160
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v23.0/774394445765508/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer ${REDACTED_TOKEN}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={\"messaging_product\":\"whatsapp\",\"to\":\"{{ $json.telefono_wa }}\",\"type\":\"text\",\"text\":{\"body\":\"{{ $json.mensaje_texto_escaped }}\"}}",
+        "options": {}
+      }
+    },
+    {
+      "id": "pg-upd-conv",
+      "name": "PG — Update conversation estado",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1860,
+        160
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "\nUPDATE conversaciones\nSET estado = '{{ $(\"Code — Mensaje CONTACTO_2\").first().json.next_estado }}',\n    intentos_realizados = {{ $(\"Code — Mensaje CONTACTO_2\").first().json.next_intentos }},\n    updated_at = now()\nWHERE id = '{{ $(\"Code — Mensaje CONTACTO_2\").first().json.conversation_id }}';\nUPDATE scheduled_followups\nSET status = 'SENT', processed_at = now()\nWHERE id = '{{ $(\"Code — Mensaje CONTACTO_2\").first().json.followup_id }}';\nINSERT INTO scheduled_followups (conversation_id, tipo_followup, scheduled_at, status)\nVALUES (\n  '{{ $(\"Code — Mensaje CONTACTO_2\").first().json.conversation_id }}',\n  '{{ $(\"Code — Mensaje CONTACTO_2\").first().json.next_followup_tipo }}',\n  now() + interval '{{ $(\"Code — Mensaje CONTACTO_2\").first().json.next_followup_hours }} hours',\n  'PENDING'\n);\nSELECT 'followup_sent' as action, '{{ $(\"Code — Mensaje CONTACTO_2\").first().json.next_estado }}' as new_estado;\n",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "pg-nc",
+      "name": "PG — Mark NO_CONTACTABLE",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1640,
+        400
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=\nUPDATE conversaciones\nSET estado = 'NO_CONTACTABLE',\n    razon_perdida = 'SIN_RESPUESTA',\n    updated_at = now()\nWHERE id = '{{ $json.conversation_id }}';\nUPDATE scheduled_followups\nSET status = 'SENT', processed_at = now()\nWHERE id = '{{ $json.followup_id }}';\nSELECT 'no_contactable' as action, '{{ $json.conversation_id }}' as conversation_id;\n",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "wh-test-trigger",
+      "name": "Webhook Test Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        100,
+        500
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "wf04-test-run",
+        "responseMode": "lastNode"
+      },
+      "webhookId": "de1ba5b7-a48b-4276-a9b2-c4c0b32fb71e"
+    },
+    {
+      "id": "code-msg3",
+      "name": "Code — Mensaje CONTACTO_3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1420,
+        560
+      ],
+      "parameters": {
+        "jsCode": "\n// CRIS v2.3 — Mensaje CONTACTO_3 — tercer y último intento (cierre/urgencia)\nconst item = $input.first().json;\nfunction toTitleCase(s) { return String(s||'').toLowerCase().replace(/\\b\\w/g, c => c.toUpperCase()); }\nconst nombre  = toTitleCase(item.nombre_cliente || 'estimado/a cliente');\nconst modelo  = toTitleCase(item.modelo || 'su vehiculo');\nconst marca   = (item.marca || 'KIA').toUpperCase();\nconst marcaNombre = marca === 'HYUNDAI' ? 'Hyundai' : 'KIA';\nconst servicioMarca = item.servicio_marca || (marca === 'HYUNDAI' ? 'My Hyundai Link' : 'Telemetría KIA');\nconst telefonoWa = item.telefono.startsWith('593') ? item.telefono : ('593' + item.telefono.replace(/^0/, ''));\n\nfunction applyVars(t) {\n  return t\n    .replace(/\\{nombre_cliente\\}/g, nombre)\n    .replace(/\\{modelo\\}/g, modelo)\n    .replace(/\\{marca\\}/g, marcaNombre)\n    .replace(/\\{servicio_marca\\}/g, servicioMarca)\n    .replace(/NOMBRE/g, nombre)\n    .replace(/MODELO/g, modelo);\n}\n\nlet opcionesCierre = [];\ntry {\n  const raw = item.mensajes_cierre;\n  if (Array.isArray(raw)) opcionesCierre = raw;\n  else if (typeof raw === 'string' && raw.startsWith('[')) opcionesCierre = JSON.parse(raw);\n} catch(e) {}\n\nlet msgRaw = opcionesCierre.length > 0\n  ? opcionesCierre[Math.floor(Math.random() * opcionesCierre.length)]\n  : '';\nlet mensaje = msgRaw ? applyVars(msgRaw) : '';\n\nif (!mensaje) {\n  const fb = {\n    KIA: [\n      `¡Hola ${nombre}! 🤝\\nCris por aquí, de KIA. Este es mi último mensaje para no ser invasivo.\\nSi en algún momento deseas conocer las funcionalidades de conectividad y seguridad para tu ${modelo}, estaré disponible. 🚗\\n✨ ¡Que disfrutes tu KIA!`,\n      `¡Hola ${nombre}! 🤝\\nSoy Cris nuevamente. Te dejo una última propuesta antes de retirarme.\\n¿Te gustaría conocer en 2 minutos todo lo que puede hacer tu ${modelo} con la app oficial de KIA? 🚗\\n✅ Sí, cuéntame\\n❌ No por ahora`,\n      `Hola ${nombre} 🤝, soy Cris de KIA.\\nTenemos una propuesta especial para el ${modelo} disponible por tiempo limitado. ¿Te gustaría conocerla? 🚗\\n✅ Sí, quiero saber más\\n❌ No, gracias`\n    ],\n    HYUNDAI: [\n      `¡Hola ${nombre}! 🤝\\nCris por aquí, de Hyundai. Este es mi último mensaje para no ser invasivo.\\nSi en algún momento deseas conocer My Hyundai Link para tu ${modelo}, estaré disponible. 🚗\\n✨ ¡Que disfrutes tu Hyundai!`,\n      `¡Hola ${nombre}! 🤝\\nSoy Cris nuevamente. Te dejo una última propuesta antes de retirarme.\\n¿Te gustaría conocer en 2 minutos todo lo que puede hacer tu ${modelo} con My Hyundai Link? 🚗\\n✅ Sí, cuéntame\\n❌ No por ahora`,\n      `Hola ${nombre} 🤝, soy Cris de Hyundai.\\nTenemos una propuesta especial para My Hyundai Link en tu ${modelo} disponible por tiempo limitado. ¿Te gustaría conocerla? 🚗\\n✅ Sí, quiero saber más\\n❌ No, gracias`\n    ]\n  };\n  const opts = fb[marca] || fb['KIA'];\n  mensaje = opts[Math.floor(Math.random() * opts.length)];\n}\n\nreturn [{json: {\n  ...item,\n  mensaje_texto: mensaje,\n  mensaje_texto_escaped: JSON.stringify(mensaje).slice(1,-1),\n  telefono_wa: telefonoWa,\n  next_estado:        'ESPERA_3',\n  next_intentos:      (parseInt(item.intentos_realizados) || 0) + 1,\n  next_followup_tipo: 'NO_CONTACTABLE',\n  next_followup_hours: 24\n}}];\n"
+      }
+    },
+    {
+      "id": "http-wa-c3",
+      "name": "HTTP — WhatsApp Followup C3",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1640,
+        560
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v23.0/774394445765508/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer ${REDACTED_TOKEN}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={\"messaging_product\":\"whatsapp\",\"to\":\"{{ $json.telefono_wa }}\",\"type\":\"text\",\"text\":{\"body\":\"{{ $json.mensaje_texto_escaped }}\"}}"
+      }
+    },
+    {
+      "id": "pg-upd-conv-c3",
+      "name": "PG — Update conversation estado C3",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1860,
+        560
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "\nUPDATE conversaciones\nSET estado = '{{ $(\"Code — Mensaje CONTACTO_3\").first().json.next_estado }}',\n    intentos_realizados = {{ $(\"Code — Mensaje CONTACTO_3\").first().json.next_intentos }},\n    updated_at = now()\nWHERE id = '{{ $(\"Code — Mensaje CONTACTO_3\").first().json.conversation_id }}';\nUPDATE scheduled_followups\nSET status = 'SENT', processed_at = now()\nWHERE id = '{{ $(\"Code — Mensaje CONTACTO_3\").first().json.followup_id }}';\nINSERT INTO scheduled_followups (conversation_id, tipo_followup, scheduled_at, status)\nVALUES (\n  '{{ $(\"Code — Mensaje CONTACTO_3\").first().json.conversation_id }}',\n  '{{ $(\"Code — Mensaje CONTACTO_3\").first().json.next_followup_tipo }}',\n  now() + interval '{{ $(\"Code — Mensaje CONTACTO_3\").first().json.next_followup_hours }} hours',\n  'PENDING'\n);\nSELECT 'followup_sent' as action, '{{ $(\"Code — Mensaje CONTACTO_3\").first().json.next_estado }}' as new_estado;\n",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "CRON 30min": {
+      "main": [
+        [
+          {
+            "node": "GET — Followups PENDING",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET — Followups PENDING": {
+      "main": [
+        [
+          {
+            "node": "IF — Hay followups?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF — Hay followups?": {
+      "main": [
+        [
+          {
+            "node": "Loop — Por Followup",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "IF — Usuario respondio?": {
+      "main": [
+        [
+          {
+            "node": "PG — Cancelar followup",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "SWITCH — Tipo followup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SWITCH — Tipo followup": {
+      "main": [
+        [
+          {
+            "node": "Code — Mensaje CONTACTO_2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code — NO_CONTACTABLE",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code — Mensaje CONTACTO_3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code — Mensaje CONTACTO_2": {
+      "main": [
+        [
+          {
+            "node": "HTTP — WhatsApp Followup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP — WhatsApp Followup": {
+      "main": [
+        [
+          {
+            "node": "PG — Update conversation estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG — Update conversation estado": {
+      "main": [
+        [
+          {
+            "node": "Loop — Por Followup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code — NO_CONTACTABLE": {
+      "main": [
+        [
+          {
+            "node": "PG — Mark NO_CONTACTABLE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG — Mark NO_CONTACTABLE": {
+      "main": [
+        [
+          {
+            "node": "Loop — Por Followup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG — Cancelar followup": {
+      "main": [
+        [
+          {
+            "node": "Loop — Por Followup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Test Trigger": {
+      "main": [
+        [
+          {
+            "node": "GET — Followups PENDING",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop — Por Followup": {
+      "main": [
+        [],
+        [
+          {
+            "node": "IF — Usuario respondio?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code — Mensaje CONTACTO_3": {
+      "main": [
+        [
+          {
+            "node": "HTTP — WhatsApp Followup C3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP — WhatsApp Followup C3": {
+      "main": [
+        [
+          {
+            "node": "PG — Update conversation estado C3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG — Update conversation estado C3": {
+      "main": [
+        [
+          {
+            "node": "Loop — Por Followup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "4eec298b-1678-5e2a-8291-7b674ae62f4c",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

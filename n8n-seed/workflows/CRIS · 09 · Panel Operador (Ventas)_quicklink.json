@@ -1,0 +1,1196 @@
+{
+  "id": "0x072xxLmhDKYZjm_quicklink",
+  "name": "CRIS · 09 · Panel Operador (Ventas)_quicklink",
+  "nodes": [
+    {
+      "id": "panel-form-001",
+      "name": "Panel Operador",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2,
+      "position": [
+        120,
+        260
+      ],
+      "parameters": {
+        "path": "panel-operador-ventas",
+        "formTitle": "Panel de Envíos CRIS · Ventas",
+        "formDescription": "Seleccione una operación. Por defecto todo corre en dry-run. El borrado es scoped por lead/conversación, borra conversaciones Chatwoot pero NO contactos, limpia memoria CRIS/LangChain/Redis y puede reenviar outbound seguro.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Operacion",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Preview impacto"
+                  },
+                  {
+                    "option": "Enviar pendientes seleccionados"
+                  },
+                  {
+                    "option": "Borrar seleccionados"
+                  },
+                  {
+                    "option": "Borrar TODO sin enviar"
+                  },
+                  {
+                    "option": "Borrar + reenviar seleccionados"
+                  },
+                  {
+                    "option": "Borrar TODO + reenviar TODO"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Selector",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "telefonos"
+                  },
+                  {
+                    "option": "quicklink_ids"
+                  },
+                  {
+                    "option": "marca"
+                  },
+                  {
+                    "option": "todos"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Valores",
+              "fieldType": "textarea",
+              "placeholder": "Uno o varios teléfonos / quicklink_id separados por coma o salto de línea. Vacío si selector=marca/todos.",
+              "requiredField": false
+            },
+            {
+              "fieldLabel": "Marca",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "AMBAS"
+                  },
+                  {
+                    "option": "KIA"
+                  },
+                  {
+                    "option": "HYUNDAI"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Limite",
+              "fieldType": "number",
+              "placeholder": "500",
+              "requiredField": false
+            },
+            {
+              "fieldLabel": "Ejecutar",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "NO"
+                  },
+                  {
+                    "option": "SI"
+                  }
+                ]
+              },
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "webhookId": "9544297e-dd12-4e9d-b8d5-6fcd34898a6a"
+    },
+    {
+      "id": "panel-prepare-001",
+      "name": "Preparar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        260
+      ],
+      "parameters": {
+        "jsCode": "const src = $json.body || $json || {};\nfunction pick(...names) {\n  for (const name of names) {\n    if (src[name] !== undefined && src[name] !== null && String(src[name]).trim() !== '') return src[name];\n  }\n  return '';\n}\nfunction norm(v) {\n  return String(v || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').trim().toUpperCase();\n}\nconst operationRaw = String(pick('Operacion', 'Operación', 'operacion', 'operation', 'field-0') || 'Preview impacto');\nconst operation = norm(operationRaw);\nconst selectorRaw = String(pick('Selector', 'selector_tipo', 'Selector tipo', 'selector', 'field-1') || 'telefonos');\nconst selectorType = norm(selectorRaw).replace(/\\s+/g, '_').toLowerCase();\nconst valuesRaw = String(pick('Valores', 'Telefonos o IDs', 'telefonos_o_ids', 'values', 'field-2') || '');\nconst brandRaw = norm(pick('Marca', 'marca', 'field-3') || 'AMBAS');\nconst brand = ['KIA', 'HYUNDAI'].includes(brandRaw) ? brandRaw : '';\nconst limitRaw = Number.parseInt(String(pick('Limite', 'Límite', 'limit', 'field-4') || ''), 10);\nconst limit = Number.isInteger(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 100000) : 500;\nconst executeRaw = norm(pick('Ejecutar', 'execute', 'field-5') || 'NO');\n// Bypass QA del bloqueo anti-duplicado de 6 horas. Solo tiene efecto en la\n// zona de prueba controlada del panel web, que ya esta limitada a UN lead y\n// exige confirmacion escrita.\nconst forceResend = ['1','SI','SÍ','TRUE','ON','FORZAR'].includes(norm(pick('ForzarReenvio', 'forzar_reenvio', 'force_resend') || ''));\nconst execute = ['SI', 'SÍ', 'TRUE', '1', 'EJECUTAR'].includes(executeRaw);\nconst requested = valuesRaw.split(/[\\n,;\\t]+/).map(v => v.trim()).filter(Boolean);\nconst allowedSelectors = new Set(['telefonos', 'telefono', 'phones', 'quicklink_ids', 'quicklink_id', 'ids', 'lead_ids', 'lead_id', 'marca', 'todos', 'todo']);\n\nif (!allowedSelectors.has(selectorType)) {\n  throw new Error('Selector inválido: ' + selectorRaw);\n}\n\nlet action = 'preview';\nconst noDispatchRequested = operation.includes('SIN REENVIAR') || operation.includes('SIN ENVIAR') || operation.includes('NO REENVIAR') || operation.includes('NO ENVIAR');\nif (operation.includes('BORRAR TODO') && operation.includes('REENVIAR') && !noDispatchRequested) action = 'cleanup_dispatch_all';\nelse if (operation.includes('BORRAR TODO')) action = 'cleanup_all';\nelse if (operation.includes('BORRAR') && operation.includes('REENVIAR') && !noDispatchRequested) action = 'cleanup_dispatch';\nelse if (operation.includes('BORRAR')) action = 'cleanup_only';\nelse if (operation.includes('ENVIAR')) action = 'dispatch_only';\n\nconst cleanup = action === 'cleanup_only' || action === 'cleanup_all' || action === 'cleanup_dispatch' || action === 'cleanup_dispatch_all';\nconst dispatch = action === 'dispatch_only' || action === 'cleanup_dispatch' || action === 'cleanup_dispatch_all';\nconst allTarget = action === 'cleanup_all' || action === 'cleanup_dispatch_all' || ['todos', 'todo'].includes(selectorType);\nif (allTarget && !['cleanup_all', 'cleanup_dispatch_all'].includes(action)) {\n  throw new Error('Selector TODOS solo está permitido con una operación BORRAR TODO');\n}\nif (!allTarget && selectorType !== 'marca' && !requested.length) {\n  throw new Error('Debe ingresar al menos un teléfono o quicklink_id, o usar selector por marca/todos');\n}\nif (selectorType === 'marca' && !brand) {\n  throw new Error('El selector MARCA requiere elegir KIA o HYUNDAI');\n}\nif (['quicklink_ids', 'quicklink_id', 'ids'].includes(selectorType)) {\n  if (!brand) throw new Error('Los quicklink_ids requieren una marca específica para evitar colisiones');\n  const invalid = requested.find(v => !/^\\d{1,9}$/.test(v));\n  if (invalid) throw new Error('quicklink_id inválido: ' + invalid);\n}\nif (['lead_ids', 'lead_id'].includes(selectorType)) {\n  const invalid = requested.find(v => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v));\n  if (invalid) throw new Error('lead_id UUID inválido: ' + invalid);\n}\nif (['telefonos', 'telefono', 'phones'].includes(selectorType)) {\n  const invalid = requested.find(v => {\n    const digits = v.replace(/\\D/g, '');\n    return digits.length < 9 || digits.length > 15;\n  });\n  if (invalid) throw new Error('Teléfono inválido; se requieren entre 9 y 15 dígitos: ' + invalid);\n}\n\nlet confirmationRequired = execute && (cleanup || dispatch);\nconst expectedConfirmation = action === 'cleanup_dispatch_all'\n  ? 'BORRAR TODO'\n  : action === 'cleanup_all'\n    ? 'BORRAR TODO'\n    : cleanup\n      ? 'BORRAR'\n      : dispatch\n        ? 'ENVIAR'\n        : '';\n\nconst viaWebhook = ['1', 'true', 'si', 'yes'].includes(String(pick('via_webhook') || '').toLowerCase());\nif (viaWebhook) {\n  const WEB_TOKEN = 'QLpanel-x9f3-2026';\n  if (String(pick('_k') || '') !== WEB_TOKEN) throw new Error('Acceso web no autorizado');\n  if (execute && (cleanup || dispatch)) {\n    const exactLeadSelector = ['lead_ids', 'lead_id'].includes(selectorType);\n    const exactLeadValue = requested.length === 1 && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requested[0]);\n    if (!exactLeadSelector || !exactLeadValue || limit !== 1 || allTarget) {\n      throw new Error('Ejecución web limitada a un único lead_id, selector lead_ids y limite 1');\n    }\n  }\n  if (confirmationRequired) {\n    const direct = norm(pick('Confirmacion', 'confirmacion', 'Confirmación') || '');\n    if (direct !== norm(expectedConfirmation)) throw new Error('Confirmación inválida: escriba ' + expectedConfirmation);\n    confirmationRequired = false;\n  }\n}\n\nreturn [{ json: {\n  operation_label: operationRaw,\n  action,\n  selector_type: allTarget ? 'todos' : (selectorType === 'lead_id' ? 'lead_ids' : selectorType),\n  requested_values: requested,\n  brand,\n  limit,\n  execute,\n  dry_run: !execute,\n  cleanup,\n  dispatch,\n  confirmation_required: confirmationRequired,\n  expected_confirmation: expectedConfirmation,\n  via_webhook: viaWebhook,\n  force_resend: forceResend,\n  requested_by: viaWebhook ? 'panel-web' : 'panel-operador',\n} }];\n"
+      }
+    },
+    {
+      "id": "panel-resolve-001",
+      "name": "Resolver Impacto",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        720,
+        260
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH params AS (\n  SELECT\n    $1::text AS selector_type,\n    $2::jsonb AS requested_values,\n    NULLIF($3::text, '') AS brand,\n    LEAST(GREATEST($4::int, 1), 100000) AS row_limit,\n    $5::text AS action\n), vals AS (\n  SELECT\n    value AS raw_value,\n    NULLIF(regexp_replace(value, '\\D', '', 'g'), '') AS digits,\n    CASE WHEN value ~ '^\\d{1,9}$' THEN value::int END AS quicklink_id,\n    CASE\n      WHEN value ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'\n      THEN value::uuid\n    END AS lead_id\n  FROM params p, jsonb_array_elements_text(p.requested_values) value\n), lead_norm AS (\n  SELECT\n    l.*,\n    NULLIF(regexp_replace(COALESCE(l.telefono_1, ''), '\\D', '', 'g'), '') AS phone1_digits,\n    NULLIF(regexp_replace(COALESCE(l.telefono_2, ''), '\\D', '', 'g'), '') AS phone2_digits,\n    NULLIF(regexp_replace(COALESCE(to_jsonb(l)->>'telefono_agente', ''), '\\D', '', 'g'), '') AS agent_phone_digits\n  FROM leads_quicklink l\n), matching_leads AS (\n  SELECT DISTINCT l.*\n  FROM lead_norm l\n  CROSS JOIN params p\n  LEFT JOIN vals v ON true\n  WHERE (p.brand IS NULL OR l.marca::text = p.brand)\n    AND (\n      p.selector_type = 'todos'\n      OR p.selector_type = 'marca'\n      OR (p.selector_type IN ('telefonos', 'telefono', 'phones') AND v.digits IS NOT NULL AND (\n        l.phone1_digits = v.digits\n        OR l.phone2_digits = v.digits\n        OR l.agent_phone_digits = v.digits\n        OR (length(l.phone1_digits) >= 9 AND length(v.digits) >= 9 AND right(l.phone1_digits, 9) = right(v.digits, 9))\n        OR (length(l.phone2_digits) >= 9 AND length(v.digits) >= 9 AND right(l.phone2_digits, 9) = right(v.digits, 9))\n        OR (length(l.agent_phone_digits) >= 9 AND length(v.digits) >= 9 AND right(l.agent_phone_digits, 9) = right(v.digits, 9))\n      ))\n      OR (p.selector_type IN ('quicklink_ids', 'quicklink_id', 'ids') AND v.quicklink_id IS NOT NULL AND l.quicklink_id = v.quicklink_id)\n      OR (p.selector_type IN ('lead_ids', 'lead_id') AND v.lead_id IS NOT NULL AND l.id = v.lead_id)\n    )\n), target_leads AS (\n  SELECT l.*\n  FROM matching_leads l\n  CROSS JOIN params p\n  WHERE p.action <> 'dispatch_only' OR l.estado_agente::text = 'PENDIENTE'\n  ORDER BY l.sincronizado_at ASC NULLS LAST, l.created_at ASC NULLS LAST, l.id\n  LIMIT (SELECT row_limit FROM params)\n), target_phone_digits AS (\n  SELECT DISTINCT digits\n  FROM target_leads l\n  CROSS JOIN LATERAL (VALUES\n    (l.phone1_digits),\n    (l.phone2_digits),\n    (l.agent_phone_digits),\n    (CASE WHEN l.phone1_digits ~ '^0\\d{9}$' THEN '593' || substring(l.phone1_digits FROM 2) END),\n    (CASE WHEN l.phone2_digits ~ '^0\\d{9}$' THEN '593' || substring(l.phone2_digits FROM 2) END),\n    (CASE WHEN l.agent_phone_digits ~ '^0\\d{9}$' THEN '593' || substring(l.agent_phone_digits FROM 2) END),\n    (CASE WHEN l.phone1_digits ~ '^9\\d{8}$' THEN '593' || l.phone1_digits END),\n    (CASE WHEN l.phone2_digits ~ '^9\\d{8}$' THEN '593' || l.phone2_digits END),\n    (CASE WHEN l.agent_phone_digits ~ '^9\\d{8}$' THEN '593' || l.agent_phone_digits END),\n    (CASE WHEN length(l.phone1_digits) >= 9 THEN right(l.phone1_digits, 9) END),\n    (CASE WHEN length(l.phone2_digits) >= 9 THEN right(l.phone2_digits, 9) END),\n    (CASE WHEN length(l.agent_phone_digits) >= 9 THEN right(l.agent_phone_digits, 9) END)\n  ) aliases(digits)\n  WHERE NULLIF(digits, '') IS NOT NULL\n), target_convs AS (\n  SELECT DISTINCT c.*\n  FROM conversaciones c\n  JOIN target_leads l ON c.lead_id = l.id OR c.id = l.conversacion_id\n  UNION\n  SELECT DISTINCT c.*\n  FROM conversaciones c\n  JOIN target_phone_digits p\n    ON length(p.digits) >= 9\n   AND length(NULLIF(regexp_replace(COALESCE(c.telefono, ''), '\\D', '', 'g'), '')) >= 9\n   AND right(NULLIF(regexp_replace(COALESCE(c.telefono, ''), '\\D', '', 'g'), ''), 9) = right(p.digits, 9)\n), target_mem AS (\n  SELECT DISTINCT lm.*\n  FROM lead_memory lm\n  WHERE lm.lead_id IN (SELECT id FROM target_leads)\n    OR lm.conversation_id IN (SELECT id FROM target_convs)\n    OR (\n      EXISTS (\n        SELECT 1\n        FROM target_phone_digits p\n        WHERE length(p.digits) >= 9\n      AND length(NULLIF(regexp_replace(COALESCE(lm.phone, ''), '\\D', '', 'g'), '')) >= 9\n          AND right(NULLIF(regexp_replace(COALESCE(lm.phone, ''), '\\D', '', 'g'), ''), 9) = right(p.digits, 9)\n      )\n    )\n), conv_ids AS (\n  SELECT id FROM target_convs\n  UNION SELECT conversation_id FROM target_mem WHERE conversation_id IS NOT NULL\n), chatwoot_ids AS (\n  SELECT chatwoot_conv_id FROM target_convs WHERE chatwoot_conv_id IS NOT NULL\n  UNION SELECT chatwoot_conv_id FROM target_mem WHERE chatwoot_conv_id IS NOT NULL\n), lead_phone_sessions AS (\n  SELECT DISTINCT digits AS session_id\n  FROM target_phone_digits\n), session_ids AS (\n  SELECT chatwoot_conv_id::text AS session_id FROM chatwoot_ids\n  UNION SELECT id::text FROM conv_ids\n  UNION SELECT regexp_replace(phone, '\\D', '', 'g') FROM target_mem WHERE NULLIF(regexp_replace(COALESCE(phone, ''), '\\D', '', 'g'), '') IS NOT NULL\n  UNION SELECT session_id FROM lead_phone_sessions WHERE NULLIF(session_id, '') IS NOT NULL\n), redis_keys AS (\n  SELECT DISTINCT session_id || '_buffer' AS redis_key FROM session_ids WHERE NULLIF(session_id, '') IS NOT NULL\n), recent_outbound_blocks AS (\n  SELECT\n    d.request_id,\n    b.batch_key,\n    d.lead_id,\n    d.quicklink_id,\n    d.marca,\n    d.intake_status,\n    d.delivery_status,\n    d.created_at,\n    d.updated_at\n  FROM outbound_dispatches d\n  JOIN outbound_dispatch_batches b ON b.id = d.batch_id\n  WHERE d.lead_id IN (SELECT id FROM target_leads)\n    AND d.source = 'panel-operador'\n    AND d.created_at >= now() - interval '6 hours'\n    AND (\n      d.intake_status = 'accepted'\n      OR d.delivery_status IN ('pending', 'meta_accepted', 'sent', 'delivered', 'read')\n    )\n), counts AS (\n  SELECT jsonb_build_object(\n    'leads', (SELECT COUNT(*) FROM target_leads),\n    'excluded_non_pending', (SELECT COUNT(*) FROM matching_leads l CROSS JOIN params p WHERE p.action = 'dispatch_only' AND l.estado_agente::text IS DISTINCT FROM 'PENDIENTE'),\n    'conversations', (SELECT COUNT(*) FROM target_convs),\n    'lead_memory', (SELECT COUNT(*) FROM target_mem),\n    'chatwoot_conversations', (SELECT COUNT(*) FROM chatwoot_ids),\n    'redis_buffer_keys', (SELECT COUNT(*) FROM redis_keys),\n    'n8n_chat_histories', (SELECT COUNT(*) FROM n8n_chat_histories h WHERE h.session_id IN (SELECT session_id FROM session_ids)),\n    'scheduled_followups', (SELECT COUNT(*) FROM scheduled_followups sf WHERE sf.conversation_id IN (SELECT id FROM conv_ids) OR EXISTS (SELECT 1 FROM target_phone_digits p WHERE length(p.digits) >= 9 AND length(NULLIF(regexp_replace(COALESCE(sf.phone, ''), '\\D', '', 'g'), '')) >= 9 AND right(NULLIF(regexp_replace(COALESCE(sf.phone, ''), '\\D', '', 'g'), ''), 9) = right(p.digits, 9))),\n    'conversation_interactions', (SELECT COUNT(*) FROM conversation_interactions ci WHERE ci.conversation_id IN (SELECT id FROM conv_ids)),\n    'whatsapp_interaction_events', (SELECT COUNT(*) FROM whatsapp_interaction_events wie WHERE wie.conversation_id IN (SELECT id FROM conv_ids) OR EXISTS (SELECT 1 FROM target_phone_digits p WHERE length(p.digits) >= 9 AND length(NULLIF(regexp_replace(COALESCE(wie.phone, ''), '\\D', '', 'g'), '')) >= 9 AND right(NULLIF(regexp_replace(COALESCE(wie.phone, ''), '\\D', '', 'g'), ''), 9) = right(p.digits, 9))),\n    'conversation_context', (SELECT COUNT(*) FROM conversation_context cc WHERE cc.chatwoot_conv_id IN (SELECT chatwoot_conv_id FROM chatwoot_ids) OR cc.active_vehicle_id IN (SELECT quicklink_id FROM target_leads) OR EXISTS (SELECT 1 FROM target_phone_digits p WHERE length(p.digits) >= 9 AND length(NULLIF(regexp_replace(COALESCE(cc.contact_phone, ''), '\\D', '', 'g'), '')) >= 9 AND right(NULLIF(regexp_replace(COALESCE(cc.contact_phone, ''), '\\D', '', 'g'), ''), 9) = right(p.digits, 9))),\n    'lead_campaign_queue', (SELECT COUNT(*) FROM lead_campaign_queue q WHERE q.lead_id IN (SELECT id FROM target_leads) OR EXISTS (SELECT 1 FROM target_phone_digits p WHERE length(p.digits) >= 9 AND length(NULLIF(regexp_replace(COALESCE(q.phone, ''), '\\D', '', 'g'), '')) >= 9 AND right(NULLIF(regexp_replace(COALESCE(q.phone, ''), '\\D', '', 'g'), ''), 9) = right(p.digits, 9))),\n    'agent_decisions', (SELECT COUNT(*) FROM agent_decisions ad WHERE ad.conversation_id IN (SELECT id FROM conv_ids)),\n    'events', (SELECT COUNT(*) FROM eventos_conversacion ev WHERE ev.conversation_id IN (SELECT id FROM conv_ids)),\n    'handoffs', (SELECT COUNT(*) FROM transferencias_humano th WHERE th.conversation_id IN (SELECT id FROM conv_ids) OR th.conversacion_id IN (SELECT id FROM conv_ids))\n  ) AS impact\n)\nSELECT\n  (SELECT impact FROM counts) AS impact,\n  COALESCE((SELECT jsonb_agg(jsonb_build_object(\n    'lead_id', id,\n    'quicklink_id', quicklink_id,\n    'marca', marca::text,\n    'nombre_cliente', nombre_cliente,\n    'telefono_1', telefono_1,\n    'telefono_2', telefono_2,\n    'telefono_agente', COALESCE(to_jsonb(target_leads)->>'telefono_agente', telefono_1),\n    'modelo', modelo,\n    'estado_agente', estado_agente::text\n  ) ORDER BY marca::text, quicklink_id, id) FROM target_leads), '[]'::jsonb) AS leads,\n  COALESCE((SELECT jsonb_agg(DISTINCT id) FROM conv_ids), '[]'::jsonb) AS conversation_ids,\n  COALESCE((SELECT jsonb_agg(DISTINCT chatwoot_conv_id) FROM chatwoot_ids), '[]'::jsonb) AS chatwoot_conv_ids,\n  COALESCE((SELECT jsonb_agg(DISTINCT quicklink_id) FROM target_leads), '[]'::jsonb) AS quicklink_ids,\n  COALESCE((SELECT jsonb_agg(DISTINCT digits) FROM target_phone_digits WHERE NULLIF(digits, '') IS NOT NULL), '[]'::jsonb) AS phone_aliases,\n  COALESCE((SELECT jsonb_agg(DISTINCT session_id) FROM session_ids WHERE NULLIF(session_id, '') IS NOT NULL), '[]'::jsonb) AS session_ids,\n  COALESCE((SELECT jsonb_agg(DISTINCT redis_key) FROM redis_keys), '[]'::jsonb) AS redis_keys,\n  COALESCE((SELECT jsonb_agg(jsonb_build_object(\n    'request_id', request_id,\n    'batch_key', batch_key,\n    'lead_id', lead_id,\n    'quicklink_id', quicklink_id,\n    'marca', marca,\n    'intake_status', intake_status,\n    'delivery_status', delivery_status,\n    'created_at', created_at,\n    'updated_at', updated_at\n  ) ORDER BY created_at DESC) FROM recent_outbound_blocks), '[]'::jsonb) AS recent_outbound_blocks;\n",
+        "options": {
+          "queryReplacement": "={{ [ $json.selector_type, JSON.stringify($json.requested_values), $json.brand || '', $json.limit, $json.action ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "panel-format-001",
+      "name": "Format Preview",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1020,
+        260
+      ],
+      "parameters": {
+        "jsCode": "const cfg = $('Preparar').first().json;\nconst row = $input.first().json || {};\nconst impact = row.impact || {};\nconst leads = Array.isArray(row.leads) ? row.leads : [];\nconst chatwoot = Array.isArray(row.chatwoot_conv_ids) ? row.chatwoot_conv_ids : [];\n\nif (cfg.via_webhook && cfg.execute && (cfg.cleanup || cfg.dispatch)) {\n  const requestedLeadIds = Array.isArray(cfg.requested_values) ? cfg.requested_values.map(v => String(v || '').trim().toLowerCase()).filter(Boolean) : [];\n  const requestedLeadId = requestedLeadIds[0] || '';\n  const exactLeadRequest = cfg.selector_type === 'lead_ids' && requestedLeadIds.length === 1 && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(requestedLeadId) && Number(cfg.limit) === 1;\n  if (!exactLeadRequest) {\n    throw new Error('Ejecución web rechazada: se requiere un único lead_id exacto y limite 1');\n  }\n  if (leads.length !== 1 || String(leads[0].lead_id || '').toLowerCase() !== requestedLeadId) {\n    throw new Error('Ejecución web rechazada: el lead_id solicitado debe resolver exactamente 1 lead, recibidos ' + leads.length);\n  }\n}\n\nconst recentOutboundBlocks = Array.isArray(row.recent_outbound_blocks) ? row.recent_outbound_blocks : [];\n\n// El bypass solo aplica si el operador lo marco explicitamente. Se deja\n// constancia en el resultado para que quede rastro de que se forzo.\nif (cfg.via_webhook && cfg.execute && cfg.dispatch && !cfg.force_resend && recentOutboundBlocks.length) {\n  const firstBlock = recentOutboundBlocks[0] || {};\n  throw new Error('Reenvio web bloqueado: ya existe outbound reciente para este lead (' + (firstBlock.batch_key || firstBlock.request_id || 'sin batch') + ', estado=' + (firstBlock.delivery_status || firstBlock.intake_status || 'desconocido') + ').');\n}\nif (cfg.execute && !leads.length) {\n  throw new Error('Ejecución cancelada: ningún lead coincide exactamente con los criterios');\n}\nconst dispatchable = leads.filter(lead => {\n  const digits = String(lead.telefono_agente || '').replace(/\\D/g, '');\n  return digits.length >= 9 && digits.length <= 15;\n});\nconst skippedForAgentPhone = leads.length - dispatchable.length;\n\nconst lines = [];\nlines.push(`Operación: ${cfg.operation_label}`);\nlines.push(`Modo: ${cfg.execute ? 'EJECUCIÓN REAL' : 'DRY-RUN / PREVIEW'}`);\nlines.push(`Targets: ${leads.length} lead(s), ${impact.conversations || 0} conversación(es), ${chatwoot.length} conversación(es) Chatwoot.`);\nif (impact.excluded_non_pending) lines.push(`Excluidos por no estar PENDIENTE: ${impact.excluded_non_pending}.`);\nif (cfg.dispatch && skippedForAgentPhone) lines.push(`Sin envío por TELEFONO AGENTE inválido/vacío: ${skippedForAgentPhone}.`);\nlines.push(`Memoria: lead_memory=${impact.lead_memory || 0}, n8n_chat_histories=${impact.n8n_chat_histories || 0}, redis_buffers=${impact.redis_buffer_keys || 0}.`);\nlines.push(`Runtime: followups=${impact.scheduled_followups || 0}, interactions=${impact.conversation_interactions || 0}, wa_events=${impact.whatsapp_interaction_events || 0}, context=${impact.conversation_context || 0}, campaign_queue=${impact.lead_campaign_queue || 0}, agent_decisions=${impact.agent_decisions || 0}, eventos=${impact.events || 0}, handoffs=${impact.handoffs || 0}.`);\nlines.push('');\nlines.push('Leads:');\nfor (const lead of leads.slice(0, 25)) {\n  lines.push(`- ${lead.marca} #${lead.quicklink_id} ${lead.nombre_cliente || ''} agente:${lead.telefono_agente || 'sin telefono'} ${lead.modelo || ''}`.trim());\n}\nif (leads.length > 25) lines.push(`- ... ${leads.length - 25} más`);\n\nreturn [{ json: { ...cfg, ...row, preview_message: lines.join('\\n') } }];\n"
+      }
+    },
+    {
+      "id": "panel-if-confirm-001",
+      "name": "Requiere Confirmacion?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1320,
+        260
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "confirm-cond",
+              "leftValue": "={{ $json.confirmation_required }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "panel-confirm-form-001",
+      "name": "Confirmar Ejecucion",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [
+        1620,
+        120
+      ],
+      "parameters": {
+        "operation": "page",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Confirmacion",
+              "fieldType": "text",
+              "placeholder": "={{ $('Preparar').first().json.expected_confirmation }}",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {
+          "formTitle": "Confirmar operación real",
+          "formDescription": "=Impacto calculado:\n{{ $('Format Preview').first().json.preview_message }}\n\nPara continuar escriba exactamente: {{ $('Preparar').first().json.expected_confirmation }}",
+          "buttonLabel": "Ejecutar"
+        }
+      }
+    },
+    {
+      "id": "panel-validate-confirm-001",
+      "name": "Validar Confirmacion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        120
+      ],
+      "parameters": {
+        "jsCode": "const cfg = $('Preparar').first().json;\nconst impact = $('Format Preview').first().json;\nconst src = $json.body || $json || {};\nconst raw = String(src.Confirmacion || src.confirmacion || src.Confirmación || src['field-0'] || '').trim().toUpperCase();\nconst ok = raw === String(cfg.expected_confirmation || '').toUpperCase();\nreturn [{ json: { ...cfg, ...impact, confirmation_value: raw, confirmed: ok } }];"
+      }
+    },
+    {
+      "id": "panel-if-confirmed-001",
+      "name": "Confirmado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2220,
+        120
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "confirmed-cond",
+              "leftValue": "={{ $json.confirmed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "panel-cancel-001",
+      "name": "Fin Cancelado",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [
+        2520,
+        260
+      ],
+      "parameters": {
+        "operation": "completion",
+        "completionTitle": "Cancelado",
+        "completionMessage": "Confirmación inválida o ejecución cancelada. No se borró ni envió nada."
+      }
+    },
+    {
+      "id": "panel-chatwoot-delete-001",
+      "name": "Borrar Chatwoot Conversaciones",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2520,
+        80
+      ],
+      "parameters": {
+        "jsCode": "const cfg = $('Preparar').first().json;\nconst row = $('Format Preview').first().json;\nconst ids = [...new Set(Array.isArray(row.chatwoot_conv_ids) ? row.chatwoot_conv_ids.map(Number).filter(Boolean) : [])];\nconst dryRun = !cfg.execute || !cfg.cleanup;\nconst baseUrl = 'http://chatwoot:3000';\nconst token = 'MxVixgmtgZaoKVSarHdWyv1W';\nconst accountId = 2;\nconst results = [];\n\nfor (const id of ids) {\n  if (dryRun) {\n    results.push({ id, action: 'dry_run_delete_conversation', ok: true });\n    continue;\n  }\n  try {\n    const resp = await this.helpers.httpRequest({\n      method: 'DELETE',\n      url: `${baseUrl}/api/v1/accounts/${accountId}/conversations/${id}`,\n      headers: { api_access_token: token, 'Content-Type': 'application/json' },\n      ignoreHttpStatusErrors: true,\n      returnFullResponse: true,\n      timeout: 30000,\n    });\n    const statusCode = resp.statusCode || resp.status || 0;\n    const ok = (statusCode >= 200 && statusCode < 300) || statusCode === 404;\n    results.push({\n      id,\n      action: statusCode === 404 ? 'already_absent' : 'delete_conversation',\n      ok,\n      statusCode,\n    });\n  } catch (e) {\n    results.push({ id, action: 'delete_conversation', ok: false, error: String(e.message || e).slice(0, 300) });\n  }\n}\n\nconst deleted = results.filter(r => r.ok && r.action === 'delete_conversation').length;\nconst alreadyAbsent = results.filter(r => r.ok && r.action === 'already_absent').length;\nconst failedResults = results.filter(r => !r.ok);\nif (!dryRun && failedResults.length) {\n  const detail = failedResults.map(r => `${r.id}:${r.statusCode || r.error || 'error'}`).join(', ');\n  throw new Error(`Chatwoot cleanup falló para ${failedResults.length} conversación(es): ${detail}`);\n}\n\nreturn [{\n  json: {\n    ...row,\n    chatwoot_delete: {\n      dry_run: dryRun,\n      targeted: ids.length,\n      deleted,\n      already_absent: alreadyAbsent,\n      failed: failedResults.length,\n      results,\n    },\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "panel-if-cleanup-001",
+      "name": "Requiere Cleanup DB?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2820,
+        80
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cleanup-cond",
+              "leftValue": "={{ $('Preparar').first().json.execute && $('Preparar').first().json.cleanup }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "panel-cleanup-db-001",
+      "name": "Ejecutar Limpieza DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3120,
+        -40
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nDROP TABLE IF EXISTS pg_temp._panel_leads;\nDROP TABLE IF EXISTS pg_temp._panel_convs;\nDROP TABLE IF EXISTS pg_temp._panel_sessions;\nDROP TABLE IF EXISTS pg_temp._panel_phone_aliases;\nDROP TABLE IF EXISTS pg_temp._panel_counts;\nDROP TABLE IF EXISTS pg_temp._panel_residuals;\n\nCREATE TEMP TABLE _panel_leads(\n  id uuid PRIMARY KEY,\n  quicklink_id integer,\n  phone1_digits text,\n  phone2_digits text,\n  agent_phone_digits text\n) ON COMMIT DROP;\nCREATE TEMP TABLE _panel_convs(id uuid PRIMARY KEY) ON COMMIT DROP;\nCREATE TEMP TABLE _panel_sessions(session_id text PRIMARY KEY) ON COMMIT DROP;\nCREATE TEMP TABLE _panel_phone_aliases(digits text PRIMARY KEY) ON COMMIT DROP;\nCREATE TEMP TABLE _panel_counts(seq serial, table_name text, action text, affected integer) ON COMMIT DROP;\nCREATE TEMP TABLE _panel_residuals(seq serial, table_name text, residual integer) ON COMMIT DROP;\n\nINSERT INTO _panel_leads(id, quicklink_id, phone1_digits, phone2_digits, agent_phone_digits)\nSELECT\n  lead.lead_id::uuid,\n  lead.quicklink_id,\n  NULLIF(regexp_replace(COALESCE(lead.telefono_1, ''), '\\D', '', 'g'), ''),\n  NULLIF(regexp_replace(COALESCE(lead.telefono_2, ''), '\\D', '', 'g'), ''),\n  NULLIF(regexp_replace(COALESCE(lead.telefono_agente, ''), '\\D', '', 'g'), '')\nFROM jsonb_to_recordset($1::jsonb) AS lead(\n  lead_id text,\n  quicklink_id integer,\n  telefono_1 text,\n  telefono_2 text,\n  telefono_agente text\n)\nWHERE lead.lead_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'\nON CONFLICT DO NOTHING;\n\nINSERT INTO _panel_convs(id)\nSELECT value::uuid FROM jsonb_array_elements_text($2::jsonb) value\nWHERE value ~* '^[0-9a-f-]{36}$'\nON CONFLICT DO NOTHING;\n\nINSERT INTO _panel_sessions(session_id)\nSELECT value FROM jsonb_array_elements_text($3::jsonb) value\nWHERE NULLIF(value, '') IS NOT NULL\nON CONFLICT DO NOTHING;\n\nINSERT INTO _panel_phone_aliases(digits)\nSELECT DISTINCT NULLIF(regexp_replace(value, '\\D', '', 'g'), '')\nFROM jsonb_array_elements_text($4::jsonb) value\nWHERE NULLIF(regexp_replace(value, '\\D', '', 'g'), '') IS NOT NULL\nON CONFLICT DO NOTHING;\n\nINSERT INTO _panel_phone_aliases(digits)\nSELECT DISTINCT digits\nFROM _panel_leads l\nCROSS JOIN LATERAL (VALUES\n  (l.phone1_digits),\n  (l.phone2_digits),\n  (l.agent_phone_digits),\n  (CASE WHEN l.phone1_digits ~ '^0\\d{9}$' THEN '593' || substring(l.phone1_digits FROM 2) END),\n  (CASE WHEN l.phone2_digits ~ '^0\\d{9}$' THEN '593' || substring(l.phone2_digits FROM 2) END),\n  (CASE WHEN l.agent_phone_digits ~ '^0\\d{9}$' THEN '593' || substring(l.agent_phone_digits FROM 2) END),\n  (CASE WHEN l.phone1_digits ~ '^9\\d{8}$' THEN '593' || l.phone1_digits END),\n  (CASE WHEN l.phone2_digits ~ '^9\\d{8}$' THEN '593' || l.phone2_digits END),\n  (CASE WHEN l.agent_phone_digits ~ '^9\\d{8}$' THEN '593' || l.agent_phone_digits END),\n  (CASE WHEN length(l.phone1_digits) >= 9 THEN right(l.phone1_digits, 9) END),\n  (CASE WHEN length(l.phone2_digits) >= 9 THEN right(l.phone2_digits, 9) END),\n  (CASE WHEN length(l.agent_phone_digits) >= 9 THEN right(l.agent_phone_digits, 9) END)\n) aliases(digits)\nWHERE NULLIF(digits, '') IS NOT NULL\nON CONFLICT DO NOTHING;\n\nCREATE OR REPLACE FUNCTION pg_temp.panel_table_schema(p_table text)\nRETURNS text\nLANGUAGE sql\nSTABLE\nAS $fn$\n  SELECT table_schema\n  FROM information_schema.tables\n  WHERE table_schema IN ('sales_prod', 'public')\n    AND table_name = p_table\n  ORDER BY CASE table_schema WHEN 'sales_prod' THEN 1 WHEN 'public' THEN 2 ELSE 3 END\n  LIMIT 1;\n$fn$;\n\nCREATE OR REPLACE FUNCTION pg_temp.panel_table_exists(p_table text)\nRETURNS boolean\nLANGUAGE sql\nSTABLE\nAS $fn$\n  SELECT pg_temp.panel_table_schema(p_table) IS NOT NULL;\n$fn$;\n\nCREATE OR REPLACE FUNCTION pg_temp.panel_col_exists(p_table text, p_col text)\nRETURNS boolean\nLANGUAGE sql\nSTABLE\nAS $fn$\n  SELECT EXISTS (\n    SELECT 1\n    FROM information_schema.columns\n    WHERE table_schema = pg_temp.panel_table_schema(p_table)\n      AND table_name = p_table\n      AND column_name = p_col\n  );\n$fn$;\n\nCREATE OR REPLACE FUNCTION pg_temp.panel_phone_match(p_value text)\nRETURNS boolean\nLANGUAGE sql\nSTABLE\nAS $fn$\n  WITH d AS (\n    SELECT NULLIF(regexp_replace(COALESCE(p_value, ''), '\\D', '', 'g'), '') AS digits\n  )\n  SELECT EXISTS (\n    SELECT 1\n    FROM d, _panel_phone_aliases a\n    WHERE d.digits IS NOT NULL\n      AND a.digits IS NOT NULL\n      AND length(d.digits) >= 9\n      AND length(a.digits) >= 9\n      AND (\n        d.digits = a.digits\n        OR right(d.digits, 9) = right(a.digits, 9)\n        OR d.digits LIKE '%' || a.digits\n        OR a.digits LIKE '%' || d.digits\n      )\n  );\n$fn$;\n\nCREATE OR REPLACE FUNCTION pg_temp.panel_apply_delete(\n  p_table text,\n  p_action text,\n  p_condition text\n)\nRETURNS integer\nLANGUAGE plpgsql\nAS $fn$\nDECLARE\n  v_count integer := 0;\n  v_schema text;\nBEGIN\n  v_schema := pg_temp.panel_table_schema(p_table);\n  IF v_schema IS NULL OR COALESCE(p_condition, '') = '' THEN\n    v_count := 0;\n  ELSE\n    EXECUTE format(\n      'WITH deleted AS (DELETE FROM %I.%I t WHERE %s RETURNING 1) SELECT count(*)::integer FROM deleted',\n      v_schema,\n      p_table,\n      p_condition\n    ) INTO v_count;\n  END IF;\n\n  INSERT INTO _panel_counts(table_name, action, affected)\n  VALUES (p_table, p_action, COALESCE(v_count, 0));\n  RETURN COALESCE(v_count, 0);\nEND;\n$fn$;\n\nCREATE OR REPLACE FUNCTION pg_temp.panel_residual(\n  p_table text,\n  p_condition text\n)\nRETURNS integer\nLANGUAGE plpgsql\nAS $fn$\nDECLARE\n  v_count integer := 0;\n  v_schema text;\nBEGIN\n  v_schema := pg_temp.panel_table_schema(p_table);\n  IF v_schema IS NULL OR COALESCE(p_condition, '') = '' THEN\n    v_count := 0;\n  ELSE\n    EXECUTE format('SELECT count(*)::integer FROM %I.%I t WHERE %s', v_schema, p_table, p_condition)\n      INTO v_count;\n  END IF;\n\n  INSERT INTO _panel_residuals(table_name, residual)\n  VALUES (p_table, COALESCE(v_count, 0));\n  RETURN COALESCE(v_count, 0);\nEND;\n$fn$;\n\nDO $do$\nDECLARE\n  n integer;\n  conds text[];\n  cond text;\n  set_list text[];\n  target_schema text;\nBEGIN\n  IF pg_temp.panel_table_exists('scheduled_followups') THEN\n    conds := ARRAY[]::text[];\n    IF pg_temp.panel_col_exists('scheduled_followups', 'conversation_id') THEN conds := array_append(conds, 't.conversation_id IN (SELECT id FROM _panel_convs)'); END IF;\n    IF pg_temp.panel_col_exists('scheduled_followups', 'phone') THEN conds := array_append(conds, 'pg_temp.panel_phone_match(t.phone::text)'); END IF;\n    PERFORM pg_temp.panel_apply_delete('scheduled_followups', 'delete', array_to_string(conds, ' OR '));\n  END IF;\n\n  IF pg_temp.panel_table_exists('conversation_interactions') THEN\n    PERFORM pg_temp.panel_apply_delete('conversation_interactions', 'delete', 't.conversation_id IN (SELECT id FROM _panel_convs)');\n  END IF;\n\n  IF pg_temp.panel_table_exists('whatsapp_interaction_events') THEN\n    conds := ARRAY[]::text[];\n    IF pg_temp.panel_col_exists('whatsapp_interaction_events', 'conversation_id') THEN conds := array_append(conds, 't.conversation_id IN (SELECT id FROM _panel_convs)'); END IF;\n    IF pg_temp.panel_col_exists('whatsapp_interaction_events', 'phone') THEN conds := array_append(conds, 'pg_temp.panel_phone_match(t.phone::text)'); END IF;\n    PERFORM pg_temp.panel_apply_delete('whatsapp_interaction_events', 'delete', array_to_string(conds, ' OR '));\n  END IF;\n\n  IF pg_temp.panel_table_exists('agent_decisions') THEN\n    PERFORM pg_temp.panel_apply_delete('agent_decisions', 'delete', 't.conversation_id IN (SELECT id FROM _panel_convs)');\n  END IF;\n\n  IF pg_temp.panel_table_exists('conversation_memory') THEN\n    PERFORM pg_temp.panel_apply_delete('conversation_memory', 'delete', 't.conversation_id IN (SELECT id FROM _panel_convs)');\n  END IF;\n\n  IF pg_temp.panel_table_exists('datos_calificacion') THEN\n    PERFORM pg_temp.panel_apply_delete('datos_calificacion', 'delete', 't.conversation_id IN (SELECT id FROM _panel_convs)');\n  END IF;\n\n  IF pg_temp.panel_table_exists('transferencias_humano') THEN\n    conds := ARRAY[]::text[];\n    IF pg_temp.panel_col_exists('transferencias_humano', 'conversation_id') THEN conds := array_append(conds, 't.conversation_id IN (SELECT id FROM _panel_convs)'); END IF;\n    IF pg_temp.panel_col_exists('transferencias_humano', 'conversacion_id') THEN conds := array_append(conds, 't.conversacion_id IN (SELECT id FROM _panel_convs)'); END IF;\n    IF pg_temp.panel_col_exists('transferencias_humano', 'lead_id') THEN conds := array_append(conds, 't.lead_id IN (SELECT id FROM _panel_leads)'); END IF;\n    IF pg_temp.panel_col_exists('transferencias_humano', 'telefono') THEN conds := array_append(conds, 'pg_temp.panel_phone_match(t.telefono::text)'); END IF;\n    PERFORM pg_temp.panel_apply_delete('transferencias_humano', 'delete', array_to_string(conds, ' OR '));\n  END IF;\n\n  IF pg_temp.panel_table_exists('eventos_conversacion') THEN\n    conds := ARRAY[]::text[];\n    IF pg_temp.panel_col_exists('eventos_conversacion', 'conversation_id') THEN conds := array_append(conds, 't.conversation_id IN (SELECT id FROM _panel_convs)'); END IF;\n    IF pg_temp.panel_col_exists('eventos_conversacion', 'conversacion_id') THEN conds := array_append(conds, 't.conversacion_id IN (SELECT id FROM _panel_convs)'); END IF;\n    PERFORM pg_temp.panel_apply_delete('eventos_conversacion', 'delete', array_to_string(conds, ' OR '));\n  END IF;\n\n  IF pg_temp.panel_table_exists('intentos_contacto') THEN\n    conds := ARRAY[]::text[];\n    IF pg_temp.panel_col_exists('intentos_contacto', 'conversation_id') THEN conds := array_append(conds, 't.conversation_id IN (SELECT id FROM _panel_convs)'); END IF;\n    IF pg_temp.panel_col_exists('intentos_contacto', 'conversacion_id') THEN conds := array_append(conds, 't.conversacion_id IN (SELECT id FROM _panel_convs)'); END IF;\n    PERFORM pg_temp.panel_apply_delete('intentos_contacto', 'delete', array_to_string(conds, ' OR '));\n  END IF;\n\n  IF pg_temp.panel_table_exists('conversation_context') THEN\n    conds := ARRAY[]::text[];\n    IF pg_temp.panel_col_exists('conversation_context', 'chatwoot_conv_id') THEN conds := array_append(conds, 't.chatwoot_conv_id::text IN (SELECT session_id FROM _panel_sessions)'); END IF;\n    IF pg_temp.panel_col_exists('conversation_context', 'contact_phone') THEN conds := array_append(conds, 'pg_temp.panel_phone_match(t.contact_phone::text)'); END IF;\n    IF pg_temp.panel_col_exists('conversation_context', 'active_vehicle_id') THEN conds := array_append(conds, 't.active_vehicle_id IN (SELECT quicklink_id FROM _panel_leads WHERE quicklink_id IS NOT NULL)'); END IF;\n    PERFORM pg_temp.panel_apply_delete('conversation_context', 'delete', array_to_string(conds, ' OR '));\n  END IF;\n\n  IF pg_temp.panel_table_exists('n8n_chat_histories') THEN\n    conds := ARRAY[]::text[];\n    IF pg_temp.panel_col_exists('n8n_chat_histories', 'session_id') THEN\n      conds := array_append(conds, 't.session_id IN (SELECT session_id FROM _panel_sessions)');\n      conds := array_append(conds, 'pg_temp.panel_phone_match(t.session_id::text)');\n    END IF;\n    PERFORM pg_temp.panel_apply_delete('n8n_chat_histories', 'delete', array_to_string(conds, ' OR '));\n  END IF;\n\n  IF pg_temp.panel_table_exists('lead_campaign_queue') THEN\n    conds := ARRAY[]::text[];\n    IF pg_temp.panel_col_exists('lead_campaign_queue', 'lead_id') THEN conds := array_append(conds, 't.lead_id IN (SELECT id FROM _panel_leads)'); END IF;\n    IF pg_temp.panel_col_exists('lead_campaign_queue', 'phone') THEN conds := array_append(conds, 'pg_temp.panel_phone_match(t.phone::text)'); END IF;\n    PERFORM pg_temp.panel_apply_delete('lead_campaign_queue', 'delete', array_to_string(conds, ' OR '));\n  END IF;\n\n  IF pg_temp.panel_table_exists('lead_memory') THEN\n    conds := ARRAY[]::text[];\n    IF pg_temp.panel_col_exists('lead_memory', 'conversation_id') THEN conds := array_append(conds, 't.conversation_id IN (SELECT id FROM _panel_convs)'); END IF;\n    IF pg_temp.panel_col_exists('lead_memory', 'lead_id') THEN conds := array_append(conds, 't.lead_id IN (SELECT id FROM _panel_leads)'); END IF;\n    IF pg_temp.panel_col_exists('lead_memory', 'phone') THEN conds := array_append(conds, 'pg_temp.panel_phone_match(t.phone::text)'); END IF;\n    IF pg_temp.panel_col_exists('lead_memory', 'chatwoot_conv_id') THEN conds := array_append(conds, 't.chatwoot_conv_id::text IN (SELECT session_id FROM _panel_sessions)'); END IF;\n    PERFORM pg_temp.panel_apply_delete('lead_memory', 'delete', array_to_string(conds, ' OR '));\n  END IF;\n\n  IF pg_temp.panel_table_exists('sync_queue') THEN\n    IF pg_temp.panel_col_exists('sync_queue', 'lead_id') THEN\n      PERFORM pg_temp.panel_apply_delete('sync_queue', 'delete_by_lead', 't.lead_id IN (SELECT id FROM _panel_leads)');\n    END IF;\n  END IF;\n\n  IF pg_temp.panel_table_exists('conversaciones') THEN\n    conds := ARRAY[]::text[];\n    IF pg_temp.panel_col_exists('conversaciones', 'id') THEN conds := array_append(conds, 't.id IN (SELECT id FROM _panel_convs)'); END IF;\n    IF pg_temp.panel_col_exists('conversaciones', 'lead_id') THEN conds := array_append(conds, 't.lead_id IN (SELECT id FROM _panel_leads)'); END IF;\n    IF pg_temp.panel_col_exists('conversaciones', 'telefono') THEN conds := array_append(conds, 'pg_temp.panel_phone_match(t.telefono::text)'); END IF;\n    PERFORM pg_temp.panel_apply_delete('conversaciones', 'delete', array_to_string(conds, ' OR '));\n  END IF;\n\n  IF pg_temp.panel_table_exists('leads_quicklink') THEN\n    set_list := ARRAY[]::text[];\n    IF pg_temp.panel_col_exists('leads_quicklink', 'estado_agente') THEN set_list := array_append(set_list, 'estado_agente = ''PENDIENTE'''); END IF;\n    IF pg_temp.panel_col_exists('leads_quicklink', 'conversacion_id') THEN set_list := array_append(set_list, 'conversacion_id = NULL'); END IF;\n    IF pg_temp.panel_col_exists('leads_quicklink', 'reportado_ql') THEN set_list := array_append(set_list, 'reportado_ql = false'); END IF;\n    IF pg_temp.panel_col_exists('leads_quicklink', 'reportado_ql_at') THEN set_list := array_append(set_list, 'reportado_ql_at = NULL'); END IF;\n    IF pg_temp.panel_col_exists('leads_quicklink', 'updated_at') THEN set_list := array_append(set_list, 'updated_at = now()'); END IF;\n    target_schema := pg_temp.panel_table_schema('leads_quicklink');\n    IF target_schema IS NOT NULL AND array_length(set_list, 1) IS NOT NULL THEN\n      EXECUTE format(\n        'WITH updated AS (UPDATE %I.%I t SET %s WHERE t.id IN (SELECT id FROM _panel_leads) RETURNING 1) SELECT count(*)::integer FROM updated',\n        target_schema,\n        'leads_quicklink',\n        array_to_string(set_list, ', ')\n      )\n        INTO n;\n      INSERT INTO _panel_counts(table_name, action, affected) VALUES ('leads_quicklink', 'reset', COALESCE(n, 0));\n    END IF;\n  END IF;\n\n  -- ==========================================================================\n  -- Reset de consentimiento (opt-in/opt-out).\n  -- Al limpiar tambien se devuelve el consentimiento a UNKNOWN, para que\n  -- 'Borrar + reenviar' vuelva a mandar la plantilla de opt-in en vez de la\n  -- secuencia de bienvenida. Sin esto, un contacto ya OPTED_IN recibe la\n  -- bienvenida MARKETING aunque le hayas borrado toda la conversacion.\n  --\n  -- EXCEPCION DELIBERADA: nunca se toca un OPTED_OUT.\n  -- Si alguien pidio la baja, resetearlo desde el panel lo devolveria a la\n  -- campania, que es exactamente lo que el opt-out existe para impedir. Para\n  -- volver a testear una baja hay que resetearla a mano, a proposito.\n  -- ==========================================================================\n  IF pg_temp.panel_table_exists('lead_consent') THEN\n    set_list := ARRAY[]::text[];\n    IF pg_temp.panel_col_exists('lead_consent', 'consent_status') THEN set_list := array_append(set_list, 'consent_status = ''UNKNOWN'''); END IF;\n    IF pg_temp.panel_col_exists('lead_consent', 'consent_source') THEN set_list := array_append(set_list, 'consent_source = NULL'); END IF;\n    IF pg_temp.panel_col_exists('lead_consent', 'consent_at') THEN set_list := array_append(set_list, 'consent_at = NULL'); END IF;\n    IF pg_temp.panel_col_exists('lead_consent', 'last_optin_sent_at') THEN set_list := array_append(set_list, 'last_optin_sent_at = NULL'); END IF;\n    IF pg_temp.panel_col_exists('lead_consent', 'updated_at') THEN set_list := array_append(set_list, 'updated_at = now()'); END IF;\n    target_schema := pg_temp.panel_table_schema('lead_consent');\n    IF target_schema IS NOT NULL AND array_length(set_list, 1) IS NOT NULL THEN\n      EXECUTE format(\n        'WITH updated AS (UPDATE %I.%I t SET %s WHERE pg_temp.panel_phone_match(t.phone) AND COALESCE(t.consent_status, ''UNKNOWN'') <> ''OPTED_OUT'' RETURNING 1) SELECT count(*)::integer FROM updated',\n        target_schema,\n        'lead_consent',\n        array_to_string(set_list, ', ')\n      )\n        INTO n;\n      INSERT INTO _panel_counts(table_name, action, affected) VALUES ('lead_consent', 'reset_consent', COALESCE(n, 0));\n    END IF;\n  END IF;\n\n  IF pg_temp.panel_table_exists('conversaciones') THEN\n    conds := ARRAY[]::text[];\n    IF pg_temp.panel_col_exists('conversaciones', 'id') THEN conds := array_append(conds, 't.id IN (SELECT id FROM _panel_convs)'); END IF;\n    IF pg_temp.panel_col_exists('conversaciones', 'lead_id') THEN conds := array_append(conds, 't.lead_id IN (SELECT id FROM _panel_leads)'); END IF;\n    IF pg_temp.panel_col_exists('conversaciones', 'telefono') THEN conds := array_append(conds, 'pg_temp.panel_phone_match(t.telefono::text)'); END IF;\n    PERFORM pg_temp.panel_residual('conversaciones', array_to_string(conds, ' OR '));\n  END IF;\n  IF pg_temp.panel_table_exists('lead_memory') THEN\n    conds := ARRAY[]::text[];\n    IF pg_temp.panel_col_exists('lead_memory', 'conversation_id') THEN conds := array_append(conds, 't.conversation_id IN (SELECT id FROM _panel_convs)'); END IF;\n    IF pg_temp.panel_col_exists('lead_memory', 'lead_id') THEN conds := array_append(conds, 't.lead_id IN (SELECT id FROM _panel_leads)'); END IF;\n    IF pg_temp.panel_col_exists('lead_memory', 'phone') THEN conds := array_append(conds, 'pg_temp.panel_phone_match(t.phone::text)'); END IF;\n    IF pg_temp.panel_col_exists('lead_memory', 'chatwoot_conv_id') THEN conds := array_append(conds, 't.chatwoot_conv_id::text IN (SELECT session_id FROM _panel_sessions)'); END IF;\n    PERFORM pg_temp.panel_residual('lead_memory', array_to_string(conds, ' OR '));\n  END IF;\n  IF pg_temp.panel_table_exists('scheduled_followups') THEN\n    conds := ARRAY[]::text[];\n    IF pg_temp.panel_col_exists('scheduled_followups', 'conversation_id') THEN conds := array_append(conds, 't.conversation_id IN (SELECT id FROM _panel_convs)'); END IF;\n    IF pg_temp.panel_col_exists('scheduled_followups', 'phone') THEN conds := array_append(conds, 'pg_temp.panel_phone_match(t.phone::text)'); END IF;\n    PERFORM pg_temp.panel_residual('scheduled_followups', array_to_string(conds, ' OR '));\n  END IF;\n  IF pg_temp.panel_table_exists('conversation_context') THEN\n    conds := ARRAY[]::text[];\n    IF pg_temp.panel_col_exists('conversation_context', 'chatwoot_conv_id') THEN conds := array_append(conds, 't.chatwoot_conv_id::text IN (SELECT session_id FROM _panel_sessions)'); END IF;\n    IF pg_temp.panel_col_exists('conversation_context', 'contact_phone') THEN conds := array_append(conds, 'pg_temp.panel_phone_match(t.contact_phone::text)'); END IF;\n    IF pg_temp.panel_col_exists('conversation_context', 'active_vehicle_id') THEN conds := array_append(conds, 't.active_vehicle_id IN (SELECT quicklink_id FROM _panel_leads WHERE quicklink_id IS NOT NULL)'); END IF;\n    PERFORM pg_temp.panel_residual('conversation_context', array_to_string(conds, ' OR '));\n  END IF;\n  IF pg_temp.panel_table_exists('n8n_chat_histories') THEN\n    PERFORM pg_temp.panel_residual('n8n_chat_histories', 't.session_id IN (SELECT session_id FROM _panel_sessions) OR pg_temp.panel_phone_match(t.session_id::text)');\n  END IF;\n  IF pg_temp.panel_table_exists('lead_campaign_queue') THEN\n    conds := ARRAY[]::text[];\n    IF pg_temp.panel_col_exists('lead_campaign_queue', 'lead_id') THEN conds := array_append(conds, 't.lead_id IN (SELECT id FROM _panel_leads)'); END IF;\n    IF pg_temp.panel_col_exists('lead_campaign_queue', 'phone') THEN conds := array_append(conds, 'pg_temp.panel_phone_match(t.phone::text)'); END IF;\n    PERFORM pg_temp.panel_residual('lead_campaign_queue', array_to_string(conds, ' OR '));\n  END IF;\n  IF pg_temp.panel_table_exists('leads_quicklink') AND pg_temp.panel_col_exists('leads_quicklink', 'conversacion_id') THEN\n    target_schema := pg_temp.panel_table_schema('leads_quicklink');\n    EXECUTE format(\n      'SELECT count(*)::integer FROM %I.%I t WHERE t.id IN (SELECT id FROM _panel_leads) AND t.conversacion_id IS NOT NULL',\n      target_schema,\n      'leads_quicklink'\n    )\n      INTO n;\n    INSERT INTO _panel_residuals(table_name, residual)\n    VALUES ('leads_quicklink_active_refs', COALESCE(n, 0));\n  END IF;\nEND $do$;\n\nSELECT\n  COALESCE((SELECT jsonb_agg(jsonb_build_object('table', table_name, 'action', action, 'affected', affected) ORDER BY seq) FROM _panel_counts), '[]'::jsonb) AS cleanup_counts,\n  COALESCE((SELECT jsonb_agg(jsonb_build_object('table', table_name, 'residual', residual) ORDER BY seq) FROM _panel_residuals), '[]'::jsonb) AS residual_counts;\n",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify(($('Format Preview').first().json.leads || [])), JSON.stringify($('Format Preview').first().json.conversation_ids || []), JSON.stringify($('Format Preview').first().json.session_ids || []), JSON.stringify($('Format Preview').first().json.phone_aliases || []), JSON.stringify($('Format Preview').first().json.quicklink_ids || []) ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "panel-no-cleanup-db-001",
+      "name": "Skip Limpieza DB",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        200
+      ],
+      "parameters": {
+        "jsCode": "return [{ json: { cleanup_counts: [] } }];"
+      }
+    },
+    {
+      "id": "panel-dispatch-001",
+      "name": "Dispatch Outbound",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4140,
+        80
+      ],
+      "parameters": {
+        "jsCode": "const cfg = $('Preparar').first().json;\nconst preview = $('Format Preview').first().json;\nconst chatwoot = $('Borrar Chatwoot Conversaciones').first().json.chatwoot_delete || {};\nconst trackingNode = $('Abrir Tracking Outbound').first().json || {};\nconst inputItems = $input.all();\nconst redisKeys = inputItems\n  .map(item => item.json.redis_key)\n  .filter(key => key && key !== '__cris_panel_noop__');\nconst leads = Array.isArray(preview.leads) ? preview.leads : [];\nconst shouldDispatch = cfg.execute && cfg.dispatch;\nconst outboundUrls = [\n  'http://localhost:5678/webhook/quicklink-lead-inbound',\n];\nconst outboundHeaders = { 'Content-Type': 'application/json', 'x-ql-sync-token': '0211fb62410106c2d4884f3131fd219390ded7d87a8f46e2' };\nconst delay = ms => new Promise(resolve => setTimeout(resolve, ms));\nconst tracking = trackingNode.outbound_tracking || {};\nconst trackedDispatches = Array.isArray(tracking.dispatches) ? tracking.dispatches : [];\nconst requestByLead = new Map(trackedDispatches.map(row => [String(row.lead_id), row.request_id]));\nconst results = [];\n\nconst retryableStatus = statusCode => statusCode === 0 || statusCode === 404 || statusCode === 408 || statusCode === 429 || statusCode >= 500;\nconst parseResponseBody = body => {\n  if (typeof body !== 'string') return body || {};\n  try { return JSON.parse(body); } catch (e) { return {}; }\n};\nconst postOutbound = async payload => {\n  const attempts = [];\n  for (const outboundUrl of outboundUrls) {\n    try {\n      const resp = await this.helpers.httpRequest({\n        method: 'POST',\n        url: outboundUrl,\n        headers: outboundHeaders,\n        body: JSON.stringify(payload),\n        timeout: 30000,\n        ignoreHttpStatusErrors: true,\n        returnFullResponse: true,\n      });\n      const statusCode = resp.statusCode || resp.status || 0;\n      const responseBody = parseResponseBody(resp.body || {});\n      const accepted = statusCode === 202 && responseBody?.accepted === true;\n      const error = accepted ? null : String(responseBody?.message || responseBody?.error || `HTTP ${statusCode}`).slice(0, 300);\n      attempts.push({ url: outboundUrl, statusCode, accepted, error });\n      if (accepted || !retryableStatus(statusCode)) {\n        return { accepted, statusCode, error, outbound_url: outboundUrl, attempts };\n      }\n    } catch (e) {\n      attempts.push({ url: outboundUrl, statusCode: 0, accepted: false, error: String(e.message || e).slice(0, 300) });\n    }\n  }\n  const last = attempts[attempts.length - 1] || {};\n  return {\n    accepted: false,\n    statusCode: last.statusCode || 0,\n    error: String(last.error || 'outbound_unavailable').slice(0, 300),\n    outbound_url: last.url || null,\n    attempts,\n  };\n};\n\nfor (const lead of leads) {\n  const agentPhone = String(lead.telefono_agente || '').trim();\n  const agentDigits = agentPhone.replace(/\\D/g, '');\n  if (agentDigits.length < 9 || agentDigits.length > 15) {\n    results.push({\n      lead_id: lead.lead_id,\n      quicklink_id: lead.quicklink_id,\n      marca: lead.marca,\n      request_id: null,\n      status: 'skipped',\n      error: agentPhone ? 'invalid_agent_phone' : 'missing_agent_phone',\n    });\n    continue;\n  }\n  const requestId = requestByLead.get(String(lead.lead_id)) || null;\n  const payload = {\n    phone: agentPhone,\n    marca: lead.marca,\n    quicklink_id: lead.quicklink_id,\n    lead_id: lead.lead_id,\n    nombre_cliente: lead.nombre_cliente,\n    modelo: lead.modelo,\n    source: 'panel-operador',\n    batch_key: tracking.batch_key || null,\n    request_id: requestId,\n  };\n  if (!shouldDispatch) {\n    results.push({\n      lead_id: lead.lead_id,\n      quicklink_id: lead.quicklink_id,\n      marca: lead.marca,\n      request_id: requestId,\n      status: cfg.dispatch ? 'dry_run' : 'not_requested',\n    });\n    continue;\n  }\n  if (!requestId) {\n    results.push({\n      lead_id: lead.lead_id,\n      quicklink_id: lead.quicklink_id,\n      marca: lead.marca,\n      request_id: null,\n      status: 'failed',\n      error: 'tracking_request_id_missing',\n    });\n    continue;\n  }\n  const outbound = await postOutbound(payload);\n  results.push({\n    lead_id: lead.lead_id,\n    quicklink_id: lead.quicklink_id,\n    marca: lead.marca,\n    request_id: requestId,\n    status: outbound.accepted ? 'accepted' : (outbound.statusCode ? 'rejected' : 'failed'),\n    statusCode: outbound.statusCode,\n    outbound_url: outbound.outbound_url,\n    outbound_attempts: outbound.attempts,\n    error: outbound.accepted ? null : outbound.error,\n  });\n  await delay(750);\n}\n\nconst accepted = results.filter(r => r.status === 'accepted').length;\nconst failed = results.filter(r => r.status === 'failed' || r.status === 'rejected').length;\nconst skipped = results.filter(r => r.status === 'skipped').length;\nreturn [{\n  json: {\n    ...preview,\n    chatwoot_delete: chatwoot,\n    cleanup_counts: Array.isArray(trackingNode.cleanup_counts) ? trackingNode.cleanup_counts : [],\n    residual_counts: Array.isArray(trackingNode.residual_counts) ? trackingNode.residual_counts : [],\n    outbound_tracking: tracking,\n    redis_deleted_keys: redisKeys,\n    dispatch_result: {\n      requested: cfg.dispatch,\n      executed: shouldDispatch,\n      accepted,\n      failed,\n      skipped,\n      results,\n    },\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "panel-redis-items-001",
+      "name": "Preparar Redis Keys",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3840,
+        -40
+      ],
+      "parameters": {
+        "jsCode": "const input = $input.first().json || {};\nconst preview = $('Format Preview').first().json;\nconst chatwoot = $('Borrar Chatwoot Conversaciones').first().json.chatwoot_delete || {};\nconst row = {\n  ...preview,\n  chatwoot_delete: chatwoot,\n  cleanup_counts: Array.isArray(input.cleanup_counts) ? input.cleanup_counts : [],\n  residual_counts: Array.isArray(input.residual_counts) ? input.residual_counts : [],\n  outbound_tracking: input.outbound_tracking || {},\n};\nconst shouldDeleteRedis = row.execute === true && row.cleanup === true;\nlet keys = [];\nif (shouldDeleteRedis) {\n  keys = [...new Set(Array.isArray(row.redis_keys) ? row.redis_keys.filter(Boolean) : [])];\n}\nif (!keys.length) keys.push('__cris_panel_noop__');\n\nreturn keys.map((redis_key, index) => ({\n  json: {\n    redis_key,\n    _redis_index: index,\n    _redis_total: keys.length,\n    redis_delete_executed: shouldDeleteRedis && redis_key !== '__cris_panel_noop__',\n  },\n}));\n"
+      }
+    },
+    {
+      "id": "panel-redis-delete-001",
+      "name": "Borrar Redis Buffer",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        4020,
+        -40
+      ],
+      "parameters": {
+        "operation": "delete",
+        "key": "={{ $json.redis_key }}"
+      },
+      "credentials": {
+        "redis": {
+          "id": "2XGs9gT6llgfk5YT_quicklink",
+          "name": "Redis account_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "panel-final-summary-001",
+      "name": "Resumen Final",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4680,
+        80
+      ],
+      "parameters": {
+        "jsCode": "const base = $('Dispatch Outbound').first().json || $input.first().json || {};\nconst impact = base.impact || {};\nconst dispatch = base.dispatch_result || {};\nconst chatwoot = base.chatwoot_delete || {};\nconst tracking = base.outbound_tracking || {};\nconst cleanupCounts = Array.isArray(base.cleanup_counts) ? base.cleanup_counts : [];\nconst residualCounts = Array.isArray(base.residual_counts) ? base.residual_counts : [];\nconst redisKeys = Array.isArray(base.redis_deleted_keys) ? base.redis_deleted_keys : [];\n\nconst executed = !!base.execute;\nconst cleanup = !!base.cleanup;\nconst leadsCount = (base.leads || []).length;\nconst chatHist = impact.n8n_chat_histories || 0;\nconst dbRows = cleanupCounts.filter(c => (c.affected || 0) > 0);\nconst dbZero = cleanupCounts.length - dbRows.length;\nconst accepted = dispatch.accepted || 0;\nconst failed = dispatch.failed || 0;\nconst skipped = dispatch.skipped || 0;\nconst chatwootFailed = chatwoot.failed || 0;\nconst residualFailed = residualCounts.reduce((sum, r) => sum + (Number(r.residual || 0) > 0 ? 1 : 0), 0);\nconst totalFailed = failed + chatwootFailed + residualFailed;\nconst hasTracking = Boolean(tracking.batch_key && tracking.status_token);\n\nconst opLabel = base.operation_label || 'Operacion';\nconst status = !executed ? 'preview' : (totalFailed > 0 ? 'warning' : 'success');\nconst statusLabel = !executed ? 'Preview completado' : (totalFailed > 0 ? 'Completado con alertas' : 'Operacion completada');\nconst title = !executed\n  ? `Preview - ${opLabel}`\n  : (totalFailed > 0 ? `${opLabel} - revisar alertas` : `${opLabel} - listo`);\n\nconst lines = [];\nlines.push(executed ? 'Ejecucion completada.' : 'Preview / dry-run completado.');\nlines.push(`Operacion: ${opLabel}`);\nlines.push(`Leads objetivo: ${leadsCount}`);\nif (cleanup) {\n  lines.push(`Chatwoot: borradas=${chatwoot.deleted || 0}, ya ausentes=${chatwoot.already_absent || 0}, fallidas=${chatwootFailed}`);\n  lines.push(`Redis buffers eliminados: ${redisKeys.length}`);\n  lines.push(`n8n_chat_histories: ${chatHist}`);\n  if (residualCounts.length) lines.push(`Residuales post-cleanup: ${residualFailed ? residualFailed + ' tabla(s) con residuos' : '0'}`);\n}\nif (dbRows.length) lines.push(`DB cleanup: ${dbRows.map(c => `${c.table}:${c.affected}`).join(', ')}`);\nif (dispatch.requested) lines.push(`Outbound intake: aceptados=${accepted}, fallidos=${failed}, omitidos_sin_agente=${skipped}, entrega=seguimiento Meta`);\nif (tracking.batch_key) lines.push(`Tracking batch: ${tracking.batch_key}`);\nif (!executed) lines.push('Para ejecutar realmente, vuelva al formulario con Ejecutar=SI y confirme el token indicado.');\n\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;');\nconst metric = (label, value, hint, tone = '') => `<div class=\"ql-metric ${tone}\"><span>${esc(label)}</span><strong>${esc(value)}</strong><small>${esc(hint || '')}</small></div>`;\nconst row = (label, value, strong) => `<div class=\"ql-row\"><span>${esc(label)}</span><b class=\"${strong ? 'warn' : ''}\">${esc(value)}</b></div>`;\nconst section = (name, body, cls = '') => body ? `<section class=\"ql-section ${cls}\"><h2>${esc(name)}</h2>${body}</section>` : '';\n\nlet opBody = '';\nopBody += row('Modo', executed ? 'Ejecucion real' : 'Preview / dry-run');\nopBody += row('Leads objetivo', leadsCount);\nif (impact.excluded_non_pending) opBody += row('Excluidos no pendientes', impact.excluded_non_pending, true);\n\nlet cleanBody = '';\nif (cleanup) {\n  cleanBody += row('Chatwoot eliminadas', chatwoot.deleted || 0);\n  cleanBody += row('Chatwoot ya ausentes', chatwoot.already_absent || 0);\n  cleanBody += row('Chatwoot fallidas', chatwootFailed, chatwootFailed > 0);\n  cleanBody += row('Redis buffers eliminados', redisKeys.length);\n  cleanBody += row('Memoria n8n_chat_histories', chatHist);\n}\n\nlet dbBody = '';\nfor (const c of dbRows) dbBody += row(c.table, `${c.affected} fila(s)`);\nif (dbRows.length && dbZero > 0) dbBody += `<p class=\"ql-muted\">+ ${dbZero} tabla(s) sin filas afectadas</p>`;\nif (!dbRows.length && cleanupCounts.length) dbBody = `<p class=\"ql-muted\">Sin filas afectadas en ${cleanupCounts.length} tabla(s)</p>`;\n\nlet residualBody = '';\nif (cleanup && residualCounts.length) {\n  for (const r of residualCounts) residualBody += row(r.table, `${r.residual || 0} residual(es)`, Number(r.residual || 0) > 0);\n}\n\nlet outBody = '';\nif (dispatch.requested) {\n  outBody += row('Aceptados por intake', accepted);\n  outBody += row('Rechazados / fallidos', failed, failed > 0);\n  outBody += row('Omitidos sin agente válido', skipped, skipped > 0);\n  outBody += row('Entrega Meta', tracking.batch_key ? 'En seguimiento' : 'Sin tracking');\n}\n\nconst panelBase = '/webhook/cris09-panel?k=QLpanel-x9f3-2026';\nconst searchUrl = `${panelBase}&operacion=${encodeURIComponent('Preview impacto')}&selector=todos&marca=AMBAS&limite=100000`;\nconst sendMoreUrl = `${panelBase}&operacion=${encodeURIComponent('Enviar pendientes seleccionados')}&selector=todos&marca=AMBAS&limite=100000`;\nconst cleanupUrl = `${panelBase}&operacion=${encodeURIComponent('Borrar TODO sin enviar')}&selector=todos&marca=AMBAS&limite=100000`;\n\nconst trackingUrl = hasTracking\n  ? `/webhook/cris09-estado-outbound?batch_key=${encodeURIComponent(tracking.batch_key)}&token=${encodeURIComponent(tracking.status_token)}`\n  : '';\nconst trackingBlock = trackingUrl\n  ? `<section class=\"ql-delivery\" id=\"delivery\">\n    <div class=\"ql-delivery-head\"><span class=\"ql-spinner\"></span><div><h2>Entrega Meta</h2><p>Consultando estado real de entrega...</p></div></div>\n  </section>\n<script>\n(() => {\n  const url = ${JSON.stringify(trackingUrl)};\n  const box = document.getElementById('delivery');\n  let attempts = 0;\n  const labels = { pending:'Pendiente', meta_accepted:'Aceptado por Meta', sent:'Enviado', delivered:'Entregado', read:'Leido', failed:'Fallido' };\n  const cls = status => status === 'failed' ? 'bad' : (status === 'delivered' || status === 'read' ? 'good' : 'pending');\n  const render = data => {\n    const totals = data.totals || {};\n    const delivered = (totals.delivered || 0) + (totals.read || 0);\n    const pending = (totals.pending || 0) + (totals.meta_accepted || 0) + (totals.sent || 0);\n    const rows = (data.dispatches || []).map(d => '<div class=\"ql-delivery-row\"><span>' + (d.marca || '') + ' #' + (d.quicklink_id || '') + '</span><strong class=\"' + cls(d.delivery_status) + '\">' + (labels[d.delivery_status] || d.delivery_status || '-') + '</strong></div>').join('');\n    box.innerHTML = '<div class=\"ql-delivery-head\"><span class=\"ql-delivery-icon\">QL</span><div><h2>Entrega Meta</h2><p>Seguimiento actualizado automaticamente</p></div></div>'\n      + '<div class=\"ql-mini-grid\"><div><b>' + delivered + '</b><span>Entregados</span></div><div><b>' + (totals.read || 0) + '</b><span>Leidos</span></div><div><b>' + (totals.failed || 0) + '</b><span>Fallidos</span></div><div><b>' + pending + '</b><span>Pendientes</span></div></div>'\n      + '<div class=\"ql-delivery-list\">' + rows + '</div>';\n    return data.complete === true;\n  };\n  const poll = async () => {\n    attempts += 1;\n    try {\n      const response = await fetch(url, { cache: 'no-store' });\n      const data = await response.json();\n      if (response.ok && data.found && render(data)) return;\n    } catch (e) {\n      box.insertAdjacentHTML('beforeend', '<p class=\"ql-muted\">No se pudo consultar el estado. Reintentando...</p>');\n    }\n    if (attempts < 40) setTimeout(poll, 3000);\n    else box.insertAdjacentHTML('beforeend', '<p class=\"ql-muted\">Seguimiento aun pendiente. Recarga esta pagina en unos segundos.</p>');\n  };\n  poll();\n})();\n</script>`\n  : '';\n\nconst notice = !executed\n  ? `<div class=\"ql-notice neutral\"><strong>Dry-run solamente.</strong><span>Para ejecutar de verdad vuelve al panel, cambia a Ejecucion real y confirma el token.</span></div>`\n  : (residualFailed > 0\n    ? `<div class=\"ql-notice bad\"><strong>Quedan residuales.</strong><span>No envies hasta revisar las tablas marcadas.</span></div>`\n    : (failed > 0\n      ? `<div class=\"ql-notice bad\"><strong>Hubo fallos de outbound.</strong><span>${failed} solicitud(es) rechazadas o fallidas.</span></div>`\n      : `<div class=\"ql-notice good\"><strong>Listo.</strong><span>${dispatch.requested ? 'Outbound aceptado por intake y entrega en seguimiento.' : 'Reset/limpieza terminado sin envio.'}</span></div>`));\n\nconst html = `<style>\n  :root { --ql-bg:#f6f3ef; --ql-card:#fffefa; --ql-ink:#292b31; --ql-muted:#737782; --ql-line:#e2ded6; --ql-green:#147a4b; --ql-red:#b03529; --ql-amber:#b45309; --ql-blue:#0b5d8e; --ql-purple:#4338ca; }\n  body { margin:0; background:radial-gradient(circle at top left,#fff8ec 0,#f7f3ee 34%,#f7f7f8 100%); }\n  .ql-page { font-family:Inter,'Open Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; color:var(--ql-ink); max-width:980px; margin:42px auto; padding:0 18px; }\n  .ql-shell { background:rgba(255,254,250,.96); border:1px solid var(--ql-line); border-radius:28px; box-shadow:0 24px 80px rgba(55,43,31,.11); overflow:hidden; }\n  .ql-hero { display:grid; grid-template-columns:1fr auto; gap:18px; align-items:start; padding:30px; border-bottom:1px solid var(--ql-line); background:linear-gradient(135deg,#fff 0,#fffaf1 100%); }\n  .ql-status { display:inline-flex; align-items:center; gap:9px; border-radius:999px; padding:7px 12px; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; }\n  .ql-status.success { color:#0f6d42; background:#e9f8ef; }\n  .ql-status.warning { color:#9a3412; background:#fff3db; }\n  .ql-status.preview { color:#3730a3; background:#eeefff; }\n  .ql-dot { width:9px; height:9px; border-radius:50%; background:currentColor; box-shadow:0 0 0 5px color-mix(in srgb, currentColor 14%, transparent); }\n  h1 { margin:12px 0 8px; font-size:34px; line-height:1.05; letter-spacing:-.04em; }\n  .ql-sub { margin:0; color:var(--ql-muted); font-size:15px; }\n  .ql-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:10px; }\n  .ql-btn { display:inline-flex; align-items:center; justify-content:center; min-height:42px; padding:10px 15px; border-radius:14px; border:1px solid #d9d5ce; text-decoration:none; font-weight:800; color:var(--ql-ink); background:#fff; white-space:nowrap; }\n  .ql-btn.primary { color:white; border-color:#176a43; background:#176a43; }\n  .ql-btn.dark { color:white; border-color:#2f3035; background:#2f3035; }\n  .ql-btn:hover { filter:brightness(.98); transform:translateY(-1px); }\n  .ql-content { padding:24px 30px 30px; }\n  .ql-metrics { display:grid; grid-template-columns:repeat(4,minmax(130px,1fr)); gap:12px; margin-bottom:18px; }\n  .ql-metric { padding:15px; border:1px solid var(--ql-line); border-radius:18px; background:#fff; }\n  .ql-metric span { display:block; color:var(--ql-muted); font-size:11px; font-weight:900; text-transform:uppercase; letter-spacing:.08em; }\n  .ql-metric strong { display:block; margin-top:5px; font-size:28px; letter-spacing:-.04em; }\n  .ql-metric small { color:#8b9099; font-size:12px; }\n  .ql-metric.good { border-left:5px solid var(--ql-green); }\n  .ql-metric.bad { border-left:5px solid var(--ql-red); }\n  .ql-metric.neutral { border-left:5px solid var(--ql-purple); }\n  .ql-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }\n  .ql-section, .ql-delivery { padding:18px; border:1px solid var(--ql-line); border-radius:20px; background:#fff; }\n  .ql-section h2, .ql-delivery h2 { margin:0 0 12px; font-size:13px; color:#9a9da6; text-transform:uppercase; letter-spacing:.12em; }\n  .ql-row { display:flex; justify-content:space-between; gap:16px; padding:8px 0; border-top:1px solid #f0eee9; font-size:14px; }\n  .ql-row:first-of-type { border-top:0; }\n  .ql-row span { color:#686d76; }\n  .ql-row b { text-align:right; }\n  .ql-row .warn { color:var(--ql-red); }\n  .ql-muted { margin:8px 0 0; color:#8b9099; font-size:13px; }\n  .ql-notice { display:flex; gap:10px; padding:14px 16px; margin:18px 0; border-radius:17px; border:1px solid var(--ql-line); font-size:14px; }\n  .ql-notice span { color:#5d626d; }\n  .ql-notice.good { background:#ecf9f1; border-color:#bbe7cb; }\n  .ql-notice.bad { background:#fff0ed; border-color:#efc1ba; }\n  .ql-notice.neutral { background:#f2f3ff; border-color:#d8dafb; }\n  .ql-delivery { margin-top:16px; background:#f9fafc; }\n  .ql-delivery-head { display:flex; align-items:center; gap:12px; margin-bottom:14px; }\n  .ql-delivery-head h2 { margin:0; color:var(--ql-ink); text-transform:none; letter-spacing:-.02em; font-size:18px; }\n  .ql-delivery-head p { margin:2px 0 0; color:var(--ql-muted); }\n  .ql-delivery-icon, .ql-spinner { width:34px; height:34px; display:grid; place-items:center; border-radius:50%; color:white; background:var(--ql-blue); font-weight:900; }\n  .ql-spinner { background:#dfe5ee; position:relative; }\n  .ql-spinner:after { content:''; width:16px; height:16px; border:3px solid #8792a2; border-top-color:transparent; border-radius:50%; animation:qlspin 1s linear infinite; }\n  @keyframes qlspin { to { transform:rotate(360deg); } }\n  .ql-mini-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:12px; }\n  .ql-mini-grid div { padding:10px; border-radius:14px; background:white; border:1px solid #e5e8ee; }\n  .ql-mini-grid b { display:block; font-size:22px; }\n  .ql-mini-grid span { color:#7c828d; font-size:12px; }\n  .ql-delivery-row { display:flex; justify-content:space-between; gap:14px; padding:10px 0; border-top:1px solid #e5e8ee; }\n  .ql-delivery-row strong.good { color:var(--ql-green); }\n  .ql-delivery-row strong.bad { color:var(--ql-red); }\n  .ql-delivery-row strong.pending { color:var(--ql-amber); }\n  .ql-next { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:14px; margin-top:18px; padding:18px; border-radius:22px; background:#24262d; color:white; }\n  .ql-next h2 { margin:0 0 4px; font-size:20px; letter-spacing:-.03em; }\n  .ql-next p { margin:0; color:#c9ccd4; }\n  .ql-next .ql-btn { border-color:rgba(255,255,255,.2); }\n  .ql-foot { text-align:center; color:#9ba0aa; font-size:12px; margin:16px 0 0; }\n  @media (max-width: 760px) { .ql-page { margin:18px auto; padding:0 10px; } .ql-hero { grid-template-columns:1fr; padding:22px; } .ql-actions { justify-content:flex-start; } h1 { font-size:28px; } .ql-content { padding:18px; } .ql-metrics, .ql-grid, .ql-mini-grid { grid-template-columns:1fr; } .ql-next { display:block; } .ql-next .ql-actions { margin-top:14px; } }\n</style>\n<div class=\"ql-page\">\n  <div class=\"ql-shell\">\n    <header class=\"ql-hero\">\n      <div>\n        <span class=\"ql-status ${esc(status)}\"><i class=\"ql-dot\"></i>${esc(statusLabel)}</span>\n        <h1>${esc(title)}</h1>\n        <p class=\"ql-sub\">Resumen operativo con conteos de limpieza, outbound y residuales.</p>\n      </div>\n      <nav class=\"ql-actions\">\n        <a class=\"ql-btn\" href=\"${esc(searchUrl)}\">Buscar leads</a>\n        <a class=\"ql-btn primary\" href=\"${esc(sendMoreUrl)}\">Buscar y enviar mas leads</a>\n      </nav>\n    </header>\n    <main class=\"ql-content\">\n      <div class=\"ql-metrics\">\n        ${metric('Leads objetivo', leadsCount, 'procesados en esta corrida', 'neutral')}\n        ${metric('Aceptados intake', accepted, dispatch.requested ? 'outbound recibido' : 'sin outbound')}\n        ${metric('Fallos', totalFailed, 'outbound/chatwoot/residuales', totalFailed > 0 ? 'bad' : 'good')}\n        ${metric('Residuales', residualFailed, residualCounts.length ? 'tablas con residuos' : 'sin validacion', residualFailed > 0 ? 'bad' : 'good')}\n      </div>\n      ${notice}\n      <div class=\"ql-grid\">\n        ${section('Operacion', opBody)}\n        ${section('Outbound', outBody || '<p class=\"ql-muted\">No se solicito outbound en esta corrida.</p>')}\n        ${section('Limpieza', cleanBody || '<p class=\"ql-muted\">No se solicito limpieza.</p>')}\n        ${section('Residuales', residualBody || '<p class=\"ql-muted\">Sin residuales reportados.</p>')}\n      </div>\n      ${section('Base de datos', dbBody, 'wide')}\n      ${trackingBlock}\n      <section class=\"ql-next\">\n        <div><h2>Siguiente accion</h2><p>Regresa al panel para buscar otro lote, seleccionar leads pendientes y enviar cuando estes listo.</p></div>\n        <div class=\"ql-actions\"><a class=\"ql-btn\" href=\"${esc(cleanupUrl)}\">Preparar limpieza</a><a class=\"ql-btn primary\" href=\"${esc(sendMoreUrl)}\">Buscar y enviar mas leads</a></div>\n      </section>\n    </main>\n  </div>\n  <p class=\"ql-foot\">CRIS 09 Panel Operador Ventas</p>\n</div>`;\n\nreturn [{ json: { ...base, completion_message: lines.join('\\n'), completion_html: html } }];\n"
+      }
+    },
+    {
+      "id": "panel-final-form-001",
+      "name": "Fin Resumen",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [
+        5160,
+        160
+      ],
+      "parameters": {
+        "operation": "completion",
+        "respondWith": "showText",
+        "responseText": "={{ $json.completion_html }}"
+      }
+    },
+    {
+      "id": "b9db14e9-0ec5-4c37-ae6c-6bfb67798688",
+      "name": "Webhook Panel Web",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -200,
+        700
+      ],
+      "webhookId": "7fdaabfb-a71e-4325-b689-238b4d8ca897",
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "cris09-panel",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "48244e4c-6a12-42b2-9906-9b66c71fd251",
+      "name": "Preparar Consulta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        20,
+        700
+      ],
+      "parameters": {
+        "jsCode": "const TOKEN = 'QLpanel-x9f3-2026';\nconst q = $json.query || {};\nconst clean = (v, max = 160) => String(v ?? '').trim().slice(0, max);\n\nconst k = clean(q.k, 80);\nif (k !== TOKEN) {\n  return [{ json: {\n    authorized: false,\n    error: 'forbidden',\n    message: 'Acceso no autorizado: falta o es invalido el parametro k',\n  } }];\n}\n\nconst norm = (v) => clean(v, 120).normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').trim().toUpperCase();\nconst rawValues = clean(q.valores ?? q.valor ?? '', 3000);\nconst requested = rawValues.split(/[\\n,;\\t]+/).map((v) => clean(v, 160)).filter(Boolean).slice(0, 100);\n\nconst OPS = [\n  'Preview impacto',\n  'Enviar pendientes seleccionados',\n  'Borrar seleccionados',\n  'Borrar TODO sin enviar',\n  'Borrar + reenviar seleccionados',\n  'Borrar TODO + reenviar TODO',\n];\nconst operationRaw = clean(q.operacion, 80) || 'Preview impacto';\nconst operationNorm = norm(operationRaw);\nconst operationMatched = OPS.find((op) => norm(op) === operationNorm);\nconst operacion = operationMatched || 'Preview impacto';\n\nlet action = 'preview';\nconst noDispatchRequested = operationNorm.includes('SIN REENVIAR') || operationNorm.includes('SIN ENVIAR') || operationNorm.includes('NO REENVIAR') || operationNorm.includes('NO ENVIAR');\nif (operationNorm.includes('BORRAR TODO') && operationNorm.includes('REENVIAR') && !noDispatchRequested) action = 'cleanup_dispatch_all';\nelse if (operationNorm.includes('BORRAR TODO')) action = 'cleanup_all';\nelse if ((operationNorm.includes('BORRAR') || operationNorm.includes('RESET')) && operationNorm.includes('REENVIAR') && !noDispatchRequested) action = 'cleanup_dispatch';\nelse if (operationNorm.includes('BORRAR') || operationNorm.includes('RESET')) action = 'cleanup_only';\nelse if (operationNorm.includes('ENVIAR')) action = 'dispatch_only';\n\nconst selectorAliases = {\n  inteligente: 'smart',\n  buscar: 'smart',\n  cliente: 'nombre',\n  clientes: 'nombre',\n  nombres: 'nombre',\n  telefono: 'telefonos',\n  phone: 'telefonos',\n  phones: 'telefonos',\n  quicklink_id: 'quicklink_ids',\n  qlid: 'quicklink_ids',\n  id: 'quicklink_ids',\n  ids: 'quicklink_ids',\n  lead_id: 'lead_ids',\n  uuid: 'lead_ids',\n  todo: 'todos',\n  all: 'todos',\n};\nconst selectorInput = clean(q.selector, 30).toLowerCase();\nconst selector = selectorAliases[selectorInput] || selectorInput || 'smart';\nconst allowedSelectors = ['smart', 'nombre', 'telefonos', 'quicklink_ids', 'lead_ids', 'marca', 'todos'];\n\nconst marcaRaw = norm(q.marca || 'AMBAS');\nconst marca = ['KIA', 'HYUNDAI'].includes(marcaRaw) ? marcaRaw : '';\nconst marca_sel = marca || 'AMBAS';\n\nconst estados = ['PENDIENTE', 'REZAGADO', 'EN_GESTION', 'GESTION_PERDIDA', 'CONFIRMADA_AI', 'SIN_ESTADO'];\nconst estadoRaw = norm(q.estado || '');\nconst estado = estados.includes(estadoRaw) ? estadoRaw : '';\n\nconst dateRawDesde = clean(q.desde, 10);\nconst dateRawHasta = clean(q.hasta, 10);\nconst validDate = (v) => /^\\d{4}-\\d{2}-\\d{2}$/.test(v) && !Number.isNaN(new Date(v + 'T00:00:00Z').getTime());\nconst desde = dateRawDesde && validDate(dateRawDesde) ? dateRawDesde : '';\nconst hasta = dateRawHasta && validDate(dateRawHasta) ? dateRawHasta : '';\n\nconst sizeRaw = Number.parseInt(clean(q.page_size || q.limite, 5), 10);\nconst page_size = Number.isInteger(sizeRaw) && sizeRaw > 0 ? Math.min(Math.max(sizeRaw, 25), 250) : 25;\nconst pageRaw = Number.parseInt(clean(q.page, 7), 10);\nconst page = Number.isInteger(pageRaw) && pageRaw > 0 ? Math.min(pageRaw, 10000) : 1;\nconst offset = (page - 1) * page_size;\n\nconst leadRaw = clean(q.lead, 40).toLowerCase();\nconst isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(leadRaw);\nconst lead_id = isUuid ? leadRaw : '';\n\nconst themeRaw = clean(q.theme, 10).toLowerCase();\nconst theme = ['light', 'dark'].includes(themeRaw) ? themeRaw : 'light';\nconst exportRaw = clean(q.export, 8).toLowerCase();\nconst downloadRaw = clean(q.download, 30).toLowerCase();\nconst download = ['leads_csv', 'leads_xlsx', 'leads_pdf', 'leads_json'].includes(downloadRaw) ? downloadRaw : '';\nconst export_all = ['1', 'true', 'yes', 'all'].includes(exportRaw) || Boolean(download);\n\nlet error_msg = '';\nif (operationRaw && !operationMatched) error_msg = 'Operacion no permitida.';\nelse if (!allowedSelectors.includes(selector)) error_msg = 'Filtro no permitido.';\nelse if (!['AMBAS', 'KIA', 'HYUNDAI'].includes(marcaRaw)) error_msg = 'Marca no permitida.';\nelse if (dateRawDesde && !desde) error_msg = 'Fecha desde invalida. Usa YYYY-MM-DD.';\nelse if (dateRawHasta && !hasta) error_msg = 'Fecha hasta invalida. Usa YYYY-MM-DD.';\nelse if (desde && hasta && desde > hasta) error_msg = 'La fecha desde no puede ser posterior a la fecha hasta.';\nelse if (!estados.includes(estadoRaw) && estadoRaw) error_msg = 'Estado no permitido.';\nelse if (leadRaw && !isUuid) error_msg = 'Lead UUID invalido.';\nelse if (selector === 'telefonos' && requested.length && requested.some((value) => value.replace(/\\D/g, '').length < 7)) error_msg = 'Cada telefono debe tener al menos 7 digitos.';\nelse if (selector === 'quicklink_ids' && requested.length && requested.some((value) => !/^\\d{1,9}$/.test(value))) error_msg = 'Los QuickLink IDs deben ser numericos.';\nelse if (selector === 'lead_ids' && requested.length && requested.some((value) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value))) error_msg = 'Los lead_ids deben ser UUID validos.';\nelse if (['nombre', 'telefonos', 'quicklink_ids', 'lead_ids'].includes(selector) && !requested.length && !lead_id) error_msg = 'Indica un valor para el filtro seleccionado.';\n\nreturn [{ json: {\n  authorized: true,\n  mode: lead_id ? 'report' : 'list',\n  k: TOKEN,\n  operacion,\n  action,\n  selector,\n  selector_type: selector,\n  valores_raw: rawValues,\n  requested_values: requested,\n  brand: marca,\n  marca_sel,\n  estado,\n  desde,\n  hasta,\n  page,\n  page_size,\n  offset,\n  lead_id,\n  theme,\n  export_all,\n  download,\n  query_blocked: Boolean(error_msg),\n  error_msg,\n} }];"
+      }
+    },
+    {
+      "id": "1328f48e-0490-4fc2-82e3-6b549b68bd83",
+      "name": "Consulta principal SQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        460,
+        620
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH params AS (\n  SELECT\n    $1::text AS selector_type,\n    $2::jsonb AS requested_values,\n    NULLIF($3::text, '') AS brand,\n    NULLIF($4::text, '') AS estado,\n    NULLIF($5::text, '')::date AS desde,\n    NULLIF($6::text, '')::date AS hasta,\n    LEAST(GREATEST($7::int, 25), 250) AS row_limit,\n    GREATEST($8::int, 1) AS page_number,\n    $9::text AS action,\n    COALESCE($10::boolean, false) AS export_requested,\n    NULLIF($11::text, '') AS lead_uuid_txt,\n    COALESCE($12::boolean, false) AS query_blocked,\n    10000::int AS export_limit\n), vals AS (\n  SELECT\n    value AS raw_value,\n    NULLIF(regexp_replace(value, '\\D', '', 'g'), '') AS digits,\n    NULLIF(regexp_replace(trim(value), '\\s+', ' ', 'g'), '') AS text_value,\n    NULLIF(translate(lower(regexp_replace(trim(value), '\\s+', ' ', 'g')), 'áàäâãéèëêíìïîóòöôõúùüûñç', 'aaaaaeeeeiiiiooooouuuunc'), '') AS name_value,\n    CASE WHEN value ~ '^\\s*\\d{1,9}\\s*$' THEN trim(value)::int ELSE NULL END AS quicklink_id,\n    CASE WHEN value ~* '^\\s*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\s*$' THEN trim(value)::uuid ELSE NULL END AS lead_id\n  FROM params p, jsonb_array_elements_text(p.requested_values) value\n), p AS (\n  SELECT params.*,\n    ((params.page_number - 1) * params.row_limit)::int AS row_offset,\n    jsonb_array_length(params.requested_values) > 0 AS has_values,\n    CASE WHEN params.lead_uuid_txt ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN params.lead_uuid_txt::uuid END AS lead_uuid\n  FROM params\n), lead_norm AS (\n  SELECT\n    l.id,\n    l.quicklink_id,\n    l.marca::text AS marca,\n    l.nombre_cliente,\n    l.telefono_1,\n    l.telefono_2,\n    COALESCE(to_jsonb(l)->>'telefono_agente', l.telefono_1) AS telefono_agente,\n    l.modelo,\n    to_jsonb(l)->>'agencia' AS agencia,\n    to_jsonb(l)->>'ciudad' AS ciudad,\n    l.estado_ql,\n    l.estado_agente::text AS estado_agente,\n    l.fecha_venta,\n    l.fecha_asignacion,\n    l.created_at,\n    l.sincronizado_at,\n    COALESCE((to_jsonb(l)->>'reportado_ql')::boolean, false) AS reportado_ql,\n    to_jsonb(l)->>'reportado_ql_at' AS reportado_ql_at,\n    c.id AS conv_id,\n    c.estado::text AS estado_conv,\n    c.chatwoot_conv_id,\n    c.updated_at AS conv_updated_at,\n    NULLIF(regexp_replace(COALESCE(l.telefono_1, ''), '\\D', '', 'g'), '') AS phone1_digits,\n    NULLIF(regexp_replace(COALESCE(l.telefono_2, ''), '\\D', '', 'g'), '') AS phone2_digits,\n    NULLIF(regexp_replace(COALESCE(to_jsonb(l)->>'telefono_agente', l.telefono_1, ''), '\\D', '', 'g'), '') AS agent_phone_digits,\n    NULLIF(translate(lower(regexp_replace(COALESCE(l.nombre_cliente, ''), '\\s+', ' ', 'g')), 'áàäâãéèëêíìïîóòöôõúùüûñç', 'aaaaaeeeeiiiiooooouuuunc'), '') AS name_norm\n  FROM leads_quicklink l\n  LEFT JOIN LATERAL (\n    SELECT c.id, c.estado, c.chatwoot_conv_id, c.updated_at\n    FROM conversaciones c\n    WHERE c.lead_id = l.id OR c.id = l.conversacion_id\n    ORDER BY c.updated_at DESC NULLS LAST\n    LIMIT 1\n  ) c ON true\n), base_total AS (\n  SELECT COUNT(*)::int AS total FROM lead_norm\n), matched AS (\n  SELECT DISTINCT l.*\n  FROM lead_norm l\n  CROSS JOIN p\n  LEFT JOIN vals v ON true\n  WHERE NOT p.query_blocked\n    AND (p.lead_uuid IS NULL OR l.id = p.lead_uuid)\n    AND (p.brand IS NULL OR l.marca = p.brand)\n    AND (p.estado IS NULL OR COALESCE(l.estado_agente, 'SIN_ESTADO') = p.estado)\n    AND (p.desde IS NULL OR COALESCE(l.fecha_asignacion::date, l.created_at::date) >= p.desde)\n    AND (p.hasta IS NULL OR COALESCE(l.fecha_asignacion::date, l.created_at::date) <= p.hasta)\n    AND (\n      p.lead_uuid IS NOT NULL\n      OR NOT p.has_values\n      OR p.selector_type IN ('todos', 'marca')\n      OR (p.selector_type IN ('telefonos', 'smart') AND v.digits IS NOT NULL AND length(v.digits) >= 7 AND (\n        l.phone1_digits = v.digits OR l.phone2_digits = v.digits OR l.agent_phone_digits = v.digits\n        OR (length(l.phone1_digits) >= 9 AND length(v.digits) >= 9 AND right(l.phone1_digits, 9) = right(v.digits, 9))\n        OR (length(l.phone2_digits) >= 9 AND length(v.digits) >= 9 AND right(l.phone2_digits, 9) = right(v.digits, 9))\n        OR (length(l.agent_phone_digits) >= 9 AND length(v.digits) >= 9 AND right(l.agent_phone_digits, 9) = right(v.digits, 9))\n      ))\n      OR (p.selector_type IN ('quicklink_ids', 'smart') AND v.quicklink_id IS NOT NULL AND l.quicklink_id = v.quicklink_id)\n      OR (p.selector_type IN ('lead_ids', 'smart') AND v.lead_id IS NOT NULL AND l.id = v.lead_id)\n      OR (p.selector_type IN ('nombre', 'smart') AND v.name_value IS NOT NULL AND l.name_norm ILIKE '%' || v.name_value || '%')\n    )\n), limited AS (\n  SELECT m.*\n  FROM matched m\n  ORDER BY COALESCE(m.fecha_asignacion, m.created_at) DESC NULLS LAST, m.quicklink_id DESC NULLS LAST, m.id DESC\n  LIMIT (SELECT row_limit FROM p)\n  OFFSET (SELECT row_offset FROM p)\n), export_rows AS (\n  SELECT m.*\n  FROM matched m\n  CROSS JOIN p\n  WHERE p.export_requested\n  ORDER BY COALESCE(m.fecha_asignacion, m.created_at) DESC NULLS LAST, m.quicklink_id DESC NULLS LAST, m.id DESC\n  LIMIT (SELECT export_limit FROM p)\n), kpis AS (\n  SELECT jsonb_build_object(\n    'total', COUNT(*)::int,\n    'pendientes', COUNT(*) FILTER (WHERE estado_agente = 'PENDIENTE')::int,\n    'en_gestion', COUNT(*) FILTER (WHERE estado_agente = 'EN_GESTION')::int,\n    'rezagados', COUNT(*) FILTER (WHERE estado_agente = 'REZAGADO')::int,\n    'gestion_perdida', COUNT(*) FILTER (WHERE estado_agente = 'GESTION_PERDIDA')::int,\n    'confirmadas_ai', COUNT(*) FILTER (WHERE estado_agente = 'CONFIRMADA_AI')::int,\n    'con_conversacion', COUNT(*) FILTER (WHERE conv_id IS NOT NULL)::int,\n    'sin_conversacion', COUNT(*) FILTER (WHERE conv_id IS NULL)::int,\n    'no_reportados_ql', COUNT(*) FILTER (WHERE reportado_ql IS NOT TRUE)::int,\n    'pendientes_30d', COUNT(*) FILTER (WHERE estado_agente = 'PENDIENTE' AND COALESCE(fecha_asignacion::date, created_at::date) <= CURRENT_DATE - 30)::int\n  ) AS data\n  FROM matched\n), stats AS (\n  SELECT jsonb_build_object(\n    'by_brand', COALESCE((SELECT jsonb_agg(jsonb_build_object('label', marca, 'count', n) ORDER BY n DESC, marca) FROM (SELECT COALESCE(marca, 'SIN_MARCA') AS marca, COUNT(*)::int AS n FROM matched GROUP BY 1) s), '[]'::jsonb),\n    'by_state', COALESCE((SELECT jsonb_agg(jsonb_build_object('label', estado, 'count', n) ORDER BY n DESC, estado) FROM (SELECT COALESCE(estado_agente, 'SIN_ESTADO') AS estado, COUNT(*)::int AS n FROM matched GROUP BY 1) s), '[]'::jsonb),\n    'by_conversation', COALESCE((SELECT jsonb_agg(jsonb_build_object('label', label, 'count', n) ORDER BY n DESC, label) FROM (SELECT CASE WHEN conv_id IS NULL THEN 'SIN_CONVERSACION' ELSE 'CON_CONVERSACION' END AS label, COUNT(*)::int AS n FROM matched GROUP BY 1) s), '[]'::jsonb),\n    'top_models', COALESCE((SELECT jsonb_agg(jsonb_build_object('label', modelo, 'count', n) ORDER BY n DESC, modelo) FROM (SELECT COALESCE(NULLIF(modelo, ''), 'SIN_MODELO') AS modelo, COUNT(*)::int AS n FROM matched GROUP BY 1 ORDER BY n DESC LIMIT 8) s), '[]'::jsonb),\n    'top_agencies', COALESCE((SELECT jsonb_agg(jsonb_build_object('label', agencia, 'count', n) ORDER BY n DESC, agencia) FROM (SELECT COALESCE(NULLIF(agencia, ''), 'SIN_AGENCIA') AS agencia, COUNT(*)::int AS n FROM matched GROUP BY 1 ORDER BY n DESC LIMIT 8) s), '[]'::jsonb)\n  ) AS data\n)\nSELECT\n  (SELECT total FROM base_total)::int AS base_total,\n  (SELECT COUNT(*) FROM matched)::int AS total,\n  (SELECT page_number FROM p)::int AS page,\n  (SELECT row_limit FROM p)::int AS page_size,\n  (SELECT row_offset FROM p)::int AS offset,\n  (SELECT export_limit FROM p)::int AS export_limit,\n  COALESCE((SELECT jsonb_agg(to_jsonb(li.*) ORDER BY COALESCE(li.fecha_asignacion, li.created_at) DESC NULLS LAST, li.quicklink_id DESC NULLS LAST, li.id DESC) FROM limited li), '[]'::jsonb) AS leads,\n  COALESCE((SELECT jsonb_agg(to_jsonb(er.*) ORDER BY COALESCE(er.fecha_asignacion, er.created_at) DESC NULLS LAST, er.quicklink_id DESC NULLS LAST, er.id DESC) FROM export_rows er), '[]'::jsonb) AS export_leads,\n  jsonb_build_object(\n    'kpis', (SELECT data FROM kpis),\n    'stats', (SELECT data FROM stats),\n    'generated_at', now()\n  ) AS dashboard;",
+        "options": {
+          "queryReplacement": "={{ [ $json.selector_type, JSON.stringify($json.requested_values), $json.brand || '', $json.estado || '', $json.desde || '', $json.hasta || '', $json.page_size, $json.page, $json.action, $json.export_all === true, $json.lead_id || '', $json.query_blocked === true ] }}"
+        }
+      }
+    },
+    {
+      "id": "62f83200-efc9-45f8-9796-ebdb0a053483",
+      "name": "Construir Pagina",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        620
+      ],
+      "parameters": {
+        "jsCode": "const cfg = $('Preparar Consulta').first().json;\nconst row = $input.first().json || {};\nconst parseArray = (v) => {\n  if (Array.isArray(v)) return v;\n  if (typeof v === 'string' && v.trim()) { try { const parsed = JSON.parse(v); return Array.isArray(parsed) ? parsed : []; } catch (e) { return []; } }\n  return [];\n};\nconst parseObject = (v) => {\n  if (v && typeof v === 'object' && !Array.isArray(v)) return v;\n  if (typeof v === 'string' && v.trim()) { try { const parsed = JSON.parse(v); return parsed && typeof parsed === 'object' ? parsed : {}; } catch (e) { return {}; } }\n  return {};\n};\n\nconst leads = parseArray(row.leads);\nconst exportLeads = cfg.export_all === true ? parseArray(row.export_leads) : [];\nconst dashboard = parseObject(row.dashboard);\nconst stats = parseObject(dashboard.stats);\nconst kpis = parseObject(dashboard.kpis);\nconst baseTotal = Number(row.base_total || 0);\nconst total = Number(row.total || 0);\nconst page = Number(row.page || cfg.page || 1);\nconst pageSize = Number(row.page_size || cfg.page_size || 25);\nconst offset = Number(row.offset || cfg.offset || 0);\nconst exportLimit = Number(row.export_limit || 10000);\nconst pageCount = Math.max(1, Math.ceil(total / pageSize));\nconst first = total > 0 ? offset + 1 : 0;\nconst last = Math.min(offset + leads.length, total);\nconst exportCapped = cfg.export_all === true && total > exportLeads.length;\n\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;');\nconst num = (v) => Number(v || 0).toLocaleString('es-EC');\nconst pct = (a, b) => (Number(b || 0) > 0 ? Math.round((Number(a || 0) * 1000) / Number(b)) / 10 : 0);\nconst dash = (v) => (v === null || v === undefined || v === '' ? '-' : String(v));\nconst fmtDate = (v) => {\n  if (!v) return '-';\n  const d = new Date(v);\n  if (Number.isNaN(d.getTime())) return String(v).slice(0, 19);\n  return d.toLocaleString('es-EC', { timeZone: 'America/Guayaquil', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });\n};\nconst arrayRows = (v) => Array.isArray(v) ? v : [];\nconst enc = (v) => encodeURIComponent(String(v ?? ''));\n\nconst baseParams = () => ({\n  k: cfg.k,\n  theme: cfg.theme || 'light',\n  page: cfg.page || 1,\n  page_size: cfg.page_size || 25,\n  operacion: cfg.operacion || 'Preview impacto',\n  selector: cfg.selector || 'smart',\n  valores: cfg.valores_raw || '',\n  marca: cfg.marca_sel || 'AMBAS',\n  estado: cfg.estado || '',\n  desde: cfg.desde || '',\n  hasta: cfg.hasta || '',\n  lead: cfg.lead_id || '',\n});\nconst link = (overrides = {}) => {\n  const params = { ...baseParams(), ...overrides };\n  return '?' + Object.keys(params)\n    .filter((key) => params[key] !== undefined && params[key] !== null && String(params[key]) !== '')\n    .map((key) => enc(key) + '=' + enc(params[key]))\n    .join('&');\n};\n\nconst brandBadge = (brand) => {\n  const value = String(brand || 'SIN_MARCA').toUpperCase();\n  const cls = value === 'KIA' ? 'brand-kia' : value === 'HYUNDAI' ? 'brand-hyundai' : 'brand-other';\n  return `<span class=\"badge brand ${cls}\">${esc(value)}</span>`;\n};\nconst stateBadge = (state) => {\n  const value = String(state || 'SIN_ESTADO').toUpperCase();\n  const cls = value.includes('PERDIDA') ? 'state-bad' : value.includes('CONFIRM') ? 'state-good' : value.includes('PEND') || value.includes('REZAG') ? 'state-warn' : 'state-work';\n  return `<span class=\"badge state ${cls}\">${esc(value)}</span>`;\n};\nconst statCard = (label, value, hint, cls = '') => `<div class=\"stat ${cls}\"><span>${esc(label)}</span><strong>${esc(value)}</strong><small>${esc(hint || '')}</small></div>`;\nconst barList = (title, rows, totalValue) => {\n  const body = arrayRows(rows).slice(0, 8).map((r) => {\n    const count = Number(r.count || r.n || 0);\n    const label = r.label || r.marca || r.estado || 'SIN_DATO';\n    const width = Math.max(3, Math.min(100, pct(count, totalValue)));\n    return `<div class=\"barrow\"><div><b>${esc(label)}</b><span>${num(count)}</span></div><i style=\"width:${width}%\"></i></div>`;\n  }).join('') || '<p class=\"muted\">Sin datos.</p>';\n  return `<section class=\"panel mini\"><h2>${esc(title)}</h2>${body}</section>`;\n};\n\nconst exportColumns = [\n  ['lead_id', 'Lead UUID', (l) => l.id],\n  ['quicklink_id', 'QuickLink ID', (l) => l.quicklink_id],\n  ['marca', 'Marca', (l) => l.marca],\n  ['nombre_cliente', 'Cliente', (l) => l.nombre_cliente],\n  ['telefono_1', 'Telefono 1', (l) => l.telefono_1],\n  ['telefono_2', 'Telefono 2', (l) => l.telefono_2],\n  ['telefono_agente', 'Telefono agente', (l) => l.telefono_agente],\n  ['modelo', 'Modelo', (l) => l.modelo],\n  ['agencia', 'Agencia', (l) => l.agencia],\n  ['ciudad', 'Ciudad', (l) => l.ciudad],\n  ['estado_agente', 'Estado agente', (l) => l.estado_agente],\n  ['estado_ql', 'Estado QL', (l) => l.estado_ql],\n  ['estado_conv', 'Estado conversacion', (l) => l.estado_conv],\n  ['chatwoot_conv_id', 'Chatwoot conv', (l) => l.chatwoot_conv_id],\n  ['fecha_venta', 'Fecha venta', (l) => l.fecha_venta],\n  ['fecha_asignacion', 'Fecha asignacion', (l) => l.fecha_asignacion],\n  ['created_at', 'Creado', (l) => l.created_at],\n  ['sincronizado_at', 'Ultima sync', (l) => l.sincronizado_at],\n  ['reportado_ql', 'Reportado QL', (l) => l.reportado_ql ? 'SI' : 'NO'],\n];\nconst exportRowsFor = (rows) => arrayRows(rows).map((lead) => {\n  const out = {};\n  exportColumns.forEach((col) => { out[col[1]] = col[2](lead); });\n  return out;\n});\nconst csvEscape = (v) => '\"' + String(v ?? '').replace(/\\r?\\n/g, ' ').replace(/\"/g, '\"\"') + '\"';\nconst csvFromRows = (rows) => {\n  const safeRows = rows.length ? rows : [{ info: 'Sin datos' }];\n  const keys = Object.keys(safeRows[0] || { info: '' });\n  return String.fromCharCode(65279) + [keys.join(';')].concat(safeRows.map((r) => keys.map((key) => csvEscape(r[key])).join(';'))).join(String.fromCharCode(10));\n};\nconst xmlEsc = (v) => String(v ?? '').replace(/[\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f]/g, ' ').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;');\nconst sheetXml = (name, rows) => {\n  const safeRows = rows.length ? rows : [{ info: 'Sin datos' }];\n  const keys = Object.keys(safeRows[0] || { info: '' });\n  const header = '<Row>' + keys.map((key) => '<Cell><Data ss:Type=\"String\">' + xmlEsc(key) + '</Data></Cell>').join('') + '</Row>';\n  const body = safeRows.map((row) => '<Row>' + keys.map((key) => {\n    const raw = row[key];\n    const str = String(raw ?? '');\n    const n = Number(str);\n    const numeric = str !== '' && Number.isFinite(n) && str.trim() === String(n);\n    return '<Cell><Data ss:Type=\"' + (numeric ? 'Number' : 'String') + '\">' + xmlEsc(str) + '</Data></Cell>';\n  }).join('') + '</Row>').join('');\n  return '<Worksheet ss:Name=\"' + xmlEsc(String(name || 'Sheet').slice(0, 31)) + '\"><Table>' + header + body + '</Table></Worksheet>';\n};\nconst buildExcelXml = (payload) => {\n  const dashData = payload.dashboard || {};\n  const kp = dashData.kpis || {};\n  const st = dashData.stats || {};\n  const filters = payload.filters || {};\n  const sheets = [\n    ['Leads', exportRowsFor(payload.export_leads || [])],\n    ['KPIs', Object.keys(kp).map((key) => ({ metrica: key, valor: kp[key] }))],\n    ['Filtros', Object.keys(filters).map((key) => ({ filtro: key, valor: filters[key] || '' }))],\n    ['Marca', arrayRows(st.by_brand)],\n    ['Estado', arrayRows(st.by_state)],\n    ['Conversacion', arrayRows(st.by_conversation)],\n    ['Modelos', arrayRows(st.top_models)],\n    ['Agencias', arrayRows(st.top_agencies)],\n  ];\n  return '<?xml version=\"1.0\" encoding=\"UTF-8\"?><?mso-application progid=\"Excel.Sheet\"?>'\n    + '<Workbook xmlns=\"urn:schemas-microsoft-com:office:spreadsheet\" xmlns:o=\"urn:schemas-microsoft-com:office:office\" xmlns:x=\"urn:schemas-microsoft-com:office:excel\" xmlns:ss=\"urn:schemas-microsoft-com:office:spreadsheet\">'\n    + sheets.map((sheet) => sheetXml(sheet[0], sheet[1])).join('')\n    + '</Workbook>';\n};\nconst asciiClean = (v) => String(v ?? '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/[^\\x20-\\x7e]/g, ' ').replace(/\\s+/g, ' ').trim();\nconst pdfEsc = (v) => asciiClean(v).replace(/\\\\/g, '\\\\\\\\').replace(/\\(/g, '\\\\(').replace(/\\)/g, '\\\\)');\nconst fixed = (v, width) => {\n  const s = asciiClean(v);\n  return (s.length > width ? s.slice(0, Math.max(1, width - 1)) + '~' : s).padEnd(width, ' ');\n};\nconst buildLeadsPdf = (payload) => {\n  const rows = arrayRows(payload.export_leads);\n  const pagination = payload.pagination || {};\n  const filters = payload.filters || {};\n  const filtersText = Object.keys(filters).map((key) => key + '=' + (filters[key] || 'todos')).join(' | ');\n  const lines = [\n    'CRIS09 Ops Console - Export leads',\n    'Generado: ' + new Date().toISOString(),\n    'Total filtro: ' + (pagination.total || 0) + ' | Exportados: ' + rows.length + (pagination.export_capped ? ' | limitado' : ''),\n    'Filtros: ' + (filtersText || 'sin filtros'),\n    '',\n    fixed('QLID', 8) + fixed('Marca', 10) + fixed('Estado', 18) + fixed('Cliente', 34) + fixed('Telefono', 16) + fixed('Modelo', 26),\n    '-'.repeat(112),\n  ];\n  rows.forEach((lead) => {\n    lines.push(fixed(lead.quicklink_id, 8) + fixed(lead.marca, 10) + fixed(lead.estado_agente, 18) + fixed(lead.nombre_cliente, 34) + fixed(lead.telefono_agente || lead.telefono_1, 16) + fixed(lead.modelo, 26));\n  });\n  if (!rows.length) lines.push('Sin datos.');\n  const objects = [null];\n  const add = (body) => { objects.push(body); return objects.length - 1; };\n  add('');\n  add('');\n  add('<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>');\n  const pageIds = [];\n  const perPage = 44;\n  const pageCountPdf = Math.max(1, Math.ceil(lines.length / perPage));\n  const text = (x, y, size, value) => 'BT /F1 ' + size + ' Tf ' + x + ' ' + y + ' Td (' + pdfEsc(value) + ') Tj ET\\n';\n  for (let pageIndex = 0; pageIndex < pageCountPdf; pageIndex += 1) {\n    let stream = '';\n    stream += text(32, 560, 11, 'CRIS09 Ops Console');\n    const slice = lines.slice(pageIndex * perPage, (pageIndex + 1) * perPage);\n    let y = 540;\n    slice.forEach((line) => { stream += text(32, y, 7, line); y -= 11; });\n    stream += text(748, 24, 7, 'Pagina ' + (pageIndex + 1) + ' / ' + pageCountPdf);\n    const contentId = add('<< /Length ' + stream.length + ' >>\\nstream\\n' + stream + 'endstream');\n    const pageId = add('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 3 0 R >> >> /Contents ' + contentId + ' 0 R >>');\n    pageIds.push(pageId);\n  }\n  objects[1] = '<< /Type /Catalog /Pages 2 0 R >>';\n  objects[2] = '<< /Type /Pages /Kids [' + pageIds.map((id) => id + ' 0 R').join(' ') + '] /Count ' + pageIds.length + ' >>';\n  let pdf = '%PDF-1.4\\n% CRIS09\\n';\n  const offsets = [0];\n  for (let i = 1; i < objects.length; i += 1) { offsets[i] = pdf.length; pdf += i + ' 0 obj\\n' + objects[i] + '\\nendobj\\n'; }\n  const xref = pdf.length;\n  pdf += 'xref\\n0 ' + objects.length + '\\n0000000000 65535 f \\n';\n  for (let i = 1; i < objects.length; i += 1) pdf += String(offsets[i]).padStart(10, '0') + ' 00000 n \\n';\n  pdf += 'trailer\\n<< /Size ' + objects.length + ' /Root 1 0 R >>\\nstartxref\\n' + xref + '\\n%%EOF\\n';\n  return pdf;\n};\nconst exportStamp = () => new Date().toISOString().slice(0, 10);\nconst safeFilename = (v) => (String(v || 'cris09-export').replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 140) || 'cris09-export');\nconst buildDirectExport = (payload) => {\n  const action = payload && payload.download_action;\n  if (!['leads_csv', 'leads_xlsx', 'leads_pdf', 'leads_json'].includes(action)) return null;\n  const rows = exportRowsFor(payload.export_leads || []);\n  const suffix = payload.pagination && payload.pagination.export_capped ? '-limitado' : '';\n  const base = safeFilename('cris09-leads-' + exportStamp() + suffix);\n  if (action === 'leads_csv') return { body: csvFromRows(rows), contentType: 'text/csv; charset=utf-8', filename: base + '.csv' };\n  if (action === 'leads_json') return { body: JSON.stringify(payload, null, 2), contentType: 'application/json; charset=utf-8', filename: base + '.json' };\n  if (action === 'leads_xlsx') return { body: buildExcelXml(payload), contentType: 'application/vnd.ms-excel; charset=utf-8', filename: base + '.xls' };\n  if (action === 'leads_pdf') return { body: buildLeadsPdf(payload), contentType: 'application/pdf', filename: base + '.pdf' };\n  return null;\n};\n\nconst pageData = {\n  filters: { selector: cfg.selector, valores: cfg.valores_raw, marca: cfg.marca_sel, estado: cfg.estado, desde: cfg.desde, hasta: cfg.hasta, operacion: cfg.operacion },\n  pagination: { base_total: baseTotal, total, page, page_size: pageSize, page_count: pageCount, first, last, export_limit: exportLimit, export_capped: exportCapped },\n  dashboard,\n  leads,\n  export_leads: cfg.export_all === true ? exportLeads : [],\n  download_action: cfg.download || '',\n};\nconst directExport = cfg.export_all === true ? buildDirectExport(pageData) : null;\nif (directExport) {\n  return [{ json: {\n    response_body: directExport.body,\n    response_content_type: directExport.contentType,\n    response_disposition: 'attachment; filename=\"' + directExport.filename.replace(/\"/g, '') + '\"',\n    page_html: directExport.body,\n  } }];\n}\n\nconst SELECTOR_OPTS = [['smart', 'Busqueda inteligente'], ['nombre', 'Nombre / cliente'], ['telefonos', 'Telefono'], ['quicklink_ids', 'ID QuickLink'], ['lead_ids', 'Lead UUID'], ['marca', 'Marca'], ['todos', 'Todos']];\nconst OPS = ['Preview impacto', 'Enviar pendientes seleccionados', 'Borrar seleccionados', 'Borrar TODO sin enviar', 'Borrar + reenviar seleccionados', 'Borrar TODO + reenviar TODO'];\nconst MARCAS = ['AMBAS', 'KIA', 'HYUNDAI'];\nconst ESTADOS = ['', 'PENDIENTE', 'REZAGADO', 'EN_GESTION', 'GESTION_PERDIDA', 'CONFIRMADA_AI', 'SIN_ESTADO'];\nconst opt = (value, label, current) => `<option value=\"${esc(value)}\"${value === current ? ' selected' : ''}>${esc(label)}</option>`;\nconst rowsHtml = leads.map((lead) => {\n  const detailUrl = link({ lead: lead.id, page: 1 });\n  const selectUrl = link({ selector: 'lead_ids', valores: lead.id, marca: 'AMBAS', estado: '', desde: '', hasta: '', lead: '', page: 1, operacion: 'Enviar pendientes seleccionados' });\n  return `<tr>\n    <td data-label=\"Lead\"><a class=\"rowlink\" href=\"${esc(detailUrl)}\"><strong>${esc(dash(lead.nombre_cliente))}</strong><small>${esc(dash(lead.id))}</small></a></td>\n    <td data-label=\"QL\"><span class=\"mono\">${esc(dash(lead.quicklink_id))}</span></td>\n    <td data-label=\"Marca\">${brandBadge(lead.marca)}</td>\n    <td data-label=\"Estado\">${stateBadge(lead.estado_agente)}<small>${esc(dash(lead.estado_ql))}</small></td>\n    <td data-label=\"Contacto\"><span class=\"mono\">${esc(dash(lead.telefono_agente || lead.telefono_1))}</span><small>${esc(dash(lead.telefono_2))}</small></td>\n    <td data-label=\"Modelo\">${esc(dash(lead.modelo))}<small>${esc(dash(lead.agencia || lead.ciudad))}</small></td>\n    <td data-label=\"Conv\">${lead.conv_id ? '<span class=\"okdot\">si</span>' : '<span class=\"muted\">no</span>'}<small>${esc(dash(lead.chatwoot_conv_id))}</small></td>\n    <td data-label=\"Fecha\">${esc(fmtDate(lead.fecha_asignacion || lead.created_at))}</td>\n    <td data-label=\"Prueba\"><a class=\"picklead\" href=\"${esc(selectUrl)}\">Elegir</a></td>\n  </tr>`;\n}).join('');\n\nconst leadDetail = cfg.mode === 'report' && leads[0] ? leads[0] : null;\nconst kv = (label, value) => `<div class=\"kv\"><span>${esc(label)}</span><strong>${esc(dash(value))}</strong></div>`;\nconst detailHtml = leadDetail ? `<section class=\"panel detail\">\n  <div class=\"section-title\"><div><h2>Reporte individual</h2><p>Vista read-only del lead seleccionado.</p></div><a class=\"linkbtn\" href=\"${esc(link({ lead: '', page: 1 }))}\">Volver al listado</a></div>\n  <div class=\"detailgrid\">\n    ${kv('Lead UUID', leadDetail.id)}${kv('QuickLink ID', leadDetail.quicklink_id)}${kv('Marca', leadDetail.marca)}${kv('Cliente', leadDetail.nombre_cliente)}\n    ${kv('Telefono agente', leadDetail.telefono_agente)}${kv('Telefono 1', leadDetail.telefono_1)}${kv('Modelo', leadDetail.modelo)}${kv('Agencia', leadDetail.agencia)}\n    ${kv('Estado agente', leadDetail.estado_agente)}${kv('Estado QL', leadDetail.estado_ql)}${kv('Conversacion', leadDetail.conv_id)}${kv('Chatwoot conv', leadDetail.chatwoot_conv_id)}\n    ${kv('Fecha asignacion', fmtDate(leadDetail.fecha_asignacion))}${kv('Creado', fmtDate(leadDetail.created_at))}${kv('Ultima sync', fmtDate(leadDetail.sincronizado_at))}${kv('Reportado QL', leadDetail.reportado_ql ? 'SI' : 'NO')}\n  </div>\n</section>` : '';\n\nconst pageLinks = pageCount > 1 ? `<nav class=\"pager\" aria-label=\"Paginacion\">\n  <a class=\"linkbtn ${page <= 1 ? 'disabled' : ''}\" href=\"${esc(link({ page: Math.max(1, page - 1) }))}\">Anterior</a>\n  <span>Pagina <b>${num(page)}</b> de <b>${num(pageCount)}</b> · ${num(first)}-${num(last)} de ${num(total)}</span>\n  <a class=\"linkbtn ${page >= pageCount ? 'disabled' : ''}\" href=\"${esc(link({ page: Math.min(pageCount, page + 1) }))}\">Siguiente</a>\n</nav>` : `<p class=\"muted\">${num(first)}-${num(last)} de ${num(total)} resultados.</p>`;\nconst tableHtml = leads.length ? `<section class=\"panel table-panel\">\n  <div class=\"section-title\"><div><h2>Leads</h2><p>Solo se renderiza la pagina actual. La exportacion pesada sale como archivo directo.</p></div>${pageLinks}</div>\n  <div class=\"tablewrap\"><table><thead><tr><th>Cliente</th><th>QL</th><th>Marca</th><th>Estado</th><th>Contacto</th><th>Modelo</th><th>Conv</th><th>Fecha</th><th>Prueba</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>\n  ${pageLinks}\n</section>` : `<section class=\"panel empty\"><h2>Sin resultados</h2><p>${esc(cfg.error_msg || 'No hay leads para los criterios indicados.')}</p></section>`;\n\nconst themeNext = (cfg.theme || 'light') === 'dark' ? 'light' : 'dark';\nconst clearUrl = link({ selector: 'smart', valores: '', marca: 'AMBAS', estado: '', desde: '', hasta: '', lead: '', page: 1, theme: cfg.theme || 'light' });\nconst exportWarning = exportCapped ? `<p class=\"warnline\">Export limitado a ${num(exportLimit)} filas.</p>` : '';\nconst chips = [\n  ['Accion', cfg.operacion], ['Selector', cfg.selector], ['Marca', cfg.marca_sel], ['Estado', cfg.estado || 'todos'], ['Desde', cfg.desde || 'sin limite'], ['Hasta', cfg.hasta || 'sin limite'], ['Page size', pageSize]\n].map(([a, b]) => `<span class=\"chip\"><b>${esc(a)}</b>${esc(b)}</span>`).join('');\nconst singleLeadOps = ['Enviar pendientes seleccionados', 'Borrar seleccionados', 'Borrar + reenviar seleccionados'];\nconst selectedLead = total === 1 && leads.length === 1 ? leads[0] : null;\nconst selectedLeadId = String(selectedLead && selectedLead.id || '').toLowerCase();\nconst selectedReady = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(selectedLeadId);\nconst selectedCurrentOp = singleLeadOps.includes(cfg.operacion) ? cfg.operacion : 'Enviar pendientes seleccionados';\nconst selectedExpected = selectedCurrentOp === 'Enviar pendientes seleccionados' ? 'ENVIAR' : 'BORRAR';\nconst selectedMeta = selectedReady\n  ? `${dash(selectedLead.nombre_cliente)} · ${dash(selectedLead.marca)} · QL ${dash(selectedLead.quicklink_id)} · ${dash(selectedLead.modelo)} · ${dash(selectedLead.telefono_agente || selectedLead.telefono_1)}`\n  : 'Busca un lead o usa Elegir en la tabla para reducir el alcance a un unico UUID.';\nconst selectedDisabledReason = total === 0\n  ? 'No hay resultados para el filtro actual.'\n  : total !== 1\n    ? `El filtro actual resuelve ${num(total)} leads. Elige uno en la tabla.`\n    : !selectedReady\n      ? 'El resultado no tiene un lead UUID valido.'\n      : '';\nconst controlledZone = `<section class=\"panel qa-zone\">\n  <div class=\"section-title\"><div><h2>Prueba controlada de un lead</h2><p>Busca por nombre, telefono o ID y elige un resultado. El backend exige un UUID exacto, limite 1, confirmacion escrita y bloqueo anti-duplicado.</p></div></div>\n  <div class=\"qa-status ${selectedReady ? 'ready' : 'blocked'}\"><b>${selectedReady ? 'LISTO PARA PRUEBA' : 'BLOQUEADO'}</b><span>${esc(selectedReady ? selectedMeta : selectedDisabledReason)}</span></div>\n  <form method=\"POST\" action=\"/webhook/cris09-ejecutar\" class=\"qa-form\" data-lead-label=\"${esc(selectedReady ? selectedMeta : '')}\" onsubmit=\"return qaSubmit(this, event)\">\n    <input type=\"hidden\" name=\"via_webhook\" value=\"1\"><input type=\"hidden\" name=\"_k\" value=\"${esc(cfg.k)}\">\n    <input type=\"hidden\" name=\"Selector\" value=\"lead_ids\"><input type=\"hidden\" name=\"Valores\" value=\"${esc(selectedLeadId)}\"><input type=\"hidden\" name=\"Marca\" value=\"AMBAS\"><input type=\"hidden\" name=\"Limite\" value=\"1\"><input type=\"hidden\" name=\"Ejecutar\" value=\"NO\">\n    <label>Operacion QA<select name=\"Operacion\" onchange=\"updateQaConfirmation(this.form)\" ${selectedReady ? '' : 'disabled'}>${singleLeadOps.map((opName) => opt(opName, opName, selectedCurrentOp)).join('')}</select></label>\n    <label>Confirmacion para ejecucion real<input name=\"Confirmacion\" value=\"\" placeholder=\"${esc(selectedExpected)}\" autocomplete=\"off\" ${selectedReady ? '' : 'disabled'}><small>Escribe ENVIAR para envio simple o BORRAR para limpiar/reiniciar.</small></label>\n    <label class=\"qa-force\" style=\"display:flex;align-items:center;gap:.6rem;margin:.6rem 0;padding:.6rem .8rem;border:1px solid #d98324;border-radius:8px;background:rgba(217,131,36,.12);cursor:pointer\"><input type=\"checkbox\" name=\"ForzarReenvio\" value=\"1\" style=\"width:18px;height:18px;flex:0 0 auto;cursor:pointer\" ${selectedReady ? '' : 'disabled'}><span style=\"color:#d98324;font-weight:600\">Forzar reenvio</span><span style=\"opacity:.85\">— omite el bloqueo anti-duplicado de 6 h. Marcalo si el lead ya recibio un envio reciente.</span></label>\n    <div class=\"qa-actions\"><button type=\"submit\" data-execute=\"NO\" ${selectedReady ? '' : 'disabled'}>Preview dry-run</button><button type=\"submit\" class=\"dangerbtn\" data-execute=\"SI\" ${selectedReady ? '' : 'disabled'}>Ejecutar real controlado</button></div>\n  </form>\n  <p class=\"warnline\">Borrar TODO y los lotes siguen bloqueados desde esta consola. Cada ejecucion procesa exactamente un lead seleccionado.</p>\n</section>`;\n\nconst html = `<!DOCTYPE html>\n<html lang=\"es\" data-theme=\"${esc(cfg.theme || 'light')}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>CRIS09 Ops Console</title>\n<style>\n:root{--bg:#f5f6f8;--card:#fff;--ink:#16181d;--muted:#667085;--line:#d9dee7;--soft:#eef1f6;--hard:#1f2937;--kia:#9f1728;--hyundai:#075985;--ok:#167445;--warn:#a16207;--bad:#b42318;--info:#31519b;--shadow:0 12px 28px rgba(15,23,42,.08)}\nhtml[data-theme=dark]{--bg:#0f131a;--card:#151a22;--ink:#e8ecf3;--muted:#9aa5b5;--line:#293241;--soft:#1d2430;--hard:#f3f6fb;--shadow:none}\n*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.45 Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}.wrap{max-width:1320px;margin:0 auto;padding:18px 16px 42px}.hero{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:14px}.hero h1{margin:0;font-size:24px;letter-spacing:-.03em}.hero p{margin:4px 0 0;color:var(--muted)}.toolbar{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.linkbtn,button{display:inline-flex;align-items:center;justify-content:center;min-height:34px;padding:8px 11px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font-weight:800;text-decoration:none;cursor:pointer}.primary{background:var(--hard);border-color:var(--hard);color:var(--bg)}.disabled{pointer-events:none;opacity:.45}.panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow)}.readonly{display:flex;gap:10px;align-items:center;background:var(--soft);box-shadow:none}.readonly b{color:var(--ok)}.summary{display:grid;grid-template-columns:repeat(8,minmax(120px,1fr));gap:10px}.stat{min-height:78px;border:1px solid var(--line);border-left:4px solid #64748b;border-radius:12px;padding:10px;background:var(--card)}.stat span{display:block;color:var(--muted);font-size:10px;text-transform:uppercase;font-weight:900;letter-spacing:.06em}.stat strong{display:block;margin-top:3px;font-size:23px;letter-spacing:-.04em}.stat small{display:block;color:var(--muted);font-size:11px}.accent-kia{border-left-color:var(--kia)}.accent-hyundai{border-left-color:var(--hyundai)}.accent-ok{border-left-color:var(--ok)}.accent-warn{border-left-color:var(--warn)}.accent-bad{border-left-color:var(--bad)}.accent-info{border-left-color:var(--info)}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}.mini{box-shadow:none}.mini h2,.section-title h2{margin:0;font-size:14px}.section-title{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}.section-title p{margin:3px 0 0;color:var(--muted)}.barrow{padding:8px 0;border-top:1px solid var(--line)}.barrow:first-of-type{border-top:0}.barrow div{display:flex;justify-content:space-between;gap:12px}.barrow span{color:var(--muted)}.barrow i{display:block;height:5px;margin-top:5px;background:var(--hard);border-radius:999px}.filters{display:grid;grid-template-columns:minmax(220px,1.4fr) minmax(150px,.8fr) minmax(150px,.8fr) minmax(150px,.8fr) minmax(130px,.7fr) minmax(130px,.7fr) minmax(110px,.55fr) auto;gap:10px;align-items:end}.filters label{display:flex;flex-direction:column;gap:5px;color:var(--muted);font-weight:800}.filters input,.filters select{width:100%;min-height:36px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);padding:7px 9px;font:inherit}.chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}.chip{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:999px;padding:5px 9px;color:var(--muted);background:var(--soft)}.chip b{color:var(--ink)}.exportbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}.exportbar p{margin:0;color:var(--muted)}.warnline{color:var(--warn)!important;font-weight:800}.tablewrap{overflow:auto;border:1px solid var(--line);border-radius:12px}table{width:100%;border-collapse:separate;border-spacing:0;font-size:12px}th{position:sticky;top:0;background:var(--soft);color:var(--muted);text-align:left;text-transform:uppercase;font-size:10px;letter-spacing:.06em}th,td{padding:9px;border-bottom:1px solid var(--line);vertical-align:top}td small,.rowlink small{display:block;margin-top:3px;color:var(--muted)}.rowlink{color:var(--ink);text-decoration:none}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.badge{display:inline-flex;min-height:22px;align-items:center;border-radius:999px;padding:3px 8px;font-weight:900;font-size:11px}.brand-kia{background:#ffe4e9;color:#8a1020}.brand-hyundai{background:#dff1fb;color:#075178}.brand-other{background:var(--soft);color:var(--muted)}.state-warn{background:#fff2cc;color:#854d0e}.state-work{background:#e5edff;color:#29448c}.state-good{background:#dcfce7;color:#166534}.state-bad{background:#fee2e2;color:#991b1b}.pager{display:flex;align-items:center;justify-content:space-between;gap:10px;color:var(--muted);margin:8px 0}.detailgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.kv{border:1px solid var(--line);border-radius:10px;padding:9px;background:var(--soft)}.kv span{display:block;color:var(--muted);font-size:10px;text-transform:uppercase;font-weight:900}.kv strong{display:block;margin-top:3px}.muted{color:var(--muted)}.okdot{color:var(--ok);font-weight:900}.foot{text-align:center;color:var(--muted);font-size:11px;margin-top:18px}\n.dangerbtn{background:var(--bad);border-color:var(--bad);color:#fff}.picklead{display:inline-flex;padding:6px 9px;border:1px solid var(--line);border-radius:8px;color:var(--ink);font-weight:800;text-decoration:none}.qa-zone{border-color:color-mix(in srgb,var(--warn) 42%,var(--line));box-shadow:none}.qa-status{display:flex;gap:10px;align-items:center;margin:8px 0 12px;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--soft)}.qa-status.ready b{color:var(--ok)}.qa-status.blocked b{color:var(--bad)}.qa-status span{color:var(--muted)}.qa-form{display:grid;grid-template-columns:minmax(220px,320px) minmax(220px,320px) auto;gap:10px;align-items:end}.qa-form label{display:grid;gap:5px;color:var(--muted);font-weight:900}.qa-form label small{font-weight:600}.qa-actions{display:flex;gap:8px;flex-wrap:wrap}\n@media(max-width:1050px){.summary{grid-template-columns:repeat(4,1fr)}.grid2,.filters,.detailgrid,.qa-form{grid-template-columns:1fr}.hero{display:block}.toolbar{justify-content:flex-start;margin-top:10px}}\n@media(max-width:760px){.wrap{padding:12px 8px 32px}.summary{grid-template-columns:1fr 1fr}.tablewrap{border:0;overflow:visible}table,thead,tbody,tr,td{display:block;width:100%}thead{display:none}tr{margin-bottom:10px;border:1px solid var(--line);border-radius:12px;padding:8px;background:var(--card)}td{display:flex;justify-content:space-between;gap:12px;border:0;padding:6px}td:before{content:attr(data-label);color:var(--muted);font-weight:900;text-transform:uppercase;font-size:10px}.pager{display:grid;grid-template-columns:1fr;text-align:center}.section-title{display:block}.section-title .linkbtn{margin-top:8px}.summary{grid-template-columns:1fr}.readonly{align-items:flex-start}}\n</style></head><body><div class=\"wrap\">\n  <header class=\"hero\"><div><h1>CRIS09 Ops Console</h1><p>Consulta, seleccion y prueba unitaria de leads. Buscar, paginar y exportar nunca ejecuta cambios.</p></div><nav class=\"toolbar\"><a class=\"linkbtn\" href=\"${esc(link({ theme: themeNext }))}\">Tema ${esc(themeNext)}</a><a class=\"linkbtn\" href=\"${esc(clearUrl)}\">Limpiar filtros</a></nav></header>\n  <section class=\"panel readonly\"><b>BUSQUEDA SEGURA</b><span>Solo el formulario de prueba, con un lead exacto y confirmacion explicita, puede ejecutar una accion real.</span></section>\n  ${cfg.error_msg ? `<section class=\"panel readonly\"><b>VALIDACION</b><span>${esc(cfg.error_msg)}</span></section>` : ''}\n  <section class=\"summary\">\n    ${statCard('Filtrados', num(total), `de ${num(baseTotal)} en base`)}\n    ${statCard('Pendientes', num(kpis.pendientes), `${pct(kpis.pendientes, total)}%`, 'accent-warn')}\n    ${statCard('En gestion', num(kpis.en_gestion), `${pct(kpis.en_gestion, total)}%`, 'accent-info')}\n    ${statCard('Rezagados', num(kpis.rezagados), `${pct(kpis.rezagados, total)}%`, 'accent-bad')}\n    ${statCard('Confirmadas AI', num(kpis.confirmadas_ai), `${pct(kpis.confirmadas_ai, total)}%`, 'accent-ok')}\n    ${statCard('Con conv', num(kpis.con_conversacion), `${pct(kpis.con_conversacion, total)}%`, 'accent-hyundai')}\n    ${statCard('Sin conv', num(kpis.sin_conversacion), 'requiere revision', 'accent-kia')}\n    ${statCard('No reportados QL', num(kpis.no_reportados_ql), 'pendiente cierre', 'accent-info')}\n  </section>\n  <section class=\"panel\">\n    <form method=\"GET\" action=\"\">\n      <input type=\"hidden\" name=\"k\" value=\"${esc(cfg.k)}\"><input type=\"hidden\" name=\"theme\" value=\"${esc(cfg.theme || 'light')}\"><input type=\"hidden\" name=\"page\" value=\"1\">\n      <div class=\"filters\">\n        <label>Valor<input name=\"valores\" value=\"${esc(cfg.valores_raw || '')}\" placeholder=\"nombre, telefono, QL ID o UUID\"></label>\n        <label>Filtro<select name=\"selector\">${SELECTOR_OPTS.map(([v, l]) => opt(v, l, cfg.selector || 'smart')).join('')}</select></label>\n        <label>Marca<select name=\"marca\">${MARCAS.map((m) => opt(m, m, cfg.marca_sel || 'AMBAS')).join('')}</select></label>\n        <label>Estado<select name=\"estado\">${ESTADOS.map((e) => opt(e, e || 'Todos', cfg.estado || '')).join('')}</select></label>\n        <label>Desde<input type=\"date\" name=\"desde\" value=\"${esc(cfg.desde || '')}\"></label>\n        <label>Hasta<input type=\"date\" name=\"hasta\" value=\"${esc(cfg.hasta || '')}\"></label>\n        <label>Page size<select name=\"page_size\">${[25,50,100,250].map((n) => opt(String(n), String(n), String(pageSize))).join('')}</select></label>\n        <button class=\"primary\" type=\"submit\">Aplicar</button>\n      </div>\n      <label style=\"margin-top:10px;display:block;color:var(--muted);font-weight:800\">Accion observada<select name=\"operacion\" style=\"margin-top:5px;width:100%;max-width:360px;min-height:36px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);padding:7px 9px\">${OPS.map((opName) => opt(opName, opName, cfg.operacion || 'Preview impacto')).join('')}</select></label>\n    </form>\n    <div class=\"chips\">${chips}</div>\n  </section>\n  <section class=\"panel exportbar\"><p>Exports directos server-side. No se insertan miles de filas en el HTML normal.</p><div class=\"toolbar\"><a class=\"linkbtn\" href=\"${esc(link({ download: 'leads_csv', export: 1 }))}\">CSV</a><a class=\"linkbtn\" href=\"${esc(link({ download: 'leads_xlsx', export: 1 }))}\">Excel</a><a class=\"linkbtn\" href=\"${esc(link({ download: 'leads_pdf', export: 1 }))}\">PDF</a><a class=\"linkbtn\" href=\"${esc(link({ download: 'leads_json', export: 1 }))}\">JSON</a></div>${exportWarning}</section>\n  ${controlledZone}\n  ${detailHtml}\n  <section class=\"grid2\">${barList('Distribucion por marca', stats.by_brand, total)}${barList('Distribucion por estado', stats.by_state, total)}</section>\n  ${tableHtml}\n  <p class=\"foot\">CRIS09 Ops Console · ${esc(new Date().toISOString())}</p>\n<script>\nfunction qaExpected(form) {\n  const operation = String(form.querySelector('[name=\"Operacion\"]')?.value || '');\n  return operation === 'Enviar pendientes seleccionados' ? 'ENVIAR' : 'BORRAR';\n}\nfunction updateQaConfirmation(form) {\n  const input = form.querySelector('[name=\"Confirmacion\"]');\n  if (input) input.placeholder = qaExpected(form);\n}\nfunction qaSubmit(form, event) {\n  const submitter = event && event.submitter;\n  const execute = submitter && submitter.dataset.execute === 'SI' ? 'SI' : 'NO';\n  form.querySelector('[name=\"Ejecutar\"]').value = execute;\n  if (execute === 'SI') {\n    const expected = qaExpected(form);\n    const confirmation = form.querySelector('[name=\"Confirmacion\"]');\n    if (String(confirmation.value || '').trim().toUpperCase() !== expected) {\n      window.alert('Escribe ' + expected + ' para confirmar la ejecucion real.');\n      confirmation.focus();\n      return false;\n    }\n    if (!window.confirm('Ejecutar una accion real sobre: ' + (form.dataset.leadLabel || 'el lead seleccionado') + '?')) return false;\n  }\n  const buttons = form.querySelectorAll('button');\n  buttons.forEach((button) => { button.disabled = true; });\n  if (execute === 'SI' && submitter) submitter.textContent = 'Ejecutando...';\n  return true;\n}\n</script>\n</div></body></html>`;\n\nreturn [{ json: { page_html: html, response_content_type: 'text/html; charset=utf-8', response_disposition: 'inline', leads_count: leads.length, base_total: baseTotal, total, page, page_size: pageSize } }];"
+      }
+    },
+    {
+      "id": "8fe05ea8-72a8-4a05-a5df-34f94ef535aa",
+      "name": "Webhook Ejecutar Web",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -200,
+        900
+      ],
+      "webhookId": "5ead1e5c-8320-44be-aa6f-f1d242c4f32e",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cris09-ejecutar",
+        "responseMode": "lastNode",
+        "options": {
+          "responseData": "firstEntryJson",
+          "responsePropertyName": "completion_html",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "6c149373-dc38-45df-ac74-cee41dce2006",
+      "name": "Via Webhook?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4920,
+        80
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "via-web-cond",
+              "leftValue": "={{ $json.via_webhook === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "dcc07606-1fa6-4143-8531-93bb12259f60",
+      "name": "Salida Web",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5160,
+        0
+      ],
+      "parameters": {
+        "jsCode": "return [{ json: { completion_html: $json.completion_html } }];"
+      }
+    },
+    {
+      "id": "panel-open-tracking-001",
+      "name": "Abrir Tracking Outbound",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3360,
+        80
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH args AS (\n  SELECT\n    $1::boolean AS should_track,\n    $2::text AS batch_key,\n    $3::jsonb AS leads,\n    $4::jsonb AS cleanup_counts,\n    $5::jsonb AS residual_counts\n), opened AS (\n  SELECT o.*\n  FROM (SELECT * FROM args WHERE should_track) a\n  CROSS JOIN LATERAL open_outbound_dispatch_batch(a.batch_key, 'panel-operador', a.leads) o\n)\nSELECT\n  (SELECT cleanup_counts FROM args) AS cleanup_counts,\n  (SELECT residual_counts FROM args) AS residual_counts,\n  COALESCE((SELECT jsonb_build_object(\n    'batch_id', batch_id,\n    'batch_key', batch_key,\n    'status_token', status_token,\n    'dispatches', dispatches\n  ) FROM opened), '{}'::jsonb) AS outbound_tracking;\n",
+        "options": {
+          "queryReplacement": "={{ [ $('Preparar').first().json.execute && $('Preparar').first().json.dispatch, 'ops05:' + $execution.id, JSON.stringify(($('Format Preview').first().json.leads || []).filter(l => { const digits = String(l.telefono_agente || '').replace(/\\D/g, ''); return digits.length >= 9 && digits.length <= 15; }).map(l => ({ id: l.lead_id, quicklink_id: l.quicklink_id, marca: l.marca, phone: l.telefono_agente }))), JSON.stringify($json.cleanup_counts || []), JSON.stringify($json.residual_counts || []) ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "panel-if-redis-001",
+      "name": "Requiere Cleanup Redis?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3600,
+        80
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "redis-cleanup-cond",
+              "leftValue": "={{ $('Preparar').first().json.execute && $('Preparar').first().json.cleanup }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "panel-record-intake-001",
+      "name": "Registrar Aceptacion Outbound",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        4440,
+        80
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH results AS (\n  SELECT *\n  FROM jsonb_to_recordset($1::jsonb) AS result(\n    request_id TEXT,\n    status TEXT,\n    \"statusCode\" INTEGER,\n    error TEXT\n  )\n  WHERE request_id IS NOT NULL\n    AND status IN ('accepted', 'rejected', 'failed')\n), recorded AS (\n  SELECT\n    request_id,\n    record_outbound_intake_result(\n      request_id,\n      COALESCE(\"statusCode\", 0),\n      status = 'accepted',\n      error\n    ) AS action\n  FROM results\n)\nSELECT COALESCE(jsonb_agg(jsonb_build_object(\n  'request_id', request_id,\n  'action', action\n) ORDER BY request_id), '[]'::jsonb) AS intake_tracking_updates\nFROM recorded;\n",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($('Dispatch Outbound').first().json.dispatch_result.results || []) ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "panel-status-webhook-001",
+      "name": "Webhook Estado Outbound",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -200,
+        1100
+      ],
+      "webhookId": "d7e0a3ba-87be-4bad-aad5-f527ecaa0e0b",
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "cris09-estado-outbound",
+        "responseMode": "lastNode",
+        "options": {
+          "responseData": "firstEntryJson"
+        }
+      }
+    },
+    {
+      "id": "panel-validate-status-001",
+      "name": "Validar Consulta Outbound",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        40,
+        1100
+      ],
+      "parameters": {
+        "jsCode": "const q = $json.query || {};\nconst batchKey = String(q.batch_key || '').trim();\nconst token = String(q.token || '').trim();\nif (!/^ops05:\\d+$/.test(batchKey)) throw new Error('batch_key inválido');\nif (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token)) throw new Error('token inválido');\nreturn [{ json: { batch_key: batchKey, token } }];\n"
+      }
+    },
+    {
+      "id": "panel-query-status-001",
+      "name": "Consultar Estado Outbound",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        280,
+        1100
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nSELECT get_outbound_dispatch_batch_status($1::text, $2::uuid) AS status;\n",
+        "options": {
+          "queryReplacement": "={{ [ $json.batch_key, $json.token ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "panel-status-output-001",
+      "name": "Salida Estado Outbound",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        1100
+      ],
+      "parameters": {
+        "jsCode": "const status = $json.status || { found: false };\nconst data = JSON.parse(JSON.stringify(status));\nconst staleAfterMs = 10 * 60 * 1000;\nconst now = Date.now();\n\nif (data.found && Array.isArray(data.dispatches)) {\n  let stalePending = 0;\n  data.dispatches = data.dispatches.map((dispatch) => {\n    const messages = Array.isArray(dispatch.messages) ? dispatch.messages : [];\n    const updatedAt = Date.parse(dispatch.updated_at || dispatch.created_at || '');\n    const stale = dispatch.delivery_status === 'pending'\n      && dispatch.intake_status === 'accepted'\n      && messages.length === 0\n      && Number.isFinite(updatedAt)\n      && now - updatedAt > staleAfterMs;\n    if (!stale) return dispatch;\n    stalePending += 1;\n    return {\n      ...dispatch,\n      delivery_status: 'stale_pending',\n      stale_pending: true,\n      stale_reason: 'accepted_without_meta_messages',\n    };\n  });\n  data.totals = { ...(data.totals || {}), stale_pending: stalePending };\n  if (stalePending > 0) {\n    const open = data.dispatches.filter((dispatch) => !['delivered', 'read', 'failed', 'stale_pending'].includes(dispatch.delivery_status)).length;\n    data.complete = open === 0;\n    data.warning = 'stale_pending_without_meta_messages';\n  }\n}\n\nreturn [{ json: data }];"
+      }
+    },
+    {
+      "id": "cris09-if-autorizado",
+      "name": "Acceso Autorizado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        240,
+        700
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cris09-cond-auth",
+              "leftValue": "={{ $json.authorized === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "cris09-respond-forbidden",
+      "name": "Responder Acceso Denegado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        460,
+        820
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: 'forbidden', message: $json.message || 'Acceso no autorizado' }) }}",
+        "options": {
+          "responseCode": 403
+        }
+      }
+    },
+    {
+      "id": "cris09-respond-page",
+      "name": "Responder Pagina con headers dinamicos",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        940,
+        620
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.response_body || $json.page_html || '' }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "={{ $json.response_content_type || 'text/html; charset=utf-8' }}"
+              },
+              {
+                "name": "Content-Disposition",
+                "value": "={{ $json.response_disposition || 'inline' }}"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Panel Operador": {
+      "main": [
+        [
+          {
+            "node": "Preparar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar": {
+      "main": [
+        [
+          {
+            "node": "Resolver Impacto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolver Impacto": {
+      "main": [
+        [
+          {
+            "node": "Format Preview",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Preview": {
+      "main": [
+        [
+          {
+            "node": "Requiere Confirmacion?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Requiere Confirmacion?": {
+      "main": [
+        [
+          {
+            "node": "Confirmar Ejecucion",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Borrar Chatwoot Conversaciones",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirmar Ejecucion": {
+      "main": [
+        [
+          {
+            "node": "Validar Confirmacion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar Confirmacion": {
+      "main": [
+        [
+          {
+            "node": "Confirmado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirmado?": {
+      "main": [
+        [
+          {
+            "node": "Borrar Chatwoot Conversaciones",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fin Cancelado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Borrar Chatwoot Conversaciones": {
+      "main": [
+        [
+          {
+            "node": "Requiere Cleanup DB?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Requiere Cleanup DB?": {
+      "main": [
+        [
+          {
+            "node": "Ejecutar Limpieza DB",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip Limpieza DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ejecutar Limpieza DB": {
+      "main": [
+        [
+          {
+            "node": "Abrir Tracking Outbound",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip Limpieza DB": {
+      "main": [
+        [
+          {
+            "node": "Abrir Tracking Outbound",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Abrir Tracking Outbound": {
+      "main": [
+        [
+          {
+            "node": "Requiere Cleanup Redis?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Requiere Cleanup Redis?": {
+      "main": [
+        [
+          {
+            "node": "Preparar Redis Keys",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Dispatch Outbound",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Redis Keys": {
+      "main": [
+        [
+          {
+            "node": "Borrar Redis Buffer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Borrar Redis Buffer": {
+      "main": [
+        [
+          {
+            "node": "Dispatch Outbound",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dispatch Outbound": {
+      "main": [
+        [
+          {
+            "node": "Registrar Aceptacion Outbound",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar Aceptacion Outbound": {
+      "main": [
+        [
+          {
+            "node": "Resumen Final",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resumen Final": {
+      "main": [
+        [
+          {
+            "node": "Via Webhook?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Panel Web": {
+      "main": [
+        [
+          {
+            "node": "Preparar Consulta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Ejecutar Web": {
+      "main": [
+        [
+          {
+            "node": "Preparar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Via Webhook?": {
+      "main": [
+        [
+          {
+            "node": "Salida Web",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fin Resumen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Estado Outbound": {
+      "main": [
+        [
+          {
+            "node": "Validar Consulta Outbound",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar Consulta Outbound": {
+      "main": [
+        [
+          {
+            "node": "Consultar Estado Outbound",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consultar Estado Outbound": {
+      "main": [
+        [
+          {
+            "node": "Salida Estado Outbound",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Consulta": {
+      "main": [
+        [
+          {
+            "node": "Acceso Autorizado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consulta principal SQL": {
+      "main": [
+        [
+          {
+            "node": "Construir Pagina",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Acceso Autorizado?": {
+      "main": [
+        [
+          {
+            "node": "Consulta principal SQL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder Acceso Denegado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construir Pagina": {
+      "main": [
+        [
+          {
+            "node": "Responder Pagina con headers dinamicos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "610c7210-2e9c-5833-8160-219c4f9e8669",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

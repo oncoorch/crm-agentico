@@ -1,0 +1,156 @@
+{
+  "id": "ZTofZNJRCTs2F7ow_autocom",
+  "name": "tester vitrinas_autocom",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tester-vitrinas",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "bc2a6405-493d-4570-bd3d-cf1baeae2fc4",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        260,
+        300
+      ],
+      "webhookId": "tester-vitrinas"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "40f9564f-2cd2-4d67-a8fd-7e0a246f8e32",
+              "name": "URL_MCP",
+              "value": "http://mcp_server:8000",
+              "type": "string"
+            },
+            {
+              "id": "dc158a55-2c56-4a15-ab12-145e96d4eb25",
+              "name": "selected_establishment_id",
+              "value": "={{ Number($json.body.selected_establishment_id || 0) || null }}",
+              "type": "number"
+            },
+            {
+              "id": "29a89748-c536-4b7e-814a-f4747a338de3",
+              "name": "product_id",
+              "value": "={{ Number($json.body.product_id || 29) }}",
+              "type": "number"
+            },
+            {
+              "id": "6cdcb356-eaaa-4d72-a40a-784212107687",
+              "name": "city",
+              "value": "={{ $json.body.city || \"Bogota\" }}",
+              "type": "string"
+            },
+            {
+              "id": "c4986ff4-3411-4286-8485-0a249e5a564e",
+              "name": "zone",
+              "value": "={{ $json.body.zone || \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "51b29152-ef6c-4452-bfe1-6de1ba5537b7",
+              "name": "lat",
+              "value": "={{ $json.body.lat || null }}",
+              "type": "string"
+            },
+            {
+              "id": "ad4369c6-36ad-4a47-a301-6e546c90587b",
+              "name": "lng",
+              "value": "={{ $json.body.lng || null }}",
+              "type": "string"
+            },
+            {
+              "id": "6d7001ef-9ada-445e-9138-2fa88f8a1141",
+              "name": "query",
+              "value": "={{ $json.body.query || \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "f2f0d287-762e-455f-9adc-d246009d436e",
+              "name": "limit",
+              "value": "={{ Number($json.body.limit || 10) }}",
+              "type": "number"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "910212cd-4944-422b-a543-cc4b2ffa87f1",
+      "name": "Build Payload",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.URL_MCP + '/api/establishment-resolve' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ selected_establishment_id: $json.selected_establishment_id, product_id: $json.product_id, city: $json.city || null, zone: $json.zone || null, lat: $json.lat || null, lng: $json.lng || null, query: $json.query || '', limit: $json.limit || 10 }) }}",
+        "options": {}
+      },
+      "id": "efd9b87a-db60-4ecc-9ec3-0fad94626482",
+      "name": "Call Establishment Resolve",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        800,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Build Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Payload": {
+      "main": [
+        [
+          {
+            "node": "Call Establishment Resolve",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "15649217-171c-545e-b6db-34f5db8b8fdf",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

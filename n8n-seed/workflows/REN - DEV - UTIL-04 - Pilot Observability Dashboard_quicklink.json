@@ -1,0 +1,275 @@
+{
+  "id": "k6UrRWr1rflvMB24_quicklink",
+  "name": "REN - DEV - UTIL-04 - Pilot Observability Dashboard_quicklink",
+  "nodes": [
+    {
+      "id": "util04-note",
+      "name": "UTIL-04 Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -780,
+        -260
+      ],
+      "parameters": {
+        "width": 440,
+        "height": 430,
+        "content": "## UTIL-04 - Pilot Observability Dashboard\n\n`GET /webhook/renov/dev/ops/observability?hours=24`\n\nHTML interno con métricas agregadas de mensajes, handoffs, errores, LLM y colas.\n\nLos datos requieren `RENOV_INTERNAL_TOKEN` por Bearer o `X-Internal-Token`. La pantalla inicial permite ingresarlo sin ponerlo en la URL ni almacenarlo.\n\nNo devuelve PII, cuerpos, payloads ni errores crudos. Cache deshabilitada."
+      }
+    },
+    {
+      "id": "util04-webhook",
+      "name": "GET Pilot Observability",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -300,
+        0
+      ],
+      "webhookId": "ren-dev-util04-pilot-observability",
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "renov/dev/ops/observability",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "util04-auth",
+      "name": "Authenticate Dashboard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -60,
+        0
+      ],
+      "parameters": {
+        "jsCode": "function validAlertUrl(value) {\n  const text = String(value || '').trim();\n  const match = text.match(/^https:\\/\\/([a-z0-9.-]+)(?::([0-9]{1,5}))?(\\/[^\\s#]*)?$/i);\n  if (!match) return '';\n  if (match[2] && Number(match[2]) > 65535) return '';\n  if (match[1].startsWith('.') || match[1].endsWith('.') || match[1].includes('..')) return '';\n  return text;\n}\n\nfunction env(name) {\n    try { return String($env[name] || '').trim(); } catch (error) { return ''; }\n  }\n  function readHeader(headers, name) {\n    const target = name.toLowerCase();\n    for (const [key, value] of Object.entries(headers || {})) {\n      if (String(key).toLowerCase() === target) return Array.isArray(value) ? value[0] : value;\n    }\n    return '';\n  }\n  function safeEqual(left, right) {\n    const a = String(left || '');\n    const b = String(right || '');\n    if (!a || a.length !== b.length) return false;\n    let difference = 0;\n    for (let index = 0; index < a.length; index += 1) difference |= a.charCodeAt(index) ^ b.charCodeAt(index);\n    return difference === 0;\n  }\n  const request = $input.first().json || {};\n  const expectedToken = env('RENOV_INTERNAL_TOKEN');\n  if (!expectedToken) {\n    return [{ json: { authorized: false, statusCode: 503, reason: 'dashboard_not_configured' } }];\n  }\n  const authorization = String(readHeader(request.headers, 'authorization') || '');\n  const providedToken = readHeader(request.headers, 'x-internal-token')\n    || (/^Bearer\\s+/i.test(authorization) ? authorization.replace(/^Bearer\\s+/i, '').trim() : '');\n  if (!safeEqual(providedToken, expectedToken)) {\n    return [{ json: { authorized: false, statusCode: 401, reason: 'authentication_required' } }];\n  }\n  const rawHours = String(request.query?.hours ?? '24').trim();\n  if (!/^[0-9]{1,3}$/.test(rawHours) || Number(rawHours) < 1 || Number(rawHours) > 168) {\n    return [{ json: { authorized: false, statusCode: 422, reason: 'invalid_window' } }];\n  }\n  return [{ json: {\n    authorized: true,\n    statusCode: 200,\n    window_hours: Number(rawHours),\n    dashboard_sql: \"WITH config AS (\\n  SELECT\\n    LEAST(GREATEST(COALESCE($1::integer, 24), 1), 168) AS window_hours,\\n    now() AS generated_at\\n), bounds AS (\\n  SELECT\\n    window_hours,\\n    generated_at,\\n    generated_at - make_interval(hours => window_hours) AS starts_at\\n  FROM config\\n), message_metrics AS (\\n  SELECT\\n    count(*) FILTER (WHERE direction = 'inbound')::integer AS inbound_messages,\\n    count(DISTINCT conversation_id) FILTER (WHERE direction = 'inbound')::integer AS responding_conversations,\\n    count(*) FILTER (WHERE direction = 'outbound' AND sender = 'bot')::integer AS bot_messages,\\n    count(*) FILTER (\\n      WHERE direction = 'outbound'\\n        AND sender = 'bot'\\n        AND delivery_status IN ('accepted', 'sent', 'delivered', 'read')\\n    )::integer AS bot_messages_accepted,\\n    count(*) FILTER (\\n      WHERE direction = 'outbound'\\n        AND sender = 'bot'\\n        AND delivery_status IN ('delivered', 'read')\\n    )::integer AS bot_messages_delivered,\\n    count(*) FILTER (\\n      WHERE direction = 'outbound'\\n        AND sender = 'bot'\\n        AND delivery_status = 'failed'\\n    )::integer AS bot_messages_failed\\n  FROM renovation_dev.messages, bounds\\n  WHERE occurred_at >= bounds.starts_at\\n), conversation_counts AS (\\n  SELECT status::text AS status, count(*)::integer AS total\\n  FROM renovation_dev.conversations\\n  GROUP BY status\\n), conversation_metrics AS (\\n  SELECT COALESCE(jsonb_object_agg(status, total ORDER BY status), '{}'::jsonb) AS by_status\\n  FROM conversation_counts\\n), handoff_metrics AS (\\n  SELECT\\n    count(*) FILTER (\\n      WHERE event_type IN ('chatwoot_handoff', 'chatwoot_handoff_ambiguous') AND success\\n    )::integer AS successful_handoffs,\\n    count(*) FILTER (WHERE event_type = 'chatwoot_conversation_resolved' AND success)::integer AS resolved_handoffs,\\n    count(*) FILTER (WHERE event_type = 'chatwoot_human_intervention' AND success)::integer AS human_takeovers\\n  FROM renovation_dev.interaction_logs, bounds\\n  WHERE created_at >= bounds.starts_at\\n), failure_counts AS (\\n  SELECT event_type, count(*)::integer AS total\\n  FROM renovation_dev.interaction_logs, bounds\\n  WHERE created_at >= bounds.starts_at\\n    AND success = false\\n  GROUP BY event_type\\n), failure_metrics AS (\\n  SELECT\\n    COALESCE(sum(total), 0)::integer AS total,\\n    COALESCE(jsonb_object_agg(event_type, total ORDER BY event_type), '{}'::jsonb) AS by_event\\n  FROM failure_counts\\n), llm_attempt_rows AS (\\n  SELECT\\n    attempt->>'provider' AS provider,\\n    NULLIF(attempt->>'failure_reason', '') AS failure_reason,\\n    CASE\\n      WHEN attempt->>'latency_ms' ~ '^[0-9]+$' THEN (attempt->>'latency_ms')::integer\\n      ELSE NULL\\n    END AS latency_ms\\n  FROM renovation_dev.interaction_logs log\\n  CROSS JOIN bounds\\n  CROSS JOIN LATERAL jsonb_array_elements(\\n    CASE\\n      WHEN jsonb_typeof(log.payload #> '{metadata,llm_attempts}') = 'array'\\n        THEN log.payload #> '{metadata,llm_attempts}'\\n      ELSE '[]'::jsonb\\n    END\\n  ) attempt\\n  WHERE log.event_type = 'wf03b_chatwoot_waba_inbound'\\n    AND log.created_at >= bounds.starts_at\\n    AND attempt->>'provider' IN ('openai', 'gemini')\\n), llm_provider_metrics AS (\\n  SELECT\\n    provider,\\n    count(*)::integer AS attempts,\\n    count(*) FILTER (WHERE failure_reason IS NOT NULL)::integer AS failures,\\n    round(avg(latency_ms))::integer AS average_latency_ms,\\n    round((percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms))::numeric)::integer AS p95_latency_ms\\n  FROM llm_attempt_rows\\n  GROUP BY provider\\n), llm_metrics AS (\\n  SELECT COALESCE(\\n    jsonb_agg(\\n      jsonb_build_object(\\n        'provider', provider,\\n        'attempts', attempts,\\n        'failures', failures,\\n        'average_latency_ms', average_latency_ms,\\n        'p95_latency_ms', p95_latency_ms\\n      ) ORDER BY provider\\n    ),\\n    '[]'::jsonb\\n  ) AS providers\\n  FROM llm_provider_metrics\\n), double_llm_failures AS (\\n  SELECT count(*)::integer AS total\\n  FROM renovation_dev.interaction_logs, bounds\\n  WHERE event_type = 'wf03b_chatwoot_waba_inbound'\\n    AND created_at >= bounds.starts_at\\n    AND payload #>> '{metadata,llm_fallback_used}' = 'true'\\n    AND payload #>> '{metadata,llm_provider}' IS NULL\\n), campaign_metrics AS (\\n  SELECT\\n    count(*)::integer AS hsm_items,\\n    count(*) FILTER (WHERE status IN ('accepted', 'sent', 'delivered', 'read'))::integer AS hsm_accepted,\\n    count(*) FILTER (WHERE status IN ('delivered', 'read'))::integer AS hsm_delivered,\\n    count(*) FILTER (WHERE status = 'failed')::integer AS hsm_failed\\n  FROM renovation_dev.quicklink_campaign_dispatch_items, bounds\\n  WHERE created_at >= bounds.starts_at\\n), dispatch_health AS (\\n  SELECT\\n    count(*) FILTER (WHERE status = 'queued')::integer AS queued,\\n    count(*) FILTER (WHERE status = 'running')::integer AS running,\\n    count(*) FILTER (WHERE status = 'failed')::integer AS failed,\\n    count(*) FILTER (\\n      WHERE status = 'queued'\\n        AND process_after < bounds.generated_at - interval '15 minutes'\\n        AND renovation_dev.is_automatic_send_allowed(bounds.generated_at)\\n    )::integer AS stalled,\\n    COALESCE(max(\\n      CASE WHEN status = 'queued'\\n        THEN GREATEST(0, extract(epoch FROM bounds.generated_at - process_after))::integer\\n      END\\n    ), 0)::integer AS oldest_queued_seconds\\n  FROM renovation_dev.quicklink_campaign_dispatches dispatch\\n  CROSS JOIN bounds\\n  WHERE dispatch.dev_simulate_http_status IS NULL\\n), callback_health AS (\\n  SELECT\\n    count(*) FILTER (WHERE state = 'queued')::integer AS queued,\\n    count(*) FILTER (WHERE state = 'running')::integer AS running,\\n    count(*) FILTER (WHERE state = 'failed')::integer AS failed,\\n    count(*) FILTER (\\n      WHERE state = 'queued' AND process_after < bounds.generated_at - interval '15 minutes'\\n    )::integer AS stalled,\\n    COALESCE(max(\\n      CASE WHEN state = 'queued'\\n        THEN GREATEST(0, extract(epoch FROM bounds.generated_at - process_after))::integer\\n      END\\n    ), 0)::integer AS oldest_queued_seconds\\n  FROM renovation_dev.salesforce_callback_events, bounds\\n)\\nSELECT\\n  bounds.generated_at,\\n  bounds.starts_at,\\n  bounds.window_hours,\\n  renovation_dev.is_automatic_send_allowed(bounds.generated_at) AS automatic_send_allowed,\\n  message_metrics.inbound_messages,\\n  message_metrics.responding_conversations,\\n  message_metrics.bot_messages,\\n  message_metrics.bot_messages_accepted,\\n  message_metrics.bot_messages_delivered,\\n  message_metrics.bot_messages_failed,\\n  conversation_metrics.by_status AS conversations_by_status,\\n  handoff_metrics.successful_handoffs,\\n  handoff_metrics.resolved_handoffs,\\n  handoff_metrics.human_takeovers,\\n  failure_metrics.total AS interaction_failures,\\n  failure_metrics.by_event AS failures_by_event,\\n  llm_metrics.providers AS llm_providers,\\n  double_llm_failures.total AS double_llm_failures,\\n  campaign_metrics.hsm_items,\\n  campaign_metrics.hsm_accepted,\\n  campaign_metrics.hsm_delivered,\\n  campaign_metrics.hsm_failed,\\n  dispatch_health.queued AS dispatch_queued,\\n  dispatch_health.running AS dispatch_running,\\n  dispatch_health.failed AS dispatch_failed,\\n  dispatch_health.stalled AS dispatch_stalled,\\n  dispatch_health.oldest_queued_seconds AS dispatch_oldest_queued_seconds,\\n  callback_health.queued AS callback_queued,\\n  callback_health.running AS callback_running,\\n  callback_health.failed AS callback_failed,\\n  callback_health.stalled AS callback_stalled,\\n  callback_health.oldest_queued_seconds AS callback_oldest_queued_seconds\\nFROM bounds\\nCROSS JOIN message_metrics\\nCROSS JOIN conversation_metrics\\nCROSS JOIN handoff_metrics\\nCROSS JOIN failure_metrics\\nCROSS JOIN llm_metrics\\nCROSS JOIN double_llm_failures\\nCROSS JOIN campaign_metrics\\nCROSS JOIN dispatch_health\\nCROSS JOIN callback_health\",\n    dashboard_params: [Number(rawHours)],\n    alert_webhook_configured: Boolean(validAlertUrl(env('RENOV_OBSERVABILITY_ALERT_URL'))),\n  } }];"
+      }
+    },
+    {
+      "id": "util04-auth-gate",
+      "name": "IF Dashboard Authorized?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        180,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "util04-auth-gate-condition",
+              "leftValue": "={{ $json.authorized }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "util04-query",
+      "name": "Postgres - Aggregate Pilot Metrics",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        420,
+        -100
+      ],
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "={{ $json.dashboard_sql }}",
+        "options": {
+          "queryReplacement": "={{ $json.dashboard_params }}",
+          "queryBatching": "single"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "util04-render-dashboard",
+      "name": "Render Observability Dashboard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        -100
+      ],
+      "parameters": {
+        "jsCode": "const row = $input.first().json || {};\n  const config = $('Authenticate Dashboard').item.json || {};\n  function number(value) {\n    const parsed = Number(value);\n    return Number.isFinite(parsed) ? parsed : 0;\n  }\n  function object(value, fallback) {\n    if (value && typeof value === 'object') return value;\n    try { return JSON.parse(String(value || '')); } catch (error) { return fallback; }\n  }\n  function escape(value) {\n    return String(value ?? '').replace(/[&<>\"']/g, (character) => ({\n      '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;',\n    })[character]);\n  }\n  function formatSeconds(value) {\n    const seconds = number(value);\n    if (seconds < 60) return `${seconds}s`;\n    if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;\n    return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;\n  }\n  function rowsFromObject(value) {\n    const entries = Object.entries(object(value, {}));\n    if (!entries.length) return '<tr><td colspan=\"2\" class=\"muted\">Sin datos</td></tr>';\n    return entries.map(([key, total]) => `<tr><td><code>${escape(key)}</code></td><td>${number(total)}</td></tr>`).join('');\n  }\n  const llmProviders = object(row.llm_providers, []);\n  const llmRows = Array.isArray(llmProviders) && llmProviders.length\n    ? llmProviders.map((provider) => `<tr><td>${escape(provider.provider)}</td><td>${number(provider.attempts)}</td><td>${number(provider.failures)}</td><td>${number(provider.average_latency_ms)} ms</td><td>${number(provider.p95_latency_ms)} ms</td></tr>`).join('')\n    : '<tr><td colspan=\"5\" class=\"muted\">Sin intentos en la ventana</td></tr>';\n  const alertClass = config.alert_webhook_configured ? 'ok' : 'warn';\n  const alertText = config.alert_webhook_configured ? 'Webhook configurado' : 'Webhook pendiente';\n  const generatedAt = row.generated_at ? new Date(row.generated_at).toLocaleString('es-EC', { timeZone: 'America/Guayaquil' }) : '-';\n  const startsAt = row.starts_at ? new Date(row.starts_at).toLocaleString('es-EC', { timeZone: 'America/Guayaquil' }) : '-';\n  const html = `<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Renovaciones | Observabilidad</title><style>\n    :root{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui,sans-serif;background:#09111f;color:#eaf0f8}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 90% 0,#173a4f 0,transparent 34%),#09111f;padding:28px}.shell{max-width:1180px;margin:auto}header{display:flex;gap:24px;justify-content:space-between;align-items:end;margin-bottom:24px}h1{font-size:clamp(1.8rem,4vw,3.2rem);margin:0;letter-spacing:-.04em}header p{margin:8px 0 0;color:#93a6bd}.status{display:inline-flex;align-items:center;border-radius:99px;padding:8px 12px;font-weight:800;font-size:.82rem}.ok{background:#123d32;color:#76edc7}.warn{background:#4a3317;color:#ffd08a}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.card,.panel{background:#101d2fdd;border:1px solid #263d58;border-radius:16px}.card{padding:18px}.card span{display:block;color:#91a5bd;font-size:.78rem;text-transform:uppercase;letter-spacing:.08em}.card strong{display:block;font-size:2rem;margin-top:8px}.card small{color:#91a5bd}.grid{display:grid;grid-template-columns:1.2fr .8fr;gap:14px;margin-top:14px}.panel{padding:20px;overflow:auto}h2{margin:0 0 14px;font-size:1.05rem}table{width:100%;border-collapse:collapse;font-size:.9rem}th,td{text-align:left;padding:10px;border-bottom:1px solid #24364d}th{color:#8ea2ba;font-size:.72rem;text-transform:uppercase;letter-spacing:.07em}.muted{color:#8295ac}.queues{display:grid;grid-template-columns:1fr 1fr;gap:14px}.queue{padding:14px;background:#0b1626;border-radius:12px}.queue strong{font-size:1.4rem}.footer{margin-top:18px;color:#7f93aa;font-size:.78rem}code{color:#8ce7cc}@media(max-width:850px){body{padding:16px}header{display:block}.status{margin-top:14px}.cards{grid-template-columns:1fr 1fr}.grid{grid-template-columns:1fr}}@media(max-width:520px){.cards,.queues{grid-template-columns:1fr}}</style></head><body><main class=\"shell\">\n    <header><div><h1>Piloto Renovaciones</h1><p>Ventana de ${number(row.window_hours)} horas · ${escape(startsAt)} a ${escape(generatedAt)}</p></div><div><span class=\"status ${alertClass}\">${alertText}</span></div></header>\n    <section class=\"cards\">\n      <article class=\"card\"><span>Respuestas inbound</span><strong>${number(row.inbound_messages)}</strong><small>${number(row.responding_conversations)} conversaciones</small></article>\n      <article class=\"card\"><span>Mensajes bot aceptados</span><strong>${number(row.bot_messages_accepted)}</strong><small>${number(row.bot_messages_delivered)} entregados o leídos</small></article>\n      <article class=\"card\"><span>Handoffs exitosos</span><strong>${number(row.successful_handoffs)}</strong><small>${number(row.resolved_handoffs)} resueltos</small></article>\n      <article class=\"card\"><span>Fallos operativos</span><strong>${number(row.interaction_failures)}</strong><small>${number(row.double_llm_failures)} fallos dobles LLM</small></article>\n    </section>\n    <section class=\"grid\"><article class=\"panel\"><h2>LLM por proveedor</h2><table><thead><tr><th>Proveedor</th><th>Intentos</th><th>Fallos</th><th>Promedio</th><th>P95</th></tr></thead><tbody>${llmRows}</tbody></table></article>\n      <article class=\"panel\"><h2>Colas actuales</h2><div class=\"queues\"><div class=\"queue\"><span class=\"muted\">Dispatch</span><p><strong>${number(row.dispatch_queued)}</strong> en cola</p><small>${number(row.dispatch_running)} running · ${number(row.dispatch_failed)} failed · más antiguo ${formatSeconds(row.dispatch_oldest_queued_seconds)}</small></div><div class=\"queue\"><span class=\"muted\">Callbacks Salesforce</span><p><strong>${number(row.callback_queued)}</strong> en cola</p><small>${number(row.callback_running)} running · ${number(row.callback_failed)} failed · más antiguo ${formatSeconds(row.callback_oldest_queued_seconds)}</small></div></div></article></section>\n    <section class=\"grid\"><article class=\"panel\"><h2>Fallos por evento</h2><table><tbody>${rowsFromObject(row.failures_by_event)}</tbody></table></article><article class=\"panel\"><h2>Conversaciones por estado</h2><table><tbody>${rowsFromObject(row.conversations_by_status)}</tbody></table></article></section>\n    <section class=\"grid\"><article class=\"panel\"><h2>Campaña HSM</h2><table><tbody><tr><td>Items</td><td>${number(row.hsm_items)}</td></tr><tr><td>Aceptados</td><td>${number(row.hsm_accepted)}</td></tr><tr><td>Entregados o leídos</td><td>${number(row.hsm_delivered)}</td></tr><tr><td>Fallidos</td><td>${number(row.hsm_failed)}</td></tr></tbody></table></article><article class=\"panel\"><h2>Guardas</h2><table><tbody><tr><td>Ventana automática abierta</td><td>${row.automatic_send_allowed === true ? 'Sí' : 'No'}</td></tr><tr><td>Dispatch estancados</td><td>${number(row.dispatch_stalled)}</td></tr><tr><td>Callbacks estancados</td><td>${number(row.callback_stalled)}</td></tr><tr><td>Takeovers humanos</td><td>${number(row.human_takeovers)}</td></tr></tbody></table></article></section>\n    <p class=\"footer\">Solo métricas agregadas. No muestra nombres, teléfonos, mensajes, payloads ni errores crudos. Cache deshabilitada.</p>\n  </main></body></html>`;\n  return [{ json: { statusCode: 200, html } }];"
+      }
+    },
+    {
+      "id": "util04-render-login",
+      "name": "Render Dashboard Login",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        120
+      ],
+      "parameters": {
+        "jsCode": "const input = $input.first().json || {};\n  const statusCode = Number(input.statusCode || 401);\n  const isLogin = statusCode === 401;\n  const title = isLogin ? 'Acceso operativo' : 'Tablero no disponible';\n  const detail = statusCode === 503\n    ? 'RENOV_INTERNAL_TOKEN no está configurado en el runtime.'\n    : (statusCode === 422\n      ? 'El parámetro hours debe ser un entero entre 1 y 168.'\n      : 'Ingrese el token interno. No se guarda en la URL ni en el navegador.');\n  const form = isLogin ? `<form id=\"login\">\n    <label for=\"token\">Token interno</label>\n    <input id=\"token\" name=\"token\" type=\"password\" autocomplete=\"off\" required>\n    <button type=\"submit\">Abrir tablero</button>\n    <p id=\"error\" role=\"alert\"></p>\n  </form>\n  <script>\n    document.getElementById('login').addEventListener('submit', async function (event) {\n      event.preventDefault();\n      const error = document.getElementById('error');\n      error.textContent = '';\n      try {\n        const token = document.getElementById('token').value;\n        const response = await fetch(location.pathname + location.search, {\n          headers: { Authorization: 'Bearer ' + token },\n          cache: 'no-store'\n        });\n        if (!response.ok) throw new Error('Acceso rechazado (' + response.status + ').');\n        const html = await response.text();\n        document.open(); document.write(html); document.close();\n      } catch (requestError) {\n        error.textContent = requestError.message || 'No se pudo abrir el tablero.';\n      }\n    });\n  </script>` : '';\n  const html = `<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>${title}</title><style>\n    :root{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui,sans-serif;background:#0b1220;color:#e7edf7}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}.panel{width:min(440px,100%);background:#121d30;border:1px solid #29405f;border-radius:18px;padding:28px;box-shadow:0 24px 70px #02061180}h1{margin:0 0 8px;font-size:1.6rem}p{color:#aab8ca;line-height:1.5}label{display:block;margin:22px 0 8px;font-weight:700}input{box-sizing:border-box;width:100%;padding:12px;border-radius:10px;border:1px solid #3b5578;background:#08101d;color:#fff}button{margin-top:14px;width:100%;padding:12px;border:0;border-radius:10px;background:#33d6a6;color:#06140f;font-weight:800;cursor:pointer}#error{color:#ff9c9c;min-height:1.5em}</style></head><body><main class=\"panel\"><h1>${title}</h1><p>${detail}</p>${form}</main></body></html>`;\n  return [{ json: { statusCode, html } }];"
+      }
+    },
+    {
+      "id": "util04-response",
+      "name": "Respond Observability HTML",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        900,
+        0
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseCode": "={{ $json.statusCode }}",
+          "enableStreaming": false,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store, max-age=0"
+              },
+              {
+                "name": "Content-Security-Policy",
+                "value": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'"
+              },
+              {
+                "name": "Referrer-Policy",
+                "value": "no-referrer"
+              },
+              {
+                "name": "X-Content-Type-Options",
+                "value": "nosniff"
+              },
+              {
+                "name": "X-Frame-Options",
+                "value": "DENY"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "GET Pilot Observability": {
+      "main": [
+        [
+          {
+            "node": "Authenticate Dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Authenticate Dashboard": {
+      "main": [
+        [
+          {
+            "node": "IF Dashboard Authorized?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Dashboard Authorized?": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Aggregate Pilot Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Render Dashboard Login",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Aggregate Pilot Metrics": {
+      "main": [
+        [
+          {
+            "node": "Render Observability Dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Observability Dashboard": {
+      "main": [
+        [
+          {
+            "node": "Respond Observability HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Dashboard Login": {
+      "main": [
+        [
+          {
+            "node": "Respond Observability HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false,
+    "executionTimeout": 30
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "ce6928ba-7ccc-5fee-abe3-4e8610ef1a3e",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

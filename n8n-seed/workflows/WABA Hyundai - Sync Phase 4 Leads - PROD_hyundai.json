@@ -1,0 +1,184 @@
+{
+  "id": "rM4X7sxUsOXIH9rD_hyundai",
+  "name": "WABA Hyundai - Sync Phase 4 Leads - PROD_hyundai",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "014f7b67-ebfd-439a-a957-7f63c6e45936",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -560,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/15 * 2-23 * * *"
+            }
+          ]
+        }
+      },
+      "id": "366f54c7-25c5-44e1-9610-23910872ff13",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -560,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "path": "waba-phase4-sync-run",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "f10b0034-856d-43f5-87b1-a5ca03b4868e",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -560,
+        240
+      ],
+      "webhookId": "3086949c-2368-4177-a3ab-ab6bd6e7c00f"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d1daae18-c932-4e2b-8a69-72bb7f969b36",
+              "name": "URL_MCP",
+              "value": "http://mcp_server_prod:8000",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "f4923d77-9494-4c08-a719-b15412b9a8d2",
+      "name": "Set MCP URL",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -304,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.URL_MCP + '/api/waba-leads/sync-next' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({}) }}",
+        "options": {}
+      },
+      "id": "2bb694b6-2cf4-4560-a819-f74032e605fa",
+      "name": "HTTP WABA Lead Sync Next",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -16,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $json || {};\nreturn [{ json: {\n  ok: Boolean(result.ok),\n  skipped: Boolean(result.skipped),\n  lead_id: result.lead_id || null,\n  sgc_sync_status: result.sgc_sync_status || null,\n  sgc_external_id: result.sgc_external_id || null,\n  establishment_id: result.establishment_id || null,\n  establishment_name: result.establishment_name || null,\n  establishment_source: result.establishment_source || null,\n  city: result.city || null,\n  message: result.message || result.error || null,\n  raw: result,\n} }];"
+      },
+      "id": "a777dd7e-fd1c-4ea1-9db3-dcf2073155d1",
+      "name": "Format Sync Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        80
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set MCP URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set MCP URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set MCP URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set MCP URL": {
+      "main": [
+        [
+          {
+            "node": "HTTP WABA Lead Sync Next",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP WABA Lead Sync Next": {
+      "main": [
+        [
+          {
+            "node": "Format Sync Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "d92e48cf-72ce-560e-aa76-d27b1ffbb9bc",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

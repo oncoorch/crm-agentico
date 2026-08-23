@@ -1,0 +1,246 @@
+{
+  "id": "ymKX2CimryRHKPbd_quicklink",
+  "name": "REN - DEV - UTIL-03 - Dispatch Status API_quicklink",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## UTIL-03 - Dispatch Status API\n\n`GET /webhook/renov/dev/v1/campaigns/dispatch/status?jobId=...`\n`GET /webhook/renov/dev/v1/campaigns/dispatch/status?sfDispatchId=...`\n\nEstado de un lote para soporte y reconciliacion. **Extension fuera del contrato T-1.18**: puede cambiar sin version mayor.\n\nEl resultado de entrega autoritativo sigue llegando por el callback `delivery-status`; este endpoint es de diagnostico, no reemplaza al callback.\n\nAuth: Bearer JWT de AUTH-01 + `X-Client-Id`.\n\nEl SQL vive en `renovaciones-db/dispatch/status_lookup.sql` y `make db-verify` ejecuta la misma sentencia contra PostgreSQL.\n\nNunca devuelve precios, promociones ni telefonos.",
+        "height": 460,
+        "width": 460
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -480,
+        -240
+      ],
+      "id": "util03-sticky",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "renov/dev/v1/campaigns/dispatch/status",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "util03-webhook",
+      "name": "GET Dispatch Status",
+      "webhookId": "ren-dev-util03-dispatch-status"
+    },
+    {
+      "parameters": {
+        "jsCode": "const providerOAuthCrypto = require('crypto');\nconst PROVIDER_OAUTH_REQUIRED_SCOPE = 'salesforce.integration';\nconst PROVIDER_OAUTH_TOKEN_TTL_SECONDS = 900;\n\nfunction providerOAuthEnv(name) {\n  try { return String($env[name] || ''); } catch (error) { return ''; }\n}\n\nfunction providerOAuthHeader(headers, name) {\n  const target = name.toLowerCase();\n  for (const [key, value] of Object.entries(headers || {})) {\n    if (String(key).toLowerCase() === target) return Array.isArray(value) ? value[0] : value;\n  }\n  return '';\n}\n\nfunction providerOAuthScopes(value) {\n  return [...new Set(String(value || '').trim().split(/\\s+/).filter(Boolean))];\n}\n\nfunction providerOAuthBase64Url(value) {\n  return Buffer.from(value).toString('base64').replace(/=/g, '').replace(/\\+/g, '-').replace(/\\//g, '_');\n}\n\nfunction providerOAuthDecodeSegment(segment) {\n  if (!/^[A-Za-z0-9_-]+$/.test(String(segment || ''))) throw new Error('invalid base64url');\n  const padding = (4 - (segment.length % 4)) % 4;\n  const decoded = Buffer.from(segment + '='.repeat(padding), 'base64');\n  if (providerOAuthBase64Url(decoded) !== segment) throw new Error('non-canonical base64url');\n  return decoded;\n}\n\nfunction providerOAuthFailure(statusCode, error, description) {\n  return { ok: false, statusCode, body: { error, error_description: description } };\n}\n\nfunction providerOAuthInvalidToken() {\n  return providerOAuthFailure(401, 'invalid_token', 'The access token is invalid or expired.');\n}\n\nfunction validateProviderBearerJwt(request) {\n  const jwtSecret = providerOAuthEnv('RENOV_OAUTH_JWT_SECRET');\n  const issuer = providerOAuthEnv('RENOV_OAUTH_ISSUER');\n  const audience = providerOAuthEnv('RENOV_OAUTH_AUDIENCE');\n  const configuredClientId = providerOAuthEnv('RENOV_OAUTH_CLIENT_ID');\n  const configuredScopes = providerOAuthScopes(providerOAuthEnv('RENOV_OAUTH_SCOPE'));\n  const allowedClientIds = providerOAuthEnv('RENOV_PROVIDER_CLIENT_IDS')\n    .split(',')\n    .map((value) => value.trim().toLowerCase())\n    .filter(Boolean);\n\n  if (!jwtSecret || !issuer || !audience || !configuredClientId\n      || !configuredScopes.includes(PROVIDER_OAUTH_REQUIRED_SCOPE)\n      || allowedClientIds.length === 0) {\n    return providerOAuthFailure(503, 'server_error', 'OAuth server configuration is unavailable.');\n  }\n\n  const headers = request && request.headers && typeof request.headers === 'object' ? request.headers : {};\n  const authorization = String(providerOAuthHeader(headers, 'authorization') || '');\n  const bearerMatch = authorization.match(/^Bearer[ \\t]+([^ \\t]+)[ \\t]*$/i);\n  const xClientId = String(providerOAuthHeader(headers, 'x-client-id') || '').trim().toLowerCase();\n  if (!bearerMatch || !xClientId || !allowedClientIds.includes(xClientId)) return providerOAuthInvalidToken();\n\n  const token = bearerMatch[1];\n  const parts = token.split('.');\n  if (parts.length !== 3) return providerOAuthInvalidToken();\n\n  let header;\n  let payload;\n  let signature;\n  try {\n    header = JSON.parse(providerOAuthDecodeSegment(parts[0]).toString('utf8'));\n    payload = JSON.parse(providerOAuthDecodeSegment(parts[1]).toString('utf8'));\n    signature = providerOAuthDecodeSegment(parts[2]);\n  } catch (error) {\n    return providerOAuthInvalidToken();\n  }\n  if (!header || typeof header !== 'object' || Array.isArray(header) || header.alg !== 'HS256') {\n    return providerOAuthInvalidToken();\n  }\n  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return providerOAuthInvalidToken();\n\n  const expectedSignature = providerOAuthCrypto\n    .createHmac('sha256', jwtSecret)\n    .update(parts[0] + '.' + parts[1], 'utf8')\n    .digest();\n  if (signature.length !== expectedSignature.length\n      || !providerOAuthCrypto.timingSafeEqual(signature, expectedSignature)) {\n    return providerOAuthInvalidToken();\n  }\n\n  if (payload.iss !== issuer || payload.aud !== audience\n      || typeof payload.sub !== 'string' || typeof payload.client_id !== 'string'\n      || payload.sub !== configuredClientId || payload.client_id !== configuredClientId\n      || payload.sub !== payload.client_id) {\n    return providerOAuthInvalidToken();\n  }\n\n  const tokenScopes = providerOAuthScopes(payload.scope);\n  if (!tokenScopes.includes(PROVIDER_OAUTH_REQUIRED_SCOPE)\n      || !tokenScopes.every((scope) => configuredScopes.includes(scope))) {\n    return providerOAuthFailure(403, 'insufficient_scope', 'The access token lacks the required scope.');\n  }\n\n  const numericDatesAreValid = Number.isSafeInteger(payload.iat)\n    && Number.isSafeInteger(payload.nbf)\n    && Number.isSafeInteger(payload.exp);\n  const now = Math.floor(Date.now() / 1000);\n  if (!numericDatesAreValid\n      || payload.nbf !== payload.iat\n      || payload.exp - payload.iat !== PROVIDER_OAUTH_TOKEN_TTL_SECONDS\n      || payload.iat > now\n      || payload.nbf > now\n      || payload.exp <= now) {\n    return providerOAuthInvalidToken();\n  }\n\n  return {\n    ok: true,\n    clientId: payload.client_id,\n    providerClientId: xClientId,\n    scope: tokenScopes.join(' '),\n    claims: payload,\n  };\n}\n\nconst providerOAuthRequest = $input.first().json || {};\nconst providerOAuthAuth = validateProviderBearerJwt(providerOAuthRequest);\nif (!providerOAuthAuth.ok) {\n  return [{ json: { statusCode: providerOAuthAuth.statusCode, body: providerOAuthAuth.body, authorized: false } }];\n}\n\n// =====================================================================\n// REUSABLE SNIPPET — kept identical to AUTH-01 / UTIL-02.\n// Contract: docs/CONTRATO_API_SALESFORCE.md, \"Autenticacion (T-1.17)\".\n// =====================================================================\nfunction response(statusCode, body) {\n  return [{ json: { statusCode, body } }];\n}\nfunction apiError(statusCode, code, message, details = []) {\n  return response(statusCode, { code, message, details });\n}\n// ======================= end of reusable snippet =======================\n\nconst request = $input.first().json || {};\nconst query = request.query ?? {};\n\nconst UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\n\nconst jobId = String(query.jobId ?? query.job_id ?? '').trim();\nconst sfDispatchId = String(query.sfDispatchId ?? query.sf_dispatch_id ?? query.dispatchId ?? '').trim();\n\nif (!jobId && !sfDispatchId) {\n  return apiError(422, 'MISSING_REQUIRED_FIELD', 'Indique jobId o sfDispatchId.');\n}\nif (jobId && sfDispatchId) {\n  return apiError(422, 'AMBIGUOUS_IDENTIFIER', 'Indique jobId o sfDispatchId, no ambos.');\n}\n// The SQL casts $1 to uuid: an unparseable value must never reach PostgreSQL.\nif (jobId && !UUID_PATTERN.test(jobId)) {\n  return apiError(422, 'INVALID_JOB_ID', 'jobId debe ser un UUID.');\n}\nif (sfDispatchId && sfDispatchId.length > 255) {\n  return apiError(422, 'INVALID_DISPATCH_ID', 'sfDispatchId excede la longitud admitida.');\n}\n\nreturn [{\n  json: {\n    statusCode: 200,\n    ok: true,\n    job_id: jobId || null,\n    sf_dispatch_id: sfDispatchId || null,\n    sql: \"-- Read-only status of a single dispatch, for support and reconciliation.\\n--\\n-- Extension outside the committed T-1.18 contract; see\\n-- docs/CONTRATO_API_SALESFORCE.md, \\\"Extensiones fuera del contrato comprometido\\\".\\n-- Consumed by UTIL-03. Accepts either identifier: $1 is the provider job_id and\\n-- $2 is the sf_dispatchId Salesforce supplied as the idempotency key.\\n--\\n-- Never returns prices, promotions or recipient phone numbers: the failure list\\n-- is keyed by the Salesforce account id the caller already owns.\\nWITH requested AS (\\n  SELECT\\n    nullif(btrim($1::text), '')::uuid AS job_id,\\n    nullif(btrim($2::text), '')       AS sf_dispatch_id\\n)\\nSELECT\\n  dispatch.id::text            AS job_id,\\n  dispatch.sf_dispatch_id      AS sf_dispatch_id,\\n  dispatch.salesforce_campaign_id,\\n  dispatch.campaign_name,\\n  dispatch.segment_month::text AS segment_month,\\n  dispatch.template_name,\\n  dispatch.status::text        AS status,\\n  dispatch.requested_count,\\n  dispatch.accepted_count,\\n  dispatch.rejected_count,\\n  dispatch.rejections,\\n  dispatch.worker_attempt_count,\\n  dispatch.last_http_status,\\n  dispatch.last_error,\\n  dispatch.requested_at,\\n  dispatch.started_at,\\n  dispatch.completed_at,\\n  dispatch.next_attempt_at,\\n  coalesce(counts.by_status, '{}'::jsonb) AS delivery_counts,\\n  coalesce(failures.items, '[]'::jsonb)   AS delivery_failures\\nFROM renovation_dev.quicklink_campaign_dispatches AS dispatch\\nCROSS JOIN requested\\nLEFT JOIN LATERAL (\\n  SELECT jsonb_object_agg(grouped.status, grouped.total) AS by_status\\n  FROM (\\n    SELECT item.status::text AS status, count(*) AS total\\n    FROM renovation_dev.quicklink_campaign_dispatch_items AS item\\n    WHERE item.dispatch_id = dispatch.id\\n    GROUP BY item.status\\n  ) AS grouped\\n) AS counts ON true\\nLEFT JOIN LATERAL (\\n  SELECT jsonb_agg(\\n    jsonb_build_object(\\n      'sf_accountId', recent.salesforce_customer_id,\\n      'status', recent.status,\\n      'reason', recent.reason\\n    )\\n  ) AS items\\n  FROM (\\n    SELECT\\n      item.salesforce_customer_id,\\n      item.status::text                                 AS status,\\n      coalesce(item.reject_reason, item.last_error)     AS reason,\\n      item.updated_at\\n    FROM renovation_dev.quicklink_campaign_dispatch_items AS item\\n    WHERE item.dispatch_id = dispatch.id\\n      AND (\\n        item.status = 'failed'::renovation_dev.delivery_status\\n        OR item.reject_reason IS NOT NULL\\n      )\\n    ORDER BY item.updated_at DESC\\n    LIMIT 50\\n  ) AS recent\\n) AS failures ON true\\nWHERE (requested.job_id IS NOT NULL AND dispatch.id = requested.job_id)\\n   OR (requested.sf_dispatch_id IS NOT NULL AND dispatch.sf_dispatch_id = requested.sf_dispatch_id)\\nLIMIT 1\",\n    query_params: [jobId || null, sfDispatchId || null],\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "id": "util03-validate",
+      "name": "Validate Dispatch Status"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ok",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        0
+      ],
+      "id": "util03-gate",
+      "name": "IF Dispatch Status Accepted"
+    },
+    {
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": {
+          "queryReplacement": "={{ $json.query_params }}",
+          "queryBatching": "single"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        720,
+        -96
+      ],
+      "id": "util03-postgres",
+      "name": "Postgres - Read Dispatch Status",
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Shapes the dispatch status response documented in\n// docs/CONTRATO_API_SALESFORCE.md, \"Extensiones fuera del contrato comprometido\".\n// Mirrors the field names of the 202 body of POST /v1/campaigns/dispatch so\n// Salesforce reads one vocabulary. Never returns prices, promotions or phones.\nconst row = $input.first().json ?? {};\n\nif (!row || !row.job_id) {\n  return [{\n    json: {\n      statusCode: 404,\n      body: {\n        code: 'DISPATCH_NOT_FOUND',\n        message: 'No existe un lote con ese identificador.',\n        details: [],\n      },\n    },\n  }];\n}\n\nreturn [{\n  json: {\n    statusCode: 200,\n    body: {\n      job_id: row.job_id,\n      sf_dispatchId: row.sf_dispatch_id ?? null,\n      sf_campaignId: row.salesforce_campaign_id ?? null,\n      campaignName: row.campaign_name ?? null,\n      monthSegment: row.segment_month ?? null,\n      templateId: row.template_name ?? null,\n      status: String(row.status ?? '').toUpperCase(),\n      received: row.requested_count ?? 0,\n      accepted: row.accepted_count ?? 0,\n      rejected: row.rejected_count ?? 0,\n      rejectedItems: Array.isArray(row.rejections) ? row.rejections : [],\n      deliveryCounts: row.delivery_counts ?? {},\n      deliveryFailures: Array.isArray(row.delivery_failures) ? row.delivery_failures : [],\n      attempts: row.worker_attempt_count ?? 0,\n      lastHttpStatus: row.last_http_status ?? null,\n      lastError: row.last_error ?? null,\n      requestedAt: row.requested_at ?? null,\n      startedAt: row.started_at ?? null,\n      completedAt: row.completed_at ?? null,\n      nextAttemptAt: row.next_attempt_at ?? null,\n    },\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        -96
+      ],
+      "id": "util03-shape",
+      "name": "Shape Dispatch Status Response"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.statusCode }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1200,
+        -96
+      ],
+      "id": "util03-respond",
+      "name": "Respond Dispatch Status"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.statusCode }}"
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        720,
+        128
+      ],
+      "id": "util03-respond-rejected",
+      "name": "Respond Dispatch Status Rejected"
+    }
+  ],
+  "connections": {
+    "GET Dispatch Status": {
+      "main": [
+        [
+          {
+            "node": "Validate Dispatch Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Dispatch Status": {
+      "main": [
+        [
+          {
+            "node": "IF Dispatch Status Accepted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Dispatch Status Accepted": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Read Dispatch Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Dispatch Status Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Read Dispatch Status": {
+      "main": [
+        [
+          {
+            "node": "Shape Dispatch Status Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Dispatch Status Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Dispatch Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "521cfe7e-4ee0-5ff6-a18f-49e0b4ee4533",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

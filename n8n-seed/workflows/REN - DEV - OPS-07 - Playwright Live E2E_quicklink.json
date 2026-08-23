@@ -1,0 +1,446 @@
+{
+  "id": "7qOe8SQbtss5MB24_quicklink",
+  "name": "REN - DEV - OPS-07 - Playwright Live E2E_quicklink",
+  "nodes": [
+    {
+      "id": "ops07-sticky",
+      "name": "OPS-07 Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -960,
+        -260
+      ],
+      "parameters": {
+        "content": "## OPS-07 - Playwright Live E2E\n\nProxy interno para el sidecar oficial de Playwright.\n\n- `GET /webhook/renov/dev/ops/playwright-live-e2e/session-status?fixtureSlot=1|2|3`\n- `POST /webhook/renov/dev/ops/playwright-live-e2e/session-qr?fixtureSlot=1|2|3`\n- `POST /webhook/renov/dev/ops/playwright-live-e2e/run?fixtureSlot=1|2|3`\n- `GET /webhook/renov/dev/ops/playwright-live-e2e/run-status?runId=...`\n\nCada ranura tiene un perfil WhatsApp Web aislado. Entrada: `RENOV_INTERNAL_TOKEN`. Salida: `RENOV_E2E_RUNNER_TOKEN`, dedicado y distinto.\n\nEl workflow no acepta URL, método, headers ni body arbitrarios. No retiene ejecuciones. El sidecar debe permanecer sin puerto publicado y con `RENOV_E2E_LIVE_ENABLED=false` salvo durante una ventana controlada.",
+        "height": 500,
+        "width": 460
+      }
+    },
+    {
+      "id": "ops07-session-status",
+      "name": "GET Session Status",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -420,
+        -240
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "renov/dev/ops/playwright-live-e2e/session-status",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "554b2e3c-f7b8-4f77-8cb0-dafd471816e5"
+    },
+    {
+      "id": "ops07-session-qr",
+      "name": "POST Session QR",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -420,
+        -80
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "renov/dev/ops/playwright-live-e2e/session-qr",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "67971914-d09e-42ee-a4dd-8ca68dfebfc6"
+    },
+    {
+      "id": "ops07-run",
+      "name": "POST Live Run",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -420,
+        80
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "renov/dev/ops/playwright-live-e2e/run",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "97e570c4-2a9c-4c12-a493-4f4a0f63eac6"
+    },
+    {
+      "id": "ops07-run-status",
+      "name": "GET Run Status",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -420,
+        240
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "renov/dev/ops/playwright-live-e2e/run-status",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "736169ac-a9a5-4f9a-bef2-17591d58c641"
+    },
+    {
+      "id": "ops07-prepare",
+      "name": "Authenticate and Prepare E2E Proxy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -120,
+        0
+      ],
+      "parameters": {
+        "jsCode": "function env(name) {\n  try { return String($env[name] || '').trim(); } catch (error) { return ''; }\n}\nfunction readHeader(headers, name) {\n  const target = name.toLowerCase();\n  for (const [key, value] of Object.entries(headers || {})) {\n    if (String(key).toLowerCase() === target) return Array.isArray(value) ? value[0] : value;\n  }\n  return '';\n}\nfunction safeEqual(left, right) {\n  const a = String(left || '');\n  const b = String(right || '');\n  if (!a || a.length !== b.length) return false;\n  let difference = 0;\n  for (let index = 0; index < a.length; index += 1) difference |= a.charCodeAt(index) ^ b.charCodeAt(index);\n  return difference === 0;\n}\nfunction reject(statusCode, code, message) {\n  return [{ json: { request_valid: false, statusCode, body: { code, message } } }];\n}\n\nconst request = $input.first().json || {};\nconst headers = request.headers || {};\nconst expectedToken = env('RENOV_INTERNAL_TOKEN');\nconst runnerToken = env('RENOV_E2E_RUNNER_TOKEN');\nconst runnerBase = env('RENOV_E2E_RUNNER_URL').replace(/\\/+$/, '');\n\nif (!expectedToken || !runnerToken || !runnerBase) {\n  return reject(503, 'CONFIG_ERROR', 'La orquestación E2E no está configurada.');\n}\n\nconst baseMatch = runnerBase.match(/^https?:\\/\\/[a-z0-9._-]+(?::([0-9]{1,5}))?$/i);\nif (!baseMatch || (baseMatch[1] && Number(baseMatch[1]) > 65535)) {\n  return reject(503, 'CONFIG_ERROR', 'RENOV_E2E_RUNNER_URL no es una base URL válida.');\n}\n\nconst authorization = String(readHeader(headers, 'authorization') || '');\nconst providedToken = readHeader(headers, 'x-internal-token')\n  || (/^Bearer\\s+/i.test(authorization) ? authorization.replace(/^Bearer\\s+/i, '').trim() : '');\nif (!safeEqual(providedToken, expectedToken)) {\n  return reject(401, 'UNAUTHORIZED', 'Token interno inválido o ausente.');\n}\n\nconst pathname = String(request.webhookUrl || '').split(/[?#]/, 1)[0].replace(/\\/+$/, '');\nconst operations = {\n  '/session-status': { operation: 'session_status', method: 'GET', path: '/session/status', fixture: true },\n  '/session-qr': { operation: 'session_qr', method: 'POST', path: '/session/qr', fixture: true },\n  '/run': { operation: 'run', method: 'POST', path: '/runs', fixture: true },\n};\n\nlet route = Object.entries(operations).find(([suffix]) => pathname.endsWith(suffix))?.[1] || null;\nif (pathname.endsWith('/run-status')) {\n  const runId = String(request.query?.runId ?? request.query?.run_id ?? '').trim();\n  if (!runId) return reject(422, 'MISSING_REQUIRED_FIELD', 'Indique runId.');\n  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(runId)) {\n    return reject(422, 'INVALID_RUN_ID', 'runId debe ser un UUID.');\n  }\n  route = { operation: 'run_status', method: 'GET', path: '/runs/' + encodeURIComponent(runId) };\n}\nif (!route) return reject(404, 'NOT_FOUND', 'Operación E2E desconocida.');\nlet fixtureSlot = null;\nif (route.fixture) {\n  fixtureSlot = Number(request.query?.fixtureSlot ?? request.query?.fixture_slot ?? 0);\n  if (!Number.isInteger(fixtureSlot) || fixtureSlot < 1 || fixtureSlot > 3) {\n    return reject(422, 'INVALID_FIXTURE_SLOT', 'fixtureSlot debe ser 1, 2 o 3.');\n  }\n}\n\nreturn [{ json: {\n  request_valid: true,\n  statusCode: 200,\n  operation: route.operation,\n  runner_method: route.method,\n  fixture_slot: fixtureSlot,\n  runner_url: runnerBase + route.path + (fixtureSlot ? '?fixtureSlot=' + fixtureSlot : ''),\n} }];"
+      }
+    },
+    {
+      "id": "ops07-valid-gate",
+      "name": "IF Proxy Request Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        120,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "request-valid",
+              "leftValue": "={{ $json.request_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ops07-method-gate",
+      "name": "IF Runner Method Is GET",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        360,
+        -80
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "runner-method-get",
+              "leftValue": "={{ $json.runner_method }}",
+              "rightValue": "GET",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ops07-runner-get",
+      "name": "HTTP Runner GET",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        600,
+        -160
+      ],
+      "parameters": {
+        "url": "={{ $json.runner_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.RENOV_E2E_RUNNER_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "ops07-runner-post",
+      "name": "HTTP Runner POST",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        600,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.runner_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.RENOV_E2E_RUNNER_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({}) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "ops07-shape",
+      "name": "Shape Runner Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        -80
+      ],
+      "parameters": {
+        "jsCode": "const response = $input.first().json || {};\nconst statusCode = Number(response.statusCode ?? response.status ?? 0);\nif (!Number.isInteger(statusCode) || statusCode < 100 || statusCode > 599) {\n  return [{ json: {\n    statusCode: 502,\n    body: { code: 'E2E_RUNNER_UNAVAILABLE', message: 'El runner Playwright no respondió.' },\n  } }];\n}\n\nconst body = response.body;\nif (!body || typeof body !== 'object' || Array.isArray(body)) {\n  return [{ json: {\n    statusCode: 502,\n    body: { code: 'E2E_RUNNER_INVALID_RESPONSE', message: 'El runner Playwright devolvió una respuesta inválida.' },\n  } }];\n}\n\nreturn [{ json: { statusCode, body } }];"
+      }
+    },
+    {
+      "id": "ops07-respond",
+      "name": "Respond E2E Proxy",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1080,
+        -80
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.statusCode }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "ops07-respond-rejected",
+      "name": "Respond E2E Proxy Rejected",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        360,
+        160
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.statusCode }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "GET Session Status": {
+      "main": [
+        [
+          {
+            "node": "Authenticate and Prepare E2E Proxy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST Session QR": {
+      "main": [
+        [
+          {
+            "node": "Authenticate and Prepare E2E Proxy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST Live Run": {
+      "main": [
+        [
+          {
+            "node": "Authenticate and Prepare E2E Proxy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Run Status": {
+      "main": [
+        [
+          {
+            "node": "Authenticate and Prepare E2E Proxy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Authenticate and Prepare E2E Proxy": {
+      "main": [
+        [
+          {
+            "node": "IF Proxy Request Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Proxy Request Valid": {
+      "main": [
+        [
+          {
+            "node": "IF Runner Method Is GET",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond E2E Proxy Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Runner Method Is GET": {
+      "main": [
+        [
+          {
+            "node": "HTTP Runner GET",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Runner POST",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Runner GET": {
+      "main": [
+        [
+          {
+            "node": "Shape Runner Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Runner POST": {
+      "main": [
+        [
+          {
+            "node": "Shape Runner Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Runner Response": {
+      "main": [
+        [
+          {
+            "node": "Respond E2E Proxy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false,
+    "executionTimeout": 180,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "51a69f02-26ed-5d96-92e4-f47a2a7ea913",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

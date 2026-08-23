@@ -1,0 +1,1692 @@
+{
+  "id": "H0eqY6OiyRqRKpqR_hyundai",
+  "name": "MCP Calendar_hyundai",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "operation"
+            },
+            {
+              "name": "startDate"
+            },
+            {
+              "name": "endDate"
+            },
+            {
+              "name": "timeZone"
+            },
+            {
+              "name": "summary"
+            },
+            {
+              "name": "leadId"
+            },
+            {
+              "name": "name"
+            },
+            {
+              "name": "email"
+            },
+            {
+              "name": "phone"
+            },
+            {
+              "name": "eventId"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -832,
+        400
+      ],
+      "id": "3c464d8c-919b-4b4c-8de1-365c77157e65",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "lHBZzc3pz94nZ1et",
+          "mode": "list",
+          "cachedResultName": "EOS — MCP Agendamiento tool"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "operation": "createEvent",
+            "startDate": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('startDate', ``, 'string') }}",
+            "endDate": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('endDate', ``, 'string') }}",
+            "timeZone": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('timeZone', ``, 'string') }}",
+            "summary": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('summary', ``, 'string') }}",
+            "leadId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('leadId', ``, 'string') }}",
+            "name": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('name', ``, 'string') }}",
+            "email": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('email', ``, 'string') }}",
+            "phone": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('phone', ``, 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "operation",
+              "displayName": "operation",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "startDate",
+              "displayName": "startDate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "endDate",
+              "displayName": "endDate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "timeZone",
+              "displayName": "timeZone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "summary",
+              "displayName": "summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "leadId",
+              "displayName": "leadId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        -1616,
+        464
+      ],
+      "id": "0618b91e-7cb1-45bc-929d-318cfcff42db",
+      "name": "create_event"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "lHBZzc3pz94nZ1et",
+          "mode": "list",
+          "cachedResultName": "EOS — MCP Agendamiento tool"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "operation": "updateEvent",
+            "startDate": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('startDate', ``, 'string') }}",
+            "endDate": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('endDate', ``, 'string') }}",
+            "eventId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('eventId', ``, 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "operation",
+              "displayName": "operation",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "startDate",
+              "displayName": "startDate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "endDate",
+              "displayName": "endDate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "timeZone",
+              "displayName": "timeZone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "summary",
+              "displayName": "summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "leadId",
+              "displayName": "leadId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "eventId",
+              "displayName": "eventId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        -1488,
+        464
+      ],
+      "id": "cf6f5bd3-3236-4bb2-81e3-f3eef40e37c6",
+      "name": "update_event"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "lHBZzc3pz94nZ1et",
+          "mode": "list",
+          "cachedResultName": "EOS — MCP Agendamiento tool"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "operation": "deleteEvent",
+            "eventId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('eventId', ``, 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "operation",
+              "displayName": "operation",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "startDate",
+              "displayName": "startDate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "endDate",
+              "displayName": "endDate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "timeZone",
+              "displayName": "timeZone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "summary",
+              "displayName": "summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "leadId",
+              "displayName": "leadId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "eventId",
+              "displayName": "eventId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        -1360,
+        464
+      ],
+      "id": "9e2b3a2c-044d-4487-9733-cc82549851f4",
+      "name": "delete_event"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "lHBZzc3pz94nZ1et",
+          "mode": "list",
+          "cachedResultName": "EOS — MCP Agendamiento tool"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "operation": "getEvent",
+            "startDate": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('startDate', ``, 'string') }}",
+            "endDate": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('endDate', ``, 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "operation",
+              "displayName": "operation",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "startDate",
+              "displayName": "startDate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "endDate",
+              "displayName": "endDate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "timeZone",
+              "displayName": "timeZone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "summary",
+              "displayName": "summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "leadId",
+              "displayName": "leadId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "eventId",
+              "displayName": "eventId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        -1232,
+        464
+      ],
+      "id": "4efd6c46-844b-48e6-8551-b72fd1c551bd",
+      "name": "check_hour"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "lHBZzc3pz94nZ1et",
+          "mode": "list",
+          "cachedResultName": "EOS — MCP Agendamiento tool"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "startDate": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('startDate', ``, 'string') }}",
+            "endDate": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('endDate', ``, 'string') }}",
+            "operation": "getEventData"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "operation",
+              "displayName": "operation",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "startDate",
+              "displayName": "startDate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "endDate",
+              "displayName": "endDate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "timeZone",
+              "displayName": "timeZone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "summary",
+              "displayName": "summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "leadId",
+              "displayName": "leadId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "eventId",
+              "displayName": "eventId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        -1104,
+        464
+      ],
+      "id": "6bece2b5-4c6f-457e-9956-aa8120f15dfa",
+      "name": "check_day"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\n  \"leadId\": \"{{ $json.leadId }}\",\n  \"name\": \"{{ $json.name }}\",\n  \"email\": \"{{ $json.email }}\",\n  \"phone\": \"{{ $json.phone }}\",\n  \"operation\": \"{{ $json.operation }}\",\n  \"startDate\": \"{{ $json.startDate}}\",\n  \"endDate\": \"{{ $json.endDate }}\",\n  \"eventId\": \"{{ $json.eventId }}\",\n  \"timeZone\": \"{{$json.timeZone}}\",\n  \"summary\": \"{{ $json.summary }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -608,
+        400
+      ],
+      "id": "d221da0e-d32f-49b0-9bac-bef60cb42275",
+      "name": "map_data"
+    },
+    {
+      "parameters": {
+        "resource": "calendar",
+        "calendar": {
+          "__rl": true,
+          "value": "cto@aigentss.com",
+          "mode": "list",
+          "cachedResultName": "cto@aigentss.com"
+        },
+        "timeMin": "={{ $('map_data').item.json.startDate }}",
+        "timeMax": "={{ $('map_data').item.json.endDate }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "8bf064ec-8853-4aab-93f1-71a8cdee64de",
+      "name": "Get availability in a calendar",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "WxIL4h1aEEilZlIw_hyundai",
+          "name": "Google Calendar account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "calendar",
+        "calendar": {
+          "__rl": true,
+          "value": "cto@aigentss.com",
+          "mode": "list",
+          "cachedResultName": "cto@aigentss.com"
+        },
+        "timeMin": "={{ $('map_data').item.json.startDate }}",
+        "timeMax": "={{ $('map_data').item.json.endDate }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        192
+      ],
+      "id": "400630bf-7e11-4432-95ae-3a791245aded",
+      "name": "Get availability in a calendar1",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "WxIL4h1aEEilZlIw_hyundai",
+          "name": "Google Calendar account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "value": "cto@aigentss.com",
+          "mode": "list",
+          "cachedResultName": "cto@aigentss.com"
+        },
+        "start": "={{ $('map_data').item.json.startDate }}",
+        "end": "={{ $('map_data').item.json.endDate }}",
+        "additionalFields": {
+          "attendees": [
+            "={{ $('map_data').item.json.email }}"
+          ],
+          "description": "={{ $('map_data').item.json.summary }} \nTel: {{ $('map_data').item.json.phone }} ",
+          "summary": "={{ $('map_data').item.json.name }}"
+        }
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        448,
+        96
+      ],
+      "id": "6ec93cba-2a6b-4914-a685-37a553a16331",
+      "name": "create_calendar",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "WxIL4h1aEEilZlIw_hyundai",
+          "name": "Google Calendar account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "errorMessage": "the event to create is busy"
+      },
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        448,
+        288
+      ],
+      "id": "9dd8141a-730d-4738-8107-85a882c64dd9",
+      "name": "Stop and Error"
+    },
+    {
+      "parameters": {
+        "tableId": "events",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "event_id",
+              "fieldValue": "={{ $json.id }}"
+            },
+            {
+              "fieldId": "event_name",
+              "fieldValue": "={{ $json.summary}}"
+            },
+            {
+              "fieldId": "event_description",
+              "fieldValue": "={{ $json.description }}"
+            },
+            {
+              "fieldId": "attendances",
+              "fieldValue": "={{ $json.attendees.map(item => item.email) }}"
+            },
+            {
+              "fieldId": "event_start_date",
+              "fieldValue": "={{ $json.start.dateTime }}"
+            },
+            {
+              "fieldId": "event_end_date",
+              "fieldValue": "={{ $json.end.dateTime }}"
+            },
+            {
+              "fieldId": "time_zone",
+              "fieldValue": "={{ $json.start.timeZone }}"
+            },
+            {
+              "fieldId": "lead_id",
+              "fieldValue": "={{ $('map_data').item.json.leadId }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "booked"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        672,
+        96
+      ],
+      "id": "54bf897b-1d7a-4e49-98ab-76341b36f246",
+      "name": "Create a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "WJQWeJT0E8yjH8Fg_hyundai",
+          "name": "Supabase account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8aa08686-8bcd-48a9-9f3c-d42a6e936f21",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "cancelled",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        224,
+        576
+      ],
+      "id": "93dc4d78-48e9-4939-9d31-2438ecd6e687",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "calendar": {
+          "__rl": true,
+          "value": "cto@aigentss.com",
+          "mode": "list",
+          "cachedResultName": "cto@aigentss.com"
+        },
+        "eventId": "={{ $('map_data').item.json.eventId }}",
+        "updateFields": {
+          "end": "={{ $('map_data').item.json.endDate }}",
+          "start": "={{ $('map_data').item.json.startDate }}"
+        }
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        448,
+        480
+      ],
+      "id": "ef12b42f-931c-43f4-97f7-9ffc5d37411f",
+      "name": "update_calendar",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "WxIL4h1aEEilZlIw_hyundai",
+          "name": "Google Calendar account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "errorMessage": "the event doesn't exist"
+      },
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        448,
+        672
+      ],
+      "id": "bec9c029-110a-4166-aaa5-6063df4d95d3",
+      "name": "Stop and Error1"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "events",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "event_id",
+              "condition": "eq",
+              "keyValue": "={{ $('map_data').item.json.eventId }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "event_start_date",
+              "fieldValue": "={{ $('map_data').item.json.startDate }}"
+            },
+            {
+              "fieldId": "event_end_date",
+              "fieldValue": "={{ $('map_data').item.json.endDate }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        672,
+        480
+      ],
+      "id": "c74f79b1-9d2f-4fd8-8012-0d5a3da6b9d3",
+      "name": "update_record",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "WJQWeJT0E8yjH8Fg_hyundai",
+          "name": "Supabase account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f4d5a756-c83c-4915-b2de-8d404e679f90",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "cancelled",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        224,
+        960
+      ],
+      "id": "dcbe8e4f-a39c-479e-9a0a-abf824c901c3",
+      "name": "If2"
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "calendar": {
+          "__rl": true,
+          "value": "cto@aigentss.com",
+          "mode": "list",
+          "cachedResultName": "cto@aigentss.com"
+        },
+        "eventId": "={{ $('map_data').item.json.eventId }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        448,
+        864
+      ],
+      "id": "aed7344f-b20c-4799-a2c8-abd296010c41",
+      "name": "delete_calendar",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "WxIL4h1aEEilZlIw_hyundai",
+          "name": "Google Calendar account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "events",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "event_id",
+              "condition": "eq",
+              "keyValue": "={{ $('map_data').item.json.eventId }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "cancelled"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        672,
+        864
+      ],
+      "id": "ab3f820f-bc16-4e79-ac01-38a45dc1fa05",
+      "name": "cancelled_event",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "WJQWeJT0E8yjH8Fg_hyundai",
+          "name": "Supabase account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "errorMessage": "the event doesn't exist"
+      },
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        448,
+        1056
+      ],
+      "id": "1f54bb00-b117-4b35-a3ea-de79f25b38af",
+      "name": "Stop and Error2"
+    },
+    {
+      "parameters": {
+        "resource": "calendar",
+        "calendar": {
+          "__rl": true,
+          "value": "cto@aigentss.com",
+          "mode": "list",
+          "cachedResultName": "cto@aigentss.com"
+        },
+        "timeMin": "={{ $('map_data').item.json.startDate }}",
+        "timeMax": "={{ $('map_data').item.json.endDate }}",
+        "options": {
+          "outputFormat": "bookedSlots"
+        }
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        768
+      ],
+      "id": "23adf2cb-0893-4166-adf5-66d521d9b15a",
+      "name": "get_event_in_time_gap",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "WxIL4h1aEEilZlIw_hyundai",
+          "name": "Google Calendar account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const WORK_START_TIME = '09:00:00'; // Configurable work start time (24-hour format)\nconst WORK_END_TIME_WEEKDAY = '18:00:00'; // Configurable work end time for weekdays\nconst WORK_END_TIME_SATURDAY = '12:00:00'; // Configurable work end time for Saturday\nconst TIMEZONE = 'America/Bogota'; // Configurable timezone\nconst TIMEZONE_OFFSET = '-05:00'; // Configurable timezone offset (must match TIMEZONE)\n\nconst busyEvents = items.map(item => item.json);\n\n// Check if input is empty or contains only empty objects\nif (busyEvents.length === 0 || (busyEvents.length === 1 && Object.keys(busyEvents[0]).length === 0)) {\n  return [{ json: { message: \"available\" } }];\n}\n\nconst eventsByDate = {};\nbusyEvents.forEach(event => {\n  // Skip empty or invalid events\n  if (!event.start || !event.end) return;\n  const date = event.start.slice(0, 10);\n  if (!eventsByDate[date]) {\n    eventsByDate[date] = [];\n  }\n  eventsByDate[date].push({ start: event.start, end: event.end });\n});\n\nfunction formatWithOffset(ms) {\n  const options = {\n    year: 'numeric',\n    month: '2-digit',\n    day: '2-digit',\n    hour: '2-digit',\n    minute: '2-digit',\n    second: '2-digit',\n    hour12: false,\n    timeZone: TIMEZONE\n  };\n  const formatter = new Intl.DateTimeFormat('en-US', options);\n  const parts = formatter.formatToParts(new Date(ms));\n  const map = {};\n  parts.forEach(p => {\n    map[p.type] = p.value;\n  });\n  return `${map.year}-${map.month}-${map.day}T${map.hour}:${map.minute}:${map.second}${TIMEZONE_OFFSET}`;\n}\n\nconst slots = [];\n\nfor (const date in eventsByDate) {\n  const [year, month, day] = date.split('-').map(Number);\n  const dt = new Date(Date.UTC(year, month - 1, day));\n  const dayOfWeek = dt.getUTCDay();\n  if (dayOfWeek === 0) continue;\n\n  const workStartStr = `${date}T${WORK_START_TIME}${TIMEZONE_OFFSET}`;\n  const workEndStr = `${date}T${dayOfWeek === 6 ? WORK_END_TIME_SATURDAY : WORK_END_TIME_WEEKDAY}${TIMEZONE_OFFSET}`;\n  const workStartMS = new Date(workStartStr).getTime();\n  const workEndMS = new Date(workEndStr).getTime();\n\n  const busies = eventsByDate[date];\n  let busyIntervals = [];\n  busies.forEach(event => {\n    let startMS = new Date(event.start).getTime();\n    let endMS = new Date(event.end).getTime();\n    if (endMS <= workStartMS || startMS >= workEndMS) return;\n    startMS = Math.max(startMS, workStartMS);\n    endMS = Math.min(endMS, workEndMS);\n    busyIntervals.push({ startMS, endMS });\n  });\n\n  busyIntervals.sort((a, b) => a.startMS - b.startMS);\n\n  const merged = [];\n  busyIntervals.forEach(busy => {\n    if (merged.length === 0 || merged[merged.length - 1].endMS < busy.startMS) {\n      merged.push(busy);\n    } else {\n      merged[merged.length - 1].endMS = Math.max(merged[merged.length - 1].endMS, busy.endMS);\n    }\n  });\n\n  let prevEndMS = workStartMS;\n  merged.forEach(busy => {\n    addSlotsToArray(prevEndMS, busy.startMS);\n    prevEndMS = busy.endMS;\n  });\n  addSlotsToArray(prevEndMS, workEndMS);\n\n  function addSlotsToArray(gapStartMS, gapEndMS) {\n    const slotDurationMS = 30 * 60 * 1000;\n    if (gapEndMS - gapStartMS < slotDurationMS) return;\n    let currentStartMS = gapStartMS;\n    while (currentStartMS + slotDurationMS <= gapEndMS) {\n      const currentEndMS = currentStartMS + slotDurationMS;\n      slots.push({\n        start: formatWithOffset(currentStartMS),\n        end: formatWithOffset(currentEndMS),\n        duration: 30\n      });\n      currentStartMS = currentEndMS;\n    }\n  }\n}\n\nreturn slots.map(slot => ({ json: slot }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        768
+      ],
+      "id": "5bb9f5db-155c-450a-9c48-b8f7e15826f4",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "calendar": {
+          "__rl": true,
+          "value": "cto@aigentss.com",
+          "mode": "list",
+          "cachedResultName": "cto@aigentss.com"
+        },
+        "eventId": "={{ $('map_data').item.json.eventId }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        576
+      ],
+      "id": "9f50a523-d9c6-4b5a-8cd4-8d6b69a1aeab",
+      "name": "validate_event_exist",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "WxIL4h1aEEilZlIw_hyundai",
+          "name": "Google Calendar account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "calendar": {
+          "__rl": true,
+          "value": "cto@aigentss.com",
+          "mode": "list",
+          "cachedResultName": "cto@aigentss.com"
+        },
+        "eventId": "={{ $('map_data').item.json.eventId }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        960
+      ],
+      "id": "225493e7-07bf-433f-9a31-696fe1d42b7d",
+      "name": "validate_event_exist1",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "WxIL4h1aEEilZlIw_hyundai",
+          "name": "Google Calendar account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.operation }}",
+                    "rightValue": "getEvent",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "098cc066-622b-4611-ab07-fe837de398a2"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "getEvent"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "ed95535c-869b-4cc0-96a4-9490752ce2fa",
+                    "leftValue": "={{ $json.operation }}",
+                    "rightValue": "createEvent",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "createEvent"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "4d00656f-f993-43d7-8db2-fef52994deca",
+                    "leftValue": "={{ $json.operation }}",
+                    "rightValue": "updateEvent",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "updateEvent"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "68c51ad3-551d-4e4d-bef3-042847cd0621",
+                    "leftValue": "={{ $json.operation }}",
+                    "rightValue": "getEventData",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "getEventData"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "09052ec3-346f-4bcd-bbaf-e51d40a898a7",
+                    "leftValue": "={{ $json.operation }}",
+                    "rightValue": "deleteEvent",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "deleteEvent"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -384,
+        352
+      ],
+      "id": "5a43653c-4aad-4a50-80a5-4de5d7619325",
+      "name": "Switch2"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "479d32fc-41a5-46a3-9f41-b8514e7a1e31",
+              "name": "available",
+              "value": "={{ $json.available }}",
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        224,
+        0
+      ],
+      "id": "0448ddd5-f5fa-49bd-9ada-f5356e913ec0",
+      "name": "Edit Fields6"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9693f1ee-09d2-42ec-8a96-9b5ca7b21af8",
+              "leftValue": "={{ $json.available }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        224,
+        192
+      ],
+      "id": "fa4173c9-0935-43a6-8d8f-3f14ec430a77",
+      "name": "If4"
+    },
+    {
+      "parameters": {
+        "path": "d3d7140b-e011-43e9-b445-d825ed73c89d"
+      },
+      "type": "@n8n/n8n-nodes-langchain.mcpTrigger",
+      "typeVersion": 2,
+      "position": [
+        -1328,
+        0
+      ],
+      "id": "3b993a06-dce3-423b-9850-063375fea8d7",
+      "name": "MCP Server Trigger",
+      "webhookId": "d3d7140b-e011-43e9-b445-d825ed73c89d"
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "map_data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "create_event": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "update_event": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "delete_event": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check_hour": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check_day": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "map_data": {
+      "main": [
+        [
+          {
+            "node": "Switch2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get availability in a calendar": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get availability in a calendar1": {
+      "main": [
+        [
+          {
+            "node": "If4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "create_calendar": {
+      "main": [
+        [
+          {
+            "node": "Create a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "update_calendar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop and Error1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "update_calendar": {
+      "main": [
+        [
+          {
+            "node": "update_record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If2": {
+      "main": [
+        [
+          {
+            "node": "delete_calendar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop and Error2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "delete_calendar": {
+      "main": [
+        [
+          {
+            "node": "cancelled_event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_event_in_time_gap": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "validate_event_exist": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "validate_event_exist1": {
+      "main": [
+        [
+          {
+            "node": "If2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch2": {
+      "main": [
+        [
+          {
+            "node": "Get availability in a calendar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get availability in a calendar1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "validate_event_exist",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "get_event_in_time_gap",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "validate_event_exist1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If4": {
+      "main": [
+        [
+          {
+            "node": "create_calendar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop and Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "errorWorkflow": "HlM3sr4kjUcl6b5E"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "1d141626-37e9-5841-b30b-cda3c3496419",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

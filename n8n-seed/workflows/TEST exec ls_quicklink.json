@@ -1,0 +1,60 @@
+{
+  "id": "P345mDQfSwbWKAQt_quicklink",
+  "name": "TEST exec ls_quicklink",
+  "nodes": [
+    {
+      "id": "wh",
+      "name": "WHook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        200,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "cris-flyway-info",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "webhookId": "flyway-info-001"
+    },
+    {
+      "id": "ex",
+      "name": "CMD",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "command": "ls /opt/quicklink/migrations/ 2>&1 && echo 'LS_OK'"
+      }
+    }
+  ],
+  "connections": {
+    "WHook": {
+      "main": [
+        [
+          {
+            "node": "CMD",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "8b02d5eb-8bae-55ac-8a39-d7429f9e89cc",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

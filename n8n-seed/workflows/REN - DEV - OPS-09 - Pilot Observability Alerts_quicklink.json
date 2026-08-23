@@ -1,0 +1,599 @@
+{
+  "id": "kD0eQVA4xbuhJTAb_quicklink",
+  "name": "REN - DEV - OPS-09 - Pilot Observability Alerts_quicklink",
+  "nodes": [
+    {
+      "id": "ops09-note",
+      "name": "OPS-09 Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1040,
+        -340
+      ],
+      "parameters": {
+        "width": 480,
+        "height": 560,
+        "content": "## OPS-09 - Pilot Observability Alerts\n\nDos ingresos:\n- cada 5 minutos agrega fallos terminales y colas estancadas;\n- Error Trigger recibe fallos no controlados de workflows críticos.\n\nEnvía solo métricas agregadas a `RENOV_OBSERVABILITY_ALERT_URL`, que debe ser HTTPS. La URL nunca entra en logs ni exports.\n\nCallbacks Salesforce están excluidos de alertas mientras `WF-08` siga bloqueado; se habilitan con `RENOV_OBSERVABILITY_ALERT_CALLBACK_FAILURES=true`.\n\nDedupe durable: máximo una alerta de salud por combinación de categorías y hora; fallos de entrega se reintentan."
+      }
+    },
+    {
+      "id": "ops09-schedule",
+      "name": "Schedule - Monitor Pilot Health",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -520,
+        -160
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ops09-webhook",
+      "name": "Webhook - Trigger Pilot Health",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -520,
+        -40
+      ],
+      "webhookId": "ren-dev-ops09-pilot-health",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "renov/dev/internal/pilot-observability-health",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "ops09-error-trigger",
+      "name": "Error Trigger - Renovaciones",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -520,
+        180
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "ops09-health-guard",
+      "name": "Code - Authorize Health Trigger",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -280,
+        -100
+      ],
+      "parameters": {
+        "jsCode": "function env(name) {\n    try { return String($env[name] || '').trim(); } catch (error) { return ''; }\n  }\n  function readHeader(headers, name) {\n    const target = name.toLowerCase();\n    for (const [key, value] of Object.entries(headers || {})) {\n      if (String(key).toLowerCase() === target) return Array.isArray(value) ? value[0] : value;\n    }\n    return '';\n  }\n  function safeEqual(left, right) {\n    const a = String(left || '');\n    const b = String(right || '');\n    if (!a || a.length !== b.length) return false;\n    let difference = 0;\n    for (let index = 0; index < a.length; index += 1) difference |= a.charCodeAt(index) ^ b.charCodeAt(index);\n    return difference === 0;\n  }\n  const input = $input.first().json || {};\n  if (!input.headers || typeof input.headers !== 'object') {\n    return [{ json: { health_trigger_allowed: true, health_trigger_source: 'schedule' } }];\n  }\n  const expected = env('RENOV_INTERNAL_TOKEN');\n  const authorization = String(readHeader(input.headers, 'authorization') || '');\n  const provided = readHeader(input.headers, 'x-internal-token')\n    || (/^Bearer\\s+/i.test(authorization) ? authorization.replace(/^Bearer\\s+/i, '').trim() : '');\n  return [{ json: {\n    health_trigger_allowed: Boolean(expected && safeEqual(provided, expected)),\n    health_trigger_source: 'webhook',\n  } }];"
+      }
+    },
+    {
+      "id": "ops09-health-gate",
+      "name": "IF - Health Trigger Authorized?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -40,
+        -100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ops09-health-gate-condition",
+              "leftValue": "={{ $json.health_trigger_allowed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ops09-build-health",
+      "name": "Code - Build Health Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        -100
+      ],
+      "parameters": {
+        "jsCode": "function env(name, fallback = '') {\n    try { return String($env[name] || fallback).trim(); } catch (error) { return fallback; }\n  }\n  const rawWindow = env('RENOV_OBSERVABILITY_ALERT_WINDOW_MINUTES', '15');\n  const windowMinutes = /^[0-9]{1,2}$/.test(rawWindow)\n    ? Math.min(60, Math.max(5, Number(rawWindow)))\n    : 15;\n  const includeCallbacks = env('RENOV_OBSERVABILITY_ALERT_CALLBACK_FAILURES', 'false').toLowerCase() === 'true';\n  return [{ json: {\n    health_sql: \"WITH config AS (\\n  SELECT\\n    LEAST(GREATEST(COALESCE($1::integer, 15), 5), 60) AS window_minutes,\\n    COALESCE($2::boolean, false) AS include_callback_alerts,\\n    now() AS generated_at\\n), bounds AS (\\n  SELECT\\n    window_minutes,\\n    include_callback_alerts,\\n    generated_at,\\n    generated_at - make_interval(mins => window_minutes) AS starts_at\\n  FROM config\\n), recent_log_failures AS (\\n  SELECT count(*)::integer AS total\\n  FROM renovation_dev.interaction_logs, bounds\\n  WHERE created_at >= bounds.starts_at\\n    AND success = false\\n    AND event_type NOT IN (\\n      'pilot_observability_alert',\\n      'pilot_observability_alert_config_missing'\\n    )\\n), double_llm_failures AS (\\n  SELECT count(*)::integer AS total\\n  FROM renovation_dev.interaction_logs, bounds\\n  WHERE event_type = 'wf03b_chatwoot_waba_inbound'\\n    AND created_at >= bounds.starts_at\\n    AND payload #>> '{metadata,llm_fallback_used}' = 'true'\\n    AND payload #>> '{metadata,llm_provider}' IS NULL\\n), chatwoot_reply_not_found AS (\\n  SELECT count(*)::integer AS total\\n  FROM renovation_dev.interaction_logs, bounds\\n  WHERE event_type = 'wf03b_chatwoot_waba_inbound'\\n    AND created_at >= bounds.starts_at\\n    AND success = false\\n    AND payload->>'chatwoot_send_status' = '404'\\n), dispatch_failures AS (\\n  SELECT\\n    count(*) FILTER (\\n      WHERE status = 'failed' AND updated_at >= bounds.starts_at\\n    )::integer AS terminal,\\n    count(*) FILTER (\\n      WHERE status = 'queued'\\n        AND process_after < bounds.generated_at - interval '15 minutes'\\n        AND renovation_dev.is_automatic_send_allowed(bounds.generated_at)\\n    )::integer AS stalled\\n  FROM renovation_dev.quicklink_campaign_dispatches dispatch\\n  CROSS JOIN bounds\\n  WHERE dispatch.dev_simulate_http_status IS NULL\\n), callback_failures AS (\\n  SELECT\\n    count(*) FILTER (\\n      WHERE bounds.include_callback_alerts\\n        AND state = 'failed'\\n        AND updated_at >= bounds.starts_at\\n    )::integer AS terminal,\\n    count(*) FILTER (\\n      WHERE bounds.include_callback_alerts\\n        AND state = 'queued'\\n        AND process_after < bounds.generated_at - interval '15 minutes'\\n    )::integer AS stalled\\n  FROM renovation_dev.salesforce_callback_events, bounds\\n), handoff_operation_failures AS (\\n  SELECT\\n    count(*) FILTER (\\n      WHERE operation_status = 'running'\\n        AND started_at < bounds.generated_at - interval '15 minutes'\\n    )::integer AS stalled,\\n    count(*) FILTER (\\n      WHERE operation_status = 'uncertain'\\n    )::integer AS uncertain\\n  FROM renovation_dev.chatwoot_handoff_operations, bounds\\n), metrics AS (\\n  SELECT\\n    bounds.*,\\n    recent_log_failures.total AS interaction_failures,\\n    double_llm_failures.total AS double_llm_failures,\\n    chatwoot_reply_not_found.total AS chatwoot_reply_not_found,\\n    dispatch_failures.terminal AS dispatch_terminal_failures,\\n    dispatch_failures.stalled AS dispatch_stalled,\\n    callback_failures.terminal AS callback_terminal_failures,\\n    callback_failures.stalled AS callback_stalled,\\n    handoff_operation_failures.stalled AS handoff_operation_stalled,\\n    handoff_operation_failures.uncertain AS handoff_operation_uncertain\\n  FROM bounds\\n  CROSS JOIN recent_log_failures\\n  CROSS JOIN double_llm_failures\\n  CROSS JOIN chatwoot_reply_not_found\\n  CROSS JOIN dispatch_failures\\n  CROSS JOIN callback_failures\\n  CROSS JOIN handoff_operation_failures\\n), categorized AS (\\n  SELECT\\n    metrics.*,\\n    array_remove(ARRAY[\\n      CASE WHEN chatwoot_reply_not_found > 0 THEN 'chatwoot_reply_not_found' END,\\n      CASE WHEN interaction_failures > 0 THEN 'interaction_failures' END,\\n      CASE WHEN double_llm_failures > 0 THEN 'double_llm_failure' END,\\n      CASE WHEN dispatch_terminal_failures > 0 THEN 'dispatch_terminal_failure' END,\\n      CASE WHEN dispatch_stalled > 0 THEN 'dispatch_stalled' END,\\n      CASE WHEN callback_terminal_failures > 0 THEN 'callback_terminal_failure' END,\\n      CASE WHEN callback_stalled > 0 THEN 'callback_stalled' END,\\n      CASE WHEN handoff_operation_stalled > 0 THEN 'handoff_operation_stalled' END,\\n      CASE WHEN handoff_operation_uncertain > 0 THEN 'handoff_operation_uncertain' END\\n    ]::text[], NULL) AS categories\\n  FROM metrics\\n), keyed AS (\\n  SELECT\\n    categorized.*,\\n    CASE WHEN cardinality(categories) > 0 THEN\\n      'pilot-health:'\\n      || to_char(generated_at AT TIME ZONE 'UTC', 'YYYYMMDDHH24')\\n      || ':' || md5(array_to_string(categories, ','))\\n    ELSE NULL END AS alert_key\\n  FROM categorized\\n), notification_state AS (\\n  SELECT\\n    keyed.*,\\n    CASE WHEN keyed.alert_key IS NULL THEN false ELSE EXISTS (\\n      SELECT 1\\n      FROM renovation_dev.interaction_logs log\\n      WHERE log.event_type = 'pilot_observability_alert'\\n        AND log.correlation_id = keyed.alert_key\\n        AND log.success = true\\n    ) END AS already_notified\\n  FROM keyed\\n)\\nSELECT\\n  generated_at,\\n  starts_at,\\n  window_minutes,\\n  include_callback_alerts,\\n  cardinality(categories) > 0 AS alert_required,\\n  already_notified,\\n  alert_key,\\n  to_jsonb(categories) AS categories,\\n  jsonb_build_object(\\n    'interaction_failures', interaction_failures,\\n    'double_llm_failures', double_llm_failures,\\n    'chatwoot_reply_not_found', chatwoot_reply_not_found,\\n    'dispatch_terminal_failures', dispatch_terminal_failures,\\n    'dispatch_stalled', dispatch_stalled,\\n    'callback_terminal_failures', callback_terminal_failures,\\n    'callback_stalled', callback_stalled,\\n    'handoff_operation_stalled', handoff_operation_stalled,\\n    'handoff_operation_uncertain', handoff_operation_uncertain\\n  ) AS metrics\\nFROM notification_state\",\n    health_params: [windowMinutes, includeCallbacks],\n  } }];"
+      }
+    },
+    {
+      "id": "ops09-health-query",
+      "name": "Postgres - Aggregate Pilot Health",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        440,
+        -100
+      ],
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "={{ $json.health_sql }}",
+        "options": {
+          "queryReplacement": "={{ $json.health_params }}",
+          "queryBatching": "single"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "ops09-prepare-health",
+      "name": "Code - Prepare Health Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        -100
+      ],
+      "parameters": {
+        "jsCode": "function validAlertUrl(value) {\n  const text = String(value || '').trim();\n  const match = text.match(/^https:\\/\\/([a-z0-9.-]+)(?::([0-9]{1,5}))?(\\/[^\\s#]*)?$/i);\n  if (!match) return '';\n  if (match[2] && Number(match[2]) > 65535) return '';\n  if (match[1].startsWith('.') || match[1].endsWith('.') || match[1].includes('..')) return '';\n  return text;\n}\n\nfunction env(name) {\n    try { return String($env[name] || '').trim(); } catch (error) { return ''; }\n  }\n  function parse(value, fallback) {\n    if (value && typeof value === 'object') return value;\n    try { return JSON.parse(String(value || '')); } catch (error) { return fallback; }\n  }\n  const row = $input.first().json || {};\n  const categories = parse(row.categories, []);\n  const metrics = parse(row.metrics, {});\n  const alertUrl = validAlertUrl(env('RENOV_OBSERVABILITY_ALERT_URL'));\n  const alertRequired = row.alert_required === true || row.alert_required === 'true';\n  const alreadyNotified = row.already_notified === true || row.already_notified === 'true';\n  const alertKey = typeof row.alert_key === 'string' ? row.alert_key : '';\n  const payload = {\n    project: 'renovaciones',\n    environment: 'dev',\n    severity: 'critical',\n    kind: 'pilot_health',\n    generated_at: row.generated_at || null,\n    window_minutes: Number(row.window_minutes || 15),\n    categories: Array.isArray(categories) ? categories.slice(0, 8) : [],\n    metrics,\n  };\n  return [{ json: {\n    alert_required: alertRequired,\n    alert_already_notified: alreadyNotified,\n    alert_configured: Boolean(alertUrl),\n    alert_config_missing: alertRequired && !alreadyNotified && !alertUrl,\n    alert_should_send: alertRequired && !alreadyNotified && Boolean(alertUrl) && Boolean(alertKey),\n    alert_url: alertUrl || null,\n    alert_key: alertKey || null,\n    alert_kind: 'pilot_health',\n    alert_payload: payload,\n  } }];"
+      }
+    },
+    {
+      "id": "ops09-shape-error",
+      "name": "Code - Shape Workflow Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -280,
+        180
+      ],
+      "parameters": {
+        "jsCode": "function clean(value, fallback = '') {\n    const text = String(value || fallback).replace(/[\\u0000-\\u001f\\u007f]/g, ' ').trim();\n    return text.slice(0, 120);\n  }\n  const input = $input.first().json || {};\n  const workflow = input.workflow && typeof input.workflow === 'object' ? input.workflow : {};\n  const execution = input.execution && typeof input.execution === 'object' ? input.execution : {};\n  const workflowId = clean(workflow.id, 'unknown-workflow');\n  const workflowName = clean(workflow.name, 'Unknown workflow');\n  const executionId = clean(execution.id, `unknown-${Date.now()}`);\n  const lastNode = clean(execution.lastNodeExecuted, 'unknown');\n  const alertKey = `workflow-error:${workflowId}:${executionId}`;\n  const payload = {\n    project: 'renovaciones',\n    environment: 'dev',\n    severity: 'critical',\n    kind: 'workflow_error',\n    occurred_at: new Date().toISOString(),\n    workflow: { id: workflowId, name: workflowName },\n    execution_id: executionId,\n    last_node: lastNode,\n  };\n  return [{ json: {\n    alert_key: alertKey,\n    alert_kind: 'workflow_error',\n    alert_payload: payload,\n    error_record_sql: \"WITH input AS (\\n  SELECT\\n    $1::text AS event_type,\\n    $2::text AS correlation_id,\\n    $3::jsonb AS payload,\\n    $4::boolean AS success,\\n    NULLIF(left($5::text, 500), '') AS error_message,\\n    COALESCE($6::boolean, false) AS deduplicate\\n), inserted AS (\\n  INSERT INTO renovation_dev.interaction_logs (\\n    event_type,\\n    correlation_id,\\n    payload,\\n    success,\\n    error_message\\n  )\\n  SELECT\\n    event_type,\\n    correlation_id,\\n    payload,\\n    success,\\n    CASE WHEN success THEN NULL ELSE COALESCE(error_message, 'OBSERVABILITY_ALERT_FAILED') END\\n  FROM input\\n  WHERE NOT deduplicate\\n     OR NOT EXISTS (\\n       SELECT 1\\n       FROM renovation_dev.interaction_logs existing\\n       WHERE existing.event_type = input.event_type\\n         AND existing.correlation_id = input.correlation_id\\n     )\\n  RETURNING id\\n)\\nSELECT EXISTS (SELECT 1 FROM inserted) AS recorded\",\n    error_record_params: [\n      'workflow_error_detected',\n      alertKey,\n      JSON.stringify(payload),\n      false,\n      'WORKFLOW_EXECUTION_ERROR',\n      true,\n    ],\n  } }];"
+      }
+    },
+    {
+      "id": "ops09-record-error",
+      "name": "Postgres - Record Workflow Error",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -40,
+        180
+      ],
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "={{ $json.error_record_sql }}",
+        "options": {
+          "queryReplacement": "={{ $json.error_record_params }}",
+          "queryBatching": "single"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "ops09-restore-error",
+      "name": "Code - Restore Workflow Error Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        180
+      ],
+      "parameters": {
+        "jsCode": "function validAlertUrl(value) {\n  const text = String(value || '').trim();\n  const match = text.match(/^https:\\/\\/([a-z0-9.-]+)(?::([0-9]{1,5}))?(\\/[^\\s#]*)?$/i);\n  if (!match) return '';\n  if (match[2] && Number(match[2]) > 65535) return '';\n  if (match[1].startsWith('.') || match[1].endsWith('.') || match[1].includes('..')) return '';\n  return text;\n}\n\nfunction env(name) {\n    try { return String($env[name] || '').trim(); } catch (error) { return ''; }\n  }\n  const original = $('Code - Shape Workflow Error').item.json || {};\n  const recorded = $input.first().json?.recorded === true || $input.first().json?.recorded === 'true';\n  const alertUrl = validAlertUrl(env('RENOV_OBSERVABILITY_ALERT_URL'));\n  return [{ json: {\n    alert_required: recorded,\n    alert_already_notified: !recorded,\n    alert_configured: Boolean(alertUrl),\n    alert_config_missing: recorded && !alertUrl,\n    alert_should_send: recorded && Boolean(alertUrl),\n    alert_url: alertUrl || null,\n    alert_key: original.alert_key || null,\n    alert_kind: 'workflow_error',\n    alert_payload: original.alert_payload || {},\n  } }];"
+      }
+    },
+    {
+      "id": "ops09-send-gate",
+      "name": "IF - Send Observability Alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        940,
+        80
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ops09-send-gate-condition",
+              "leftValue": "={{ $json.alert_should_send }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ops09-send-http",
+      "name": "HTTP - Send Generic Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1180,
+        -20
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.alert_url }}",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.alert_payload) }}",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "ops09-build-outcome",
+      "name": "Code - Build Alert Outcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1420,
+        -20
+      ],
+      "parameters": {
+        "jsCode": "const prepared = $('IF - Send Observability Alert?').item.json || {};\n  const response = $input.first().json || {};\n  const status = Number(response.statusCode ?? response.status ?? 0);\n  const success = Number.isInteger(status) && status >= 200 && status < 300;\n  const payload = {\n    project: 'renovaciones',\n    environment: 'dev',\n    alert_key: prepared.alert_key || null,\n    alert_kind: prepared.alert_kind || null,\n    categories: Array.isArray(prepared.alert_payload?.categories) ? prepared.alert_payload.categories : [],\n    metrics: prepared.alert_payload?.metrics && typeof prepared.alert_payload.metrics === 'object'\n      ? prepared.alert_payload.metrics\n      : {},\n    delivery_http_status: Number.isInteger(status) ? status : 0,\n  };\n  return [{ json: {\n    alert_log_sql: \"WITH input AS (\\n  SELECT\\n    $1::text AS event_type,\\n    $2::text AS correlation_id,\\n    $3::jsonb AS payload,\\n    $4::boolean AS success,\\n    NULLIF(left($5::text, 500), '') AS error_message,\\n    COALESCE($6::boolean, false) AS deduplicate\\n), inserted AS (\\n  INSERT INTO renovation_dev.interaction_logs (\\n    event_type,\\n    correlation_id,\\n    payload,\\n    success,\\n    error_message\\n  )\\n  SELECT\\n    event_type,\\n    correlation_id,\\n    payload,\\n    success,\\n    CASE WHEN success THEN NULL ELSE COALESCE(error_message, 'OBSERVABILITY_ALERT_FAILED') END\\n  FROM input\\n  WHERE NOT deduplicate\\n     OR NOT EXISTS (\\n       SELECT 1\\n       FROM renovation_dev.interaction_logs existing\\n       WHERE existing.event_type = input.event_type\\n         AND existing.correlation_id = input.correlation_id\\n     )\\n  RETURNING id\\n)\\nSELECT EXISTS (SELECT 1 FROM inserted) AS recorded\",\n    alert_log_params: [\n      'pilot_observability_alert',\n      prepared.alert_key || 'missing-alert-key',\n      JSON.stringify(payload),\n      success,\n      success ? null : `ALERT_WEBHOOK_HTTP_${Number.isInteger(status) ? status : 0}`,\n      false,\n    ],\n  } }];"
+      }
+    },
+    {
+      "id": "ops09-record-outcome",
+      "name": "Postgres - Record Alert Outcome",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1660,
+        -20
+      ],
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "={{ $json.alert_log_sql }}",
+        "options": {
+          "queryReplacement": "={{ $json.alert_log_params }}",
+          "queryBatching": "single"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "ops09-config-gate",
+      "name": "IF - Alert Configuration Missing?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1180,
+        180
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ops09-config-gate-condition",
+              "leftValue": "={{ $json.alert_config_missing }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ops09-build-config-log",
+      "name": "Code - Build Missing Config Log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1420,
+        180
+      ],
+      "parameters": {
+        "jsCode": "const item = $input.first().json || {};\n  const payload = {\n    project: 'renovaciones',\n    environment: 'dev',\n    alert_key: item.alert_key || null,\n    alert_kind: item.alert_kind || null,\n    reason: 'alert_webhook_not_configured',\n  };\n  return [{ json: {\n    alert_log_sql: \"WITH input AS (\\n  SELECT\\n    $1::text AS event_type,\\n    $2::text AS correlation_id,\\n    $3::jsonb AS payload,\\n    $4::boolean AS success,\\n    NULLIF(left($5::text, 500), '') AS error_message,\\n    COALESCE($6::boolean, false) AS deduplicate\\n), inserted AS (\\n  INSERT INTO renovation_dev.interaction_logs (\\n    event_type,\\n    correlation_id,\\n    payload,\\n    success,\\n    error_message\\n  )\\n  SELECT\\n    event_type,\\n    correlation_id,\\n    payload,\\n    success,\\n    CASE WHEN success THEN NULL ELSE COALESCE(error_message, 'OBSERVABILITY_ALERT_FAILED') END\\n  FROM input\\n  WHERE NOT deduplicate\\n     OR NOT EXISTS (\\n       SELECT 1\\n       FROM renovation_dev.interaction_logs existing\\n       WHERE existing.event_type = input.event_type\\n         AND existing.correlation_id = input.correlation_id\\n     )\\n  RETURNING id\\n)\\nSELECT EXISTS (SELECT 1 FROM inserted) AS recorded\",\n    alert_log_params: [\n      'pilot_observability_alert_config_missing',\n      item.alert_key || 'missing-alert-key',\n      JSON.stringify(payload),\n      true,\n      null,\n      true,\n    ],\n  } }];"
+      }
+    },
+    {
+      "id": "ops09-record-config",
+      "name": "Postgres - Record Missing Alert Config",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1660,
+        180
+      ],
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "={{ $json.alert_log_sql }}",
+        "options": {
+          "queryReplacement": "={{ $json.alert_log_params }}",
+          "queryBatching": "single"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      },
+      "alwaysOutputData": true
+    }
+  ],
+  "connections": {
+    "Schedule - Monitor Pilot Health": {
+      "main": [
+        [
+          {
+            "node": "Code - Authorize Health Trigger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Trigger Pilot Health": {
+      "main": [
+        [
+          {
+            "node": "Code - Authorize Health Trigger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Authorize Health Trigger": {
+      "main": [
+        [
+          {
+            "node": "IF - Health Trigger Authorized?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Health Trigger Authorized?": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Health Query",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Code - Build Health Query": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Aggregate Pilot Health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Aggregate Pilot Health": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Health Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare Health Alert": {
+      "main": [
+        [
+          {
+            "node": "IF - Send Observability Alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger - Renovaciones": {
+      "main": [
+        [
+          {
+            "node": "Code - Shape Workflow Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Shape Workflow Error": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Record Workflow Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Record Workflow Error": {
+      "main": [
+        [
+          {
+            "node": "Code - Restore Workflow Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Restore Workflow Error Alert": {
+      "main": [
+        [
+          {
+            "node": "IF - Send Observability Alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Send Observability Alert?": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Send Generic Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF - Alert Configuration Missing?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Send Generic Alert": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Alert Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Alert Outcome": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Record Alert Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Alert Configuration Missing?": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Missing Config Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Code - Build Missing Config Log": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Record Missing Alert Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false,
+    "executionTimeout": 60
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "2ae58192-f979-5d96-b18f-ef80320a55bd",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

@@ -1,0 +1,100 @@
+{
+  "id": "HlM3sr4kjUcl6b5E_kia-electrolineras",
+  "name": "Notificacion de Error_kia-electrolineras",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "21cbd0fd-71ee-4e01-9ebf-db6175d93d14",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "sendTo": "cto@aigentss.com",
+        "subject": "=Error flujo:  {{ $json.workflow.name }}",
+        "emailType": "text",
+        "message": "=Ha ocurrido un error en uno de los flujos de N8N.\n\nURL: {{ $json.execution.url }}\n\nWorkFlow: {{ $json.workflow.name }}\n\nError: {{ $json.execution.error.message }}\n\nStack: {{ $json.execution.error.stack }}\n\nÚltimo nodo Ejecutado: {{ $json.execution.lastNodeExecuted }}\n\nModo: {{ $json.execution.mode }}\n\nFecha y Hora: {{ $now }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        224,
+        0
+      ],
+      "id": "4bd1722a-6947-4701-b59b-d1b8f52b6e8b",
+      "name": "Gmail",
+      "webhookId": "cf3996f5-f734-434f-847d-bdcf24a71e9b",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "xh92dBbiwnRCZ982",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $json.id }}",
+        "labelIds": [
+          "IMPORTANT"
+        ]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        448,
+        0
+      ],
+      "id": "c1aad1f2-3bae-46d4-a1ee-b6518b9ef9da",
+      "name": "Gmail1",
+      "webhookId": "12a5f187-a88c-4241-b060-1b50b734644f",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "xh92dBbiwnRCZ982",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail": {
+      "main": [
+        [
+          {
+            "node": "Gmail1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "7ac5edef-1623-502e-beb1-da23934e9a39",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

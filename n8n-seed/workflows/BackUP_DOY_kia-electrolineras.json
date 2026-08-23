@@ -1,0 +1,1435 @@
+{
+  "id": "8L3Kzr07KUhb0g6Y_kia-electrolineras",
+  "name": "BackUP_DOY_kia-electrolineras",
+  "nodes": [
+    {
+      "parameters": {
+        "maxItems": 200
+      },
+      "id": "74cc572d-c527-4a49-b98c-4636bac6b047",
+      "name": "Limit to ",
+      "type": "n8n-nodes-base.limit",
+      "position": [
+        4432,
+        168
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "id": "c9ef532a-4042-4ce5-8815-ea4e88fc9bf3",
+      "name": "Loop Over Items1",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [
+        4656,
+        168
+      ],
+      "typeVersion": 3
+    },
+    {
+      "parameters": {
+        "operation": "toJson",
+        "options": {
+          "fileName": "={{ $json.name }}"
+        }
+      },
+      "id": "c9af3c2c-9b97-4795-9c13-30db02e47189",
+      "name": "Convert Workflow to JSON File1",
+      "type": "n8n-nodes-base.convertToFile",
+      "position": [
+        4880,
+        96
+      ],
+      "typeVersion": 1.1
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $('Doy_Folder').item.json.Folder }}/{{ $binary.data.fileName }}.json",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        5104,
+        144
+      ],
+      "id": "3b9b1dde-787c-49e3-af7b-10b2d89a15bf",
+      "name": "Read/Write Files from Disk2"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 4,
+              "triggerAtMinute": 30
+            }
+          ]
+        }
+      },
+      "id": "11878d7c-9ddd-4b84-a367-a39769cbdf65",
+      "name": "Every Day1",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [
+        -496,
+        360
+      ],
+      "typeVersion": 1.2
+    },
+    {
+      "parameters": {
+        "sendTo": "angel.yaguana@aigentss.com",
+        "subject": "=Informe diario - 1001T",
+        "emailType": "text",
+        "message": "=Revision de procesos ejecutados exitosamente!\n\nState 1001T : O{{ $json.stdout.split('0')[1].split('')[0] }}!\nAgente ID   : {{ $workflow.id }}\nCode Proj/ID: {{ $('DIA').item.json.roundedDate }}/{{ $('Code in JavaScript1').item.json.id_hash }}\nSize Project: {{ $json.stdout.split('/')[0] }}\n\nSaludos cordiales\n\nAngel Yaguana\nCTO Aigents Solutions Corp\n",
+        "options": {
+          "appendAttribution": false,
+          "ccList": "cto@aigentss.com",
+          "senderName": "Backend_1001"
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        4656,
+        360
+      ],
+      "id": "cd766009-4250-41f9-b5ab-0d2fdc77da5b",
+      "name": "Send a message1",
+      "webhookId": "0329d228-4dc9-4557-8aa1-ae1331c6806b",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "xh92dBbiwnRCZ982",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        4880,
+        -96
+      ],
+      "id": "d411bce3-420e-4a98-a0ed-09cbdcb31dd4",
+      "name": "No Operation, do nothing",
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "formatDate",
+        "date": "={{ $now }}",
+        "format": "custom",
+        "customFormat": "o",
+        "outputFieldName": "roundedDate",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dateTime",
+      "typeVersion": 2,
+      "position": [
+        -272,
+        264
+      ],
+      "id": "4c201df1-d1a6-4430-a816-d0bddb5a7ca9",
+      "name": "DIA"
+    },
+    {
+      "parameters": {
+        "operation": "formatDate",
+        "date": "={{ $now }}",
+        "format": "custom",
+        "customFormat": "yyyy",
+        "outputFieldName": "year",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dateTime",
+      "typeVersion": 2,
+      "position": [
+        -48,
+        264
+      ],
+      "id": "4db22f85-956e-4e38-a284-f2bc52e39984",
+      "name": "AÑO"
+    },
+    {
+      "parameters": {
+        "jsCode": "// En el nodo Function, usa el siguiente código:\nreturn items.map(item => {\nconst valuesString = item.json.stdout; // Asegúrate de que 'valor' es el nombre de tu variable\nconst valuesArray = valuesString.split('\\n'); // Divide la cadena en un array\nreturn {\njson: {\nyears: valuesArray\n}\n};\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        264
+      ],
+      "id": "0cbdd702-7fde-47ac-bfaf-c53e989653d9",
+      "name": "string2array"
+    },
+    {
+      "parameters": {
+        "command": "=ls /opt/backups/"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        400,
+        264
+      ],
+      "id": "c8a132a4-72b3-4e15-af0c-9f5ab29d9ef8",
+      "name": "ls /opt/backups/"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "8d8b8fa0-627e-4e39-b88e-e9de1af232b7",
+              "name": "Year",
+              "value": "={{ $json.year }}",
+              "type": "string"
+            },
+            {
+              "id": "c20fa107-bea2-4a1f-9eb4-7857261852c8",
+              "name": "DOY",
+              "value": "={{ $('DIA').item.json.roundedDate }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        176,
+        264
+      ],
+      "id": "349d7942-4d4a-4930-8f41-543f66703326",
+      "name": "Map Year&Doy"
+    },
+    {
+      "parameters": {
+        "jsCode": "// En el nodo Function, usa el siguiente código:\nreturn items.map(item => {\nconst valuesString = item.json.stdout; // Asegúrate de que 'valor' es el nombre de tu variable\nconst valuesArray = valuesString.split('\\n'); // Divide la cadena en un array\nreturn {\njson: {\nyears: valuesArray\n}\n};\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1744,
+        264
+      ],
+      "id": "4c0449c5-1dfc-4fbf-acd6-9d463b3eee84",
+      "name": "string2array1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Accede al array \"years\" desde los datos del flujo de trabajo\nconst array = $json[\"years\"];\n// Accede a la variable \"roundedDate\" desde el flujo de trabajo\nconst targetString = $('AÑO').first().json.year\n// Filtrar los valores del array que coinciden con la variable string\nconst result = array.filter(item => item === targetString);\n// Devolver los resultados en el formato esperado por n8n\nreturn [{ matches: result }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        848,
+        264
+      ],
+      "id": "de4f0a62-07ea-4958-99e1-bd58dba050f3",
+      "name": "match_year"
+    },
+    {
+      "parameters": {
+        "command": "=mkdir /opt/backups/{{ $('Map Year&Doy').item.json.Year }}"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1296,
+        192
+      ],
+      "id": "38017a80-0537-4a5f-8814-c03c923ad6b2",
+      "name": "mkdir YEAR"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "adce0a8b-8334-4782-8ac5-23f3239d2227",
+              "leftValue": "={{ $json.matches }}",
+              "rightValue": "",
+              "operator": {
+                "type": "array",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1072,
+        264
+      ],
+      "id": "bce61de3-ba8d-41c6-bb1d-e6d8f0f0f47f",
+      "name": "NO EXIST YEAR?"
+    },
+    {
+      "parameters": {
+        "command": "=ls /opt/backups/"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1520,
+        264
+      ],
+      "id": "ea896eae-85c5-4536-a8c3-9db2e31ba80f",
+      "name": "LIST YEARS"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Accede al array \"years\" desde los datos del flujo de trabajo\nconst array = $json[\"years\"];\n// Accede a la variable \"roundedDate\" desde el flujo de trabajo\nconst targetString = $('AÑO').first().json.year;\n// Filtrar los valores del array que coinciden con la variable string\nconst result = array.filter(item => item === targetString);\n// Devolver los resultados en el formato esperado por n8n\nreturn [{ matches: result }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1968,
+        264
+      ],
+      "id": "7bcd234c-41a4-4e12-be47-7117d120561c",
+      "name": "match_YEAR"
+    },
+    {
+      "parameters": {
+        "jsCode": "// En el nodo Function, usa el siguiente código:\nreturn items.map(item => {\nconst valuesString = item.json.stdout; // Asegúrate de que 'valor' es el nombre de tu variable\nconst valuesArray = valuesString.split('\\n'); // Divide la cadena en un array\nreturn {\njson: {\ndoys: valuesArray\n}\n};\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2416,
+        264
+      ],
+      "id": "9230d7b2-09c0-4654-99e9-4863836233f9",
+      "name": "string2array2"
+    },
+    {
+      "parameters": {
+        "jsCode": "// En el nodo Function, usa el siguiente código:\nreturn items.map(item => {\nconst valuesString = item.json.stdout; // Asegúrate de que 'valor' es el nombre de tu variable\nconst valuesArray = valuesString.split('\\n'); // Divide la cadena en un array\nreturn {\njson: {\ndoys: valuesArray\n}\n};\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3536,
+        264
+      ],
+      "id": "8c4ecc30-86a3-4819-9437-ae818aab0c80",
+      "name": "string2array3"
+    },
+    {
+      "parameters": {
+        "command": "=ls /opt/backups/{{ $('AÑO').item.json.year }}"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        2192,
+        264
+      ],
+      "id": "47606066-2d2e-4dbe-9e1c-efdc8a79c0bd",
+      "name": "ls /opt/backups/YEAR"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "adce0a8b-8334-4782-8ac5-23f3239d2227",
+              "leftValue": "={{ $json.matches }}",
+              "rightValue": "",
+              "operator": {
+                "type": "array",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2864,
+        264
+      ],
+      "id": "df8f1395-1328-4ab2-b289-2bc3bbcf6ab1",
+      "name": "NO EXIST DOY?"
+    },
+    {
+      "parameters": {
+        "command": "=mkdir /opt/backups/{{ $('AÑO').item.json.year }}/{{ $('DIA').item.json.roundedDate }}"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        3088,
+        192
+      ],
+      "id": "7508bfd8-cf4e-4f60-92c8-888afe5de126",
+      "name": "mkdir DOY1"
+    },
+    {
+      "parameters": {
+        "command": "=ls /opt/backups/{{ $('AÑO').item.json.year }}"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        3312,
+        264
+      ],
+      "id": "fa857ca8-96ae-49cc-bb76-4cbf3e44997f",
+      "name": "LIST DOYs"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Accede al array \"years\" desde los datos del flujo de trabajo\nconst array = $json[\"doys\"];\n// Accede a la variable \"roundedDate\" desde el flujo de trabajo\nconst targetString = $('DIA').first().json.roundedDate;\n// Filtrar los valores del array que coinciden con la variable string\nconst result = array.filter(item => item === targetString);\n// Devolver los resultados en el formato esperado por n8n\nreturn [{ matches: result }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3760,
+        264
+      ],
+      "id": "a0d3a74c-3c46-492f-b7a1-4ad5782d2319",
+      "name": "match_DOY"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Accede al array \"years\" desde los datos del flujo de trabajo\nconst array = $json[\"doys\"];\n// Accede a la variable \"roundedDate\" desde el flujo de trabajo\nconst targetString = $('Map Year&Doy').first().json.DOY;\n// Filtrar los valores del array que coinciden con la variable string\nconst result = array.filter(item => item === targetString);\n// Devolver los resultados en el formato esperado por n8n\nreturn [{ matches: result }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        264
+      ],
+      "id": "b6fdabbf-e938-4088-96df-78383e01142d",
+      "name": "match_doy"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "74b829f2-9bf4-4d49-b4f7-be965a970dc9",
+              "name": "Folder",
+              "value": "=/opt/backups/{{ $('AÑO').item.json.year }}/{{ $('DIA').item.json.roundedDate }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3984,
+        264
+      ],
+      "id": "c93b4edb-0c27-47d1-acd7-aa517e3e52a4",
+      "name": "Doy_Folder"
+    },
+    {
+      "parameters": {
+        "filters": {},
+        "requestOptions": {}
+      },
+      "id": "d8f57046-b315-45c0-8b1f-7efb1d8af2aa",
+      "name": "Get Workflows VPS: Test",
+      "type": "n8n-nodes-base.n8n",
+      "position": [
+        4208,
+        168
+      ],
+      "typeVersion": 1,
+      "credentials": {
+        "n8nApi": {
+          "id": "Guixz0pZKisJgng2",
+          "name": "n8n VPS TEST"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generador de hash determinístico simple (FNV-1a modificado)\nfunction simpleHash(str) {\n  let hash = 2166136261;\n  for (let i = 0; i < str.length; i++) {\n    hash ^= str.charCodeAt(i);\n    hash = Math.imul(hash, 16777619);\n  }\n  // Convierte a hexadecimal de longitud fija\n  return (hash >>> 0).toString(16).padStart(8, '0');\n}\n\nreturn items.map(item => {\n  const varname = $('Doy_Folder').first().json.Folder || '';\n  //const varname = ($('Map Year&Doy').first().json.Year + 1) || '';\n  const cleanvarname = varname.replace('/', '');\n  const id_hash = simpleHash(cleanvarname);\n\n  item.json.id_hash = id_hash;\n  return item;\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4208,
+        360
+      ],
+      "id": "8deeaae5-3f02-41a3-a1dd-64fd587a7b25",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "command": "=ls /opt/backups/2025/316"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        176,
+        -512
+      ],
+      "id": "1794b816-1369-4591-829e-60ad2effe296",
+      "name": "ls1"
+    },
+    {
+      "parameters": {
+        "command": "=du -sh /opt/backups"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        -48,
+        -320
+      ],
+      "id": "e0fc8819-94ca-4faf-926e-cca02ca471e2",
+      "name": "Folder Size"
+    },
+    {
+      "parameters": {
+        "command": "=mkdir /opt/backups/315"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        176,
+        -320
+      ],
+      "id": "c0072023-91c7-4952-8cdb-c55ebd821dfa",
+      "name": "mkdir1",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "command": "=ls /opt/backups"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        -272,
+        -416
+      ],
+      "id": "3e9aa27b-c1a5-4b44-98bc-5e9c1a5d15aa",
+      "name": "ls /opt/backups",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "command": "=mkdir /opt/backups/{{ $('DIA').item.json.roundedDate }}"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        -48,
+        -512
+      ],
+      "id": "4bf49800-2da8-4b7c-ba66-17796ab74129",
+      "name": "mkdir DOY",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "command": "=rm -r /opt/backups/{{ $('DIA').item.json.roundedDate }}"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        -496,
+        -416
+      ],
+      "id": "0cab127b-04a4-4f84-bf09-5945d64a8a72",
+      "name": "rm -r DOY",
+      "alwaysOutputData": true,
+      "disabled": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {},
+      "id": "4cd2a03d-f935-46d8-919b-559368380017",
+      "name": "On clicking 'execute'",
+      "type": "n8n-nodes-base.manualTrigger",
+      "position": [
+        -496,
+        168
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "id": "6eb8d049-f6c9-486c-adbb-87a36d310251",
+      "name": "Loop Over Items",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [
+        400,
+        968
+      ],
+      "typeVersion": 3
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "name": "=1001T-Backups-{{ $json.datetime }}",
+        "driveId": {
+          "__rl": true,
+          "value": "My Drive",
+          "mode": "list",
+          "cachedResultName": "My Drive",
+          "cachedResultUrl": "https://drive.google.com/drive/my-drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "root",
+          "mode": "list",
+          "cachedResultName": "/ (Root folder)",
+          "cachedResultUrl": "https://drive.google.com/drive"
+        },
+        "options": {}
+      },
+      "id": "f646507a-54fd-4251-9262-124185e2b375",
+      "name": "Create Folder with DateTime Stamp",
+      "type": "n8n-nodes-base.googleDrive",
+      "position": [
+        -272,
+        968
+      ],
+      "typeVersion": 3,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "LfrC6oL28lsmXIvQ",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "2589e80c-e8c3-4872-bd7a-d3e92f4a6ab7",
+              "name": "datetime",
+              "type": "string",
+              "value": "={{ $now }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3d90cae8-406c-44c5-9593-971d4636a457",
+      "name": "Get DateTIme",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        -496,
+        968
+      ],
+      "typeVersion": 3.4
+    },
+    {
+      "parameters": {
+        "filters": {},
+        "requestOptions": {}
+      },
+      "id": "ab461571-2a60-474c-9d5d-764ca1d7eb4c",
+      "name": "Get Workflows",
+      "type": "n8n-nodes-base.n8n",
+      "position": [
+        -48,
+        968
+      ],
+      "typeVersion": 1,
+      "credentials": {
+        "n8nApi": {
+          "id": "Guixz0pZKisJgng2",
+          "name": "n8n VPS TEST"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "maxItems": 200
+      },
+      "id": "5479010e-1e3a-4c41-99c6-9601311059ab",
+      "name": "Limit to 200",
+      "type": "n8n-nodes-base.limit",
+      "position": [
+        176,
+        968
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "operation": "toJson",
+        "options": {
+          "fileName": "={{ $json.name }}"
+        }
+      },
+      "id": "808edbb0-601a-45d4-ba17-26fdc411038c",
+      "name": "Convert Workflow to JSON File",
+      "type": "n8n-nodes-base.convertToFile",
+      "position": [
+        624,
+        968
+      ],
+      "typeVersion": 1.1
+    },
+    {
+      "parameters": {
+        "name": "={{ $binary.data.fileName }}.json",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Create Folder with DateTime Stamp').item.json.id }}"
+        },
+        "options": {}
+      },
+      "id": "2ed5da6d-408d-425d-a60c-84e75a116b21",
+      "name": "Save JSON File to Google Drive Folder",
+      "type": "n8n-nodes-base.googleDrive",
+      "position": [
+        848,
+        1040
+      ],
+      "typeVersion": 3,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "LfrC6oL28lsmXIvQ",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "3b4a9996-66e8-47d6-8029-7f63574295b1",
+      "name": "Execute Once",
+      "type": "n8n-nodes-base.noOp",
+      "position": [
+        624,
+        680
+      ],
+      "executeOnce": true,
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "queryString": "n8n-Workflow-Backups",
+        "limit": 10,
+        "filter": {
+          "whatToSearch": "folders"
+        },
+        "options": {}
+      },
+      "id": "a942ad28-4cbc-4133-ab14-12e0444f68cc",
+      "name": "Search Folder Names",
+      "type": "n8n-nodes-base.googleDrive",
+      "position": [
+        848,
+        776
+      ],
+      "executeOnce": true,
+      "typeVersion": 3,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "LfrC6oL28lsmXIvQ",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "operation": "deleteFolder",
+        "folderNoRootId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.id }}"
+        },
+        "options": {
+          "deletePermanently": true
+        }
+      },
+      "id": "e88ff105-7b92-4545-ba3d-5d82ee23f762",
+      "name": "Delete Folders",
+      "type": "n8n-nodes-base.googleDrive",
+      "position": [
+        1296,
+        776
+      ],
+      "typeVersion": 3,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "LfrC6oL28lsmXIvQ",
+          "name": "Google Drive account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ $now }}\nWorkflows Backup Complete\n{{ $('Create Folder with DateTime Stamp').item.json.name }}\nhttps://drive.google.com/drive/folders/{{ $('Create Folder with DateTime Stamp').item.json.id }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "05d34723-5f85-46e0-8aa9-9220035bc410",
+      "name": "Complete Message",
+      "type": "n8n-nodes-base.telegram",
+      "position": [
+        1072,
+        584
+      ],
+      "webhookId": "382a3b43-b83f-47b1-a276-67c6b98a441a",
+      "typeVersion": 1.2,
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get all input items and sort by name in descending order\nconst sortedItems = $input.all().sort((a, b) => {\n  if (!a.name || !b.name) return 0;\n  return b.name.localeCompare(a.name);\n});\n\n// Get items older than 7 days\nconst olderItems = sortedItems.slice(7);\n\nreturn olderItems\n\n"
+      },
+      "id": "9d742438-0e84-4245-8587-c7cb477c3384",
+      "name": "Find Folders to Delete",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1072,
+        776
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "sendTo": "cto@aigentss.com",
+        "subject": " 8L3Kzr07KUhb0g6Y",
+        "message": "=Ejecutado exitosamente!\n\n{{ $now }}\nWorkflows Backup Complete\n{{ $('Create Folder with DateTime Stamp').item.json.name }}\nhttps://drive.google.com/drive/folders/{{ $('Create Folder with DateTime Stamp').item.json.id }}\n\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        848,
+        584
+      ],
+      "id": "8355df6c-8e75-4d76-9e32-2c25b780bc5c",
+      "name": "Send a message",
+      "webhookId": "0329d228-4dc9-4557-8aa1-ae1331c6806b",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "xh92dBbiwnRCZ982",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "command": "=du -sh /opt/backups"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        4432,
+        360
+      ],
+      "id": "f199d3f7-968e-4b39-a56d-9acb119dea66",
+      "name": "Folder Size1",
+      "executeOnce": true
+    }
+  ],
+  "connections": {
+    "Loop Over Items1": {
+      "main": [
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Convert Workflow to JSON File1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert Workflow to JSON File1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read/Write Files from Disk2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read/Write Files from Disk2": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit to ": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every Day1": {
+      "main": [
+        [
+          {
+            "node": "DIA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Operation, do nothing": {
+      "main": [
+        []
+      ]
+    },
+    "DIA": {
+      "main": [
+        [
+          {
+            "node": "AÑO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AÑO": {
+      "main": [
+        [
+          {
+            "node": "Map Year&Doy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "string2array": {
+      "main": [
+        [
+          {
+            "node": "match_year",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ls /opt/backups/": {
+      "main": [
+        [
+          {
+            "node": "string2array",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Year&Doy": {
+      "main": [
+        [
+          {
+            "node": "ls /opt/backups/",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "string2array1": {
+      "main": [
+        [
+          {
+            "node": "match_YEAR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "match_year": {
+      "main": [
+        [
+          {
+            "node": "NO EXIST YEAR?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "mkdir YEAR": {
+      "main": [
+        [
+          {
+            "node": "LIST YEARS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NO EXIST YEAR?": {
+      "main": [
+        [
+          {
+            "node": "mkdir YEAR",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "LIST YEARS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LIST YEARS": {
+      "main": [
+        [
+          {
+            "node": "string2array1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "string2array2": {
+      "main": [
+        [
+          {
+            "node": "match_doy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "string2array3": {
+      "main": [
+        [
+          {
+            "node": "match_DOY",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "match_YEAR": {
+      "main": [
+        [
+          {
+            "node": "ls /opt/backups/YEAR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ls /opt/backups/YEAR": {
+      "main": [
+        [
+          {
+            "node": "string2array2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NO EXIST DOY?": {
+      "main": [
+        [
+          {
+            "node": "mkdir DOY1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "LIST DOYs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "mkdir DOY1": {
+      "main": [
+        [
+          {
+            "node": "LIST DOYs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LIST DOYs": {
+      "main": [
+        [
+          {
+            "node": "string2array3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "match_doy": {
+      "main": [
+        [
+          {
+            "node": "NO EXIST DOY?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "match_DOY": {
+      "main": [
+        [
+          {
+            "node": "Doy_Folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Doy_Folder": {
+      "main": [
+        [
+          {
+            "node": "Get Workflows VPS: Test",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Workflows VPS: Test": {
+      "main": [
+        [
+          {
+            "node": "Limit to ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Folder Size1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Folder Size": {
+      "main": [
+        [
+          {
+            "node": "mkdir1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ls /opt/backups": {
+      "main": [
+        [
+          {
+            "node": "mkdir DOY",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Folder Size",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "mkdir DOY": {
+      "main": [
+        [
+          {
+            "node": "ls1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "rm -r DOY": {
+      "main": [
+        [
+          {
+            "node": "ls /opt/backups",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On clicking 'execute'": {
+      "main": [
+        [
+          {
+            "node": "DIA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Execute Once",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Convert Workflow to JSON File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Folder with DateTime Stamp": {
+      "main": [
+        [
+          {
+            "node": "Get Workflows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get DateTIme": {
+      "main": [
+        [
+          {
+            "node": "Create Folder with DateTime Stamp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Workflows": {
+      "main": [
+        [
+          {
+            "node": "Limit to 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit to 200": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert Workflow to JSON File": {
+      "main": [
+        [
+          {
+            "node": "Save JSON File to Google Drive Folder",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save JSON File to Google Drive Folder": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Once": {
+      "main": [
+        [
+          {
+            "node": "Search Folder Names",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Folder Names": {
+      "main": [
+        [
+          {
+            "node": "Find Folders to Delete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Folders to Delete": {
+      "main": [
+        [
+          {
+            "node": "Delete Folders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message": {
+      "main": [
+        [
+          {
+            "node": "Complete Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Folder Size1": {
+      "main": [
+        [
+          {
+            "node": "Send a message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "82bd9a50-37ff-5540-a12d-0582a8728d00",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

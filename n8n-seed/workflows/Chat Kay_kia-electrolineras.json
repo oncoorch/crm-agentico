@@ -1,0 +1,435 @@
+{
+  "id": "gafdq6XbdSKRfXGU_kia-electrolineras",
+  "name": "Chat Kay_kia-electrolineras",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "fe4d082f-0601-4981-b62b-1206d4fa0ea8",
+      "name": "When chat message received",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "position": [
+        736,
+        -240
+      ],
+      "webhookId": "1c0d08f0-abd0-4bdc-beef-370c27aae1a0",
+      "typeVersion": 1.1
+    },
+    {
+      "parameters": {},
+      "id": "4f7b98c0-6b78-437a-8b16-d7d9b1fdc7c0",
+      "name": "Simple Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "position": [
+        960,
+        128
+      ],
+      "typeVersion": 1.3
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('When chat message received').item.json.chatInput }}",
+        "options": {
+          "systemMessage": "=Eres **Kay**, un asistente **DBA experto** en **PostgreSQL** y **Supabase**, integrado en **n8n** para **Aigents Solutions**.  \n\nTu misión es **administrar, crear, sincronizar y optimizar** las tres bases de datos conectadas:\n\n- 🟦 **Supabase Cloud**\n- 🟩 **Supabase VPS**\n- 🟪 **Postgres n8n_pg_vector**\n\nDebes mantenerlas alineadas con las mejores prácticas de **e-commerce**, **CRM** y **mantenimiento automotriz**, aplicando índices, permisos y registro en **Google Sheets** de forma auditable.\n\n---\n\n## ⚙️ Contexto Operativo\n\n| Tool | Rol |\n|------|------|\n| `Supabase Cloud` | Base 1 |\n| `Supabase VPS` | Base 2 |\n| `Postgres n8n_pg_vector` | Base 3 (embeddings, logs IA) |\n| `Google Sheets` | Registro de acciones, SQLs y resultados |\n| `Date & Time` | Entrega `{{$json.currentDate}}` con hora ISO exacta |\n\n---\n\n## 🧭 Objetivos Globales\n\n1. Administrar y sincronizar las tres bases (crear, modificar o comparar).  \n2. Crear estructuras estándar para **CRM**, **comercio electrónico** y **mantenimiento automotriz**.  \n3. Asegurar *ownership* total del usuario actual de conexión.  \n4. Aplicar índices **GIN** y **BTREE** automáticamente en columnas buscables.  \n5. Documentar cada tabla creada con descripción, propósito, ejemplo de uso y consulta práctica.  \n6. Registrar toda acción SQL en **Google Sheets (`Querys_Chat`)** con:\n   - `base_name`\n   - `acción`\n   - `resultado`\n   - `sql`\n   - `error`\n   - `timestamp ({{$json.currentDate}})`\n\n---\n\n## 🎯 Objetivos Principales\n\n1. Crear, sincronizar y optimizar las estructuras de las tres bases para **e-commerce**, **CRM multicanal** y **recordatorios automotrices**.  \n2. Asignar *ownership* y privilegios plenos al usuario actual en cada base.  \n3. Generar índices **GIN** y **BTREE** automáticamente sobre campos buscables.  \n4. Documentar cada tabla y registrar los cambios en **Google Sheets (`Querys_Chat`)**.  \n5. Describir cada tabla con:\n   - Propósito funcional  \n   - Ejemplo de uso en contexto real  \n   - Consulta SQL ilustrativa  \n\n---\n\n## 🧩 Comportamiento Requerido\n\n### 1. Al recibir una solicitud\nRegistra el prompt recibido en **Google Sheets (`Querys_Chat`)** con:\n| Campo | Descripción |\n|--------|-------------|\n| `Solicitud` | Texto del prompt |\n| `Fecha` | `{{$json.currentDate}}` |\n\n### 2. Al ejecutar acciones SQL\n- Usa formato seguro:  \n  ```sql\n  CREATE TABLE IF NOT EXISTS ...\n  ALTER TABLE ... OWNER TO ...\n\n\n## Si te piden eliminar datos\n\n### Para eliminar una tabla o datos de una tabla, asegurate de tener los permisos suficientes y sino lo hay entonces crea los permisos, por ejemplo:\n\n    - Opción 1 — Otorgar permiso de truncado\n    GRANT TRUNCATE ON TABLE public.n8n_chat_histories TO postgres;\n    \n    - Opción 2 — Otorgar permisos completos sobre la tabla si el usuario necesita control total:\n    GRANT ALL PRIVILEGES ON TABLE public.n8n_chat_histories TO postgres;\n    \n    - Asegúrate de que tenga acceso al schema:\n    GRANT USAGE ON SCHEMA public TO postgres;\n    \n    Finalmente ejecuta los comandos de eliminacion:\n    \n    - Segura (no requiere TRUNCATE):\n    DELETE FROM public.n8n_chat_histories;\n    \n    - Eficiente (si tienes permisos de owner):\n    TRUNCATE TABLE public.n8n_chat_histories RESTART IDENTITY;"
+        }
+      },
+      "id": "ba058c24-21fd-4446-8353-1abbf6753f96",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "position": [
+        1280,
+        -240
+      ],
+      "typeVersion": 1.8,
+      "notesInFlow": true,
+      "retryOnFail": false
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "id": "0927b6b0-21f0-4da0-a67a-3f86759656d2",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "position": [
+        800,
+        128
+      ],
+      "typeVersion": 1.2,
+      "credentials": {
+        "openAiApi": {
+          "id": "owHroLazOkirAFA8",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Append row in sheet in Google Sheets ever",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1uGHOhTF__UpTI1O7tLtHB6Pe_YW9zZLp1-HKMShl-x4",
+          "mode": "list",
+          "cachedResultName": "Querys_Chat",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1uGHOhTF__UpTI1O7tLtHB6Pe_YW9zZLp1-HKMShl-x4/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "CLOUDE",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1uGHOhTF__UpTI1O7tLtHB6Pe_YW9zZLp1-HKMShl-x4/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Solicitud": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Solicitud', ``, 'string') }}",
+            "Respuesta": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Respuesta', ``, 'string') }}",
+            "Descripcion": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Descripcion', ``, 'string') }}",
+            "Fecha": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Fecha', ``, 'string') }}",
+            "base_name": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('base_name', ``, 'string') }}",
+            "acción": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('acci_n', ``, 'string') }}",
+            "resultado": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('resultado', ``, 'string') }}",
+            "sql": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('sql', ``, 'string') }}",
+            "error": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('error', ``, 'string') }}",
+            "timestamp": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('timestamp', ``, 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "VPS Cliente",
+              "displayName": "VPS Cliente",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Solicitud",
+              "displayName": "Solicitud",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Respuesta",
+              "displayName": "Respuesta",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Descripcion",
+              "displayName": "Descripcion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Fecha",
+              "displayName": "Fecha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "base_name",
+              "displayName": "base_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "acción",
+              "displayName": "acción",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "resultado",
+              "displayName": "resultado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "sql",
+              "displayName": "sql",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "error",
+              "displayName": "error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        1120,
+        128
+      ],
+      "id": "b174baed-22af-40df-9eec-0792f01158d4",
+      "name": "Append row in sheet in Google Sheets",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "5TEVs0kJMi0Y35F8",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.toolThink",
+      "typeVersion": 1.1,
+      "position": [
+        1264,
+        128
+      ],
+      "id": "07aad5c5-7aa1-48f1-a9bd-114640375bff",
+      "name": "Think"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "{{ $fromAI('sql_statement') }}",
+        "options": {}
+      },
+      "id": "820d4c43-7274-482e-8854-1c128f8ff9a7",
+      "name": "Postgres n8n_pg_vector",
+      "type": "n8n-nodes-base.postgresTool",
+      "position": [
+        1424,
+        128
+      ],
+      "typeVersion": 2.5,
+      "credentials": {
+        "postgres": {
+          "id": "QesFXJGvLN9nEN16",
+          "name": "Postgres n8n_pgvector_db"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "{{ $fromAI('sql_statement') }}",
+        "options": {}
+      },
+      "id": "eb5892fe-fd80-4fa9-8980-2f46ca611525",
+      "name": "Supabase VPS",
+      "type": "n8n-nodes-base.postgresTool",
+      "position": [
+        1584,
+        128
+      ],
+      "typeVersion": 2.5,
+      "credentials": {
+        "postgres": {
+          "id": "oaLqS6SkJ0wZfqRH",
+          "name": "Supabase VPS"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "{{ $fromAI('sql_statement') }}",
+        "options": {}
+      },
+      "id": "cb6e89cf-1f9c-4578-893b-4cda00e86e9d",
+      "name": "Supabase Cloude",
+      "type": "n8n-nodes-base.postgresTool",
+      "position": [
+        1776,
+        128
+      ],
+      "typeVersion": 2.5,
+      "credentials": {
+        "postgres": {
+          "id": "NwaUl1pVdo3UQhKl",
+          "name": "Supabase Cloude"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dateTime",
+      "typeVersion": 2,
+      "position": [
+        1024,
+        -240
+      ],
+      "id": "358ecc34-2693-4d31-85f9-0d974d5965c4",
+      "name": "Date & Time"
+    }
+  ],
+  "connections": {
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "Date & Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append row in sheet in Google Sheets": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Think": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres n8n_pg_vector": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase VPS": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase Cloude": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Date & Time": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "8443c925-ec8f-5c1f-810e-a70687715be9",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

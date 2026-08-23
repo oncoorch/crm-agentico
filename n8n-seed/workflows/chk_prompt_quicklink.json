@@ -1,0 +1,68 @@
+{
+  "id": "St7anHHEpuKeGIQm_quicklink",
+  "name": "chk_prompt_quicklink",
+  "nodes": [
+    {
+      "id": "w",
+      "name": "W",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "cris-test-pg-simple",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "webhookId": "auto"
+    },
+    {
+      "id": "p",
+      "name": "P",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        200,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "\nSELECT key,\n  CASE WHEN value LIKE '%usted%' OR value LIKE '%Usted%' THEN 'USTED OK'\n       WHEN value LIKE '%Hola%tú%' OR value LIKE '%te cuento%' THEN 'TUTEO!'\n       ELSE 'VERIFICAR' END as tono,\n  POSITION('tú' IN value) as pos_tu,\n  LENGTH(value) as chars\nFROM parameters WHERE key='system_promt_dev';\n",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "W": {
+      "main": [
+        [
+          {
+            "node": "P",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "8916ff47-660a-522f-9930-7f393ef7a491",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

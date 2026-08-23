@@ -1,0 +1,321 @@
+{
+  "id": "1NsRVcw3rcaGLuZJ_quicklink",
+  "name": "REN - DEV - OPS-10 - Chatwoot WAMID Resolver_quicklink",
+  "nodes": [
+    {
+      "id": "ops10-note",
+      "name": "OPS-10 Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -820,
+        -360
+      ],
+      "parameters": {
+        "width": 760,
+        "height": 260,
+        "content": "## OPS-10 - Chatwoot WAMID Resolver\n\nResuelve la carrera en la que el agent bot llega antes de que Chatwoot confirme `source_id`. Solo consulta el mensaje numerico exacto dentro de su cuenta y conversacion; nunca correlaciona por telefono, texto o timestamp.\n\nV23 conserva estado y lease. V24 extiende el maximo a 12 intentos con probes tardios a 15 min, 1 h, 6 h y 24 h. Solo un `wamid.*` validado crea el callback idempotente de V14."
+      }
+    },
+    {
+      "id": "ops10-schedule",
+      "name": "Schedule - Poll WAMID Resolutions",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -760,
+        -80
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds",
+              "secondsInterval": 2
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ops10-webhook",
+      "name": "Webhook - Trigger WAMID Resolver",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -760,
+        100
+      ],
+      "webhookId": "ren-dev-ops10-chatwoot-wamid-resolver",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "renov/dev/internal/chatwoot-wamid-resolver",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "ops10-guard",
+      "name": "Code - Guard Resolver Trigger",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -500,
+        10
+      ],
+      "parameters": {
+        "jsCode": "const headers = $json.headers && typeof $json.headers === 'object' ? $json.headers : null;\nif (!headers) return [{ json: { claim_allowed: true, trigger_source: 'schedule' } }];\nfunction readHeader(name) {\n  const key = Object.keys(headers).find((candidate) => candidate.toLowerCase() === name.toLowerCase());\n  return key ? String(headers[key] || '') : '';\n}\nlet expected = '';\ntry { expected = String($env.RENOV_INTERNAL_TOKEN || ''); } catch (error) {}\nconst bearer = readHeader('authorization').match(/^Bearer\\s+(.+)$/i)?.[1] || '';\nconst provided = readHeader('x-internal-token') || bearer;\nreturn [{ json: {\n  claim_allowed: Boolean(expected && provided === expected),\n  trigger_source: 'webhook',\n  error: expected && provided === expected ? null : 'UNAUTHORIZED',\n} }];"
+      }
+    },
+    {
+      "id": "ops10-guard-if",
+      "name": "IF - Resolver Trigger Authorized?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -260,
+        10
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ops10-guard-condition",
+              "leftValue": "={{ $json.claim_allowed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ops10-claim",
+      "name": "Postgres - Claim WAMID Resolution",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -20,
+        -50
+      ],
+      "alwaysOutputData": true,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM renovation_dev.claim_chatwoot_wamid_resolution('ops10');",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "ops10-claimed-if",
+      "name": "IF - WAMID Resolution Claimed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        220,
+        -50
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ops10-claimed-condition",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ops10-resolve",
+      "name": "Code - Resolve Exact Chatwoot Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        -110
+      ],
+      "parameters": {
+        "jsCode": "function validatedWamid(value) {\n  const id = String(value || '').trim();\n  return /^wamid\\.[A-Za-z0-9._~+\\/-]+={0,2}$/.test(id) ? id : null;\n}\n\nfunction findMessageWamid(message) {\n  if (!message || typeof message !== 'object') return null;\n  const direct = validatedWamid(message.source_id);\n  if (direct) return direct;\n  const containers = [\n    message.content_attributes,\n    message.additional_attributes,\n    message.metadata,\n    message.external_source_ids,\n  ];\n  const keys = ['provider_message_id', 'whatsapp_message_id', 'wa_message_id', 'wamid', 'whatsapp'];\n  for (const container of containers) {\n    if (!container || typeof container !== 'object') continue;\n    for (const key of keys) {\n      const candidate = validatedWamid(container[key]);\n      if (candidate) return candidate;\n    }\n    const external = validatedWamid(container.external_source_ids?.whatsapp);\n    if (external) return external;\n  }\n  return null;\n}\n\nfunction parseResponseBody(value) {\n  if (!value) return {};\n  if (typeof value === 'object') return value;\n  try {\n    const parsed = JSON.parse(String(value));\n    return parsed && typeof parsed === 'object' ? parsed : {};\n  } catch (error) {\n    return {};\n  }\n}\n\nfunction resolveExactWamid(claim, status, responseBody) {\n  if (!(status >= 200 && status < 300)) {\n    return { provider_message_id: null, error: `CHATWOOT_HTTP_${status || 0}` };\n  }\n  const body = parseResponseBody(responseBody);\n  const messages = Array.isArray(body.payload) ? body.payload : (Array.isArray(body) ? body : []);\n  const expectedMessageId = String(claim.chatwoot_message_id || '');\n  const exact = messages.find((message) => String(message?.id || '') === expectedMessageId);\n  if (!exact) return { provider_message_id: null, error: 'CHATWOOT_MESSAGE_NOT_FOUND' };\n\n  const expectedAccountId = String(claim.chatwoot_account_id || '');\n  const expectedConversationId = String(claim.chatwoot_conversation_id || '');\n  if ((exact.account_id && String(exact.account_id) !== expectedAccountId)\n      || (exact.conversation_id && String(exact.conversation_id) !== expectedConversationId)) {\n    return { provider_message_id: null, error: 'CHATWOOT_MESSAGE_SCOPE_MISMATCH' };\n  }\n\n  const providerMessageId = findMessageWamid(exact);\n  return providerMessageId\n    ? { provider_message_id: providerMessageId, error: null }\n    : { provider_message_id: null, error: 'CHATWOOT_WAMID_NOT_READY' };\n}\n\nconst item = $json;\nfunction env(name, fallback = '') { try { return String($env[name] || fallback); } catch (error) { return fallback; } }\nconst baseUrl = env('RENOV_CHATWOOT_BASE_URL', env('CHATWOOT_BASE_URL')).replace(/\\/+$/, '');\nconst apiToken = env('RENOV_CHATWOOT_API_TOKEN', env('CHATWOOT_API_TOKEN'));\nconst accountId = String(item.chatwoot_account_id || '');\nconst conversationId = String(item.chatwoot_conversation_id || '');\nconst messageId = Number(item.chatwoot_message_id);\nif (!baseUrl || !apiToken || !/^\\d+$/.test(accountId) || !/^\\d+$/.test(conversationId)\n    || !Number.isSafeInteger(messageId) || messageId <= 0 || messageId >= 2147483647) {\n  return [{ json: { ...item, resolver_http_status: 422, resolver_provider_message_id: null, resolver_error: 'CHATWOOT_RESOLVER_CONFIG_INVALID' } }];\n}\n\nconst after = Math.max(0, messageId - 1);\nconst before = messageId + 1;\nconst url = baseUrl + '/api/v1/accounts/' + encodeURIComponent(accountId)\n  + '/conversations/' + encodeURIComponent(conversationId) + '/messages?after=' + after + '&before=' + before;\nlet status = 0;\nlet responseBody = null;\ntry {\n  const response = await this.helpers.httpRequest({\n    method: 'GET',\n    url,\n    headers: { api_access_token: apiToken, accept: 'application/json' },\n    json: true,\n    resolveWithFullResponse: true,\n    simple: false,\n    timeout: 10000,\n  });\n  status = Number(response.statusCode || response.status || 200);\n  responseBody = response.body === undefined ? response : response.body;\n} catch (error) {\n  const statusFromMessage = String(error?.message || '').match(/status code (\\d{3})/i)?.[1];\n  status = Number(error.statusCode || error.response?.statusCode || error.response?.status || statusFromMessage || 0);\n}\nconst outcome = status === 0\n  ? { provider_message_id: null, error: 'CHATWOOT_NETWORK_ERROR' }\n  : resolveExactWamid(item, status, responseBody);\nreturn [{ json: {\n  ...item,\n  resolver_http_status: status,\n  resolver_provider_message_id: outcome.provider_message_id,\n  resolver_error: outcome.error,\n} }];"
+      }
+    },
+    {
+      "id": "ops10-settle-build",
+      "name": "Code - Build WAMID Resolution Settle",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        -110
+      ],
+      "parameters": {
+        "jsCode": "const item = $json;\nconst id = String(item.id || '');\nconst lease = String(item.lease_token || '');\nif (!/^[0-9a-f-]{36}$/i.test(id) || !/^[0-9a-f-]{36}$/i.test(lease)) throw new Error('INVALID_WAMID_RESOLUTION_LEASE');\nconst status = Number(item.resolver_http_status);\nreturn [{ json: {\n  ...item,\n  settle_sql: 'SELECT * FROM renovation_dev.settle_chatwoot_wamid_resolution($1::uuid, $2::uuid, $3::text, $4::integer, $5::text);',\n  settle_params: [\n    id,\n    lease,\n    item.resolver_provider_message_id || null,\n    Number.isInteger(status) && status >= 0 ? status : 0,\n    item.resolver_error || null,\n  ],\n} }];"
+      }
+    },
+    {
+      "id": "ops10-settle",
+      "name": "Postgres - Settle WAMID Resolution",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        940,
+        -110
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.settle_sql }}",
+        "options": {
+          "queryReplacement": "={{ $json.settle_params }}",
+          "queryBatching": "single"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule - Poll WAMID Resolutions": {
+      "main": [
+        [
+          {
+            "node": "Code - Guard Resolver Trigger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Trigger WAMID Resolver": {
+      "main": [
+        [
+          {
+            "node": "Code - Guard Resolver Trigger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Guard Resolver Trigger": {
+      "main": [
+        [
+          {
+            "node": "IF - Resolver Trigger Authorized?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Resolver Trigger Authorized?": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Claim WAMID Resolution",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Postgres - Claim WAMID Resolution": {
+      "main": [
+        [
+          {
+            "node": "IF - WAMID Resolution Claimed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - WAMID Resolution Claimed?": {
+      "main": [
+        [
+          {
+            "node": "Code - Resolve Exact Chatwoot Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Code - Resolve Exact Chatwoot Message": {
+      "main": [
+        [
+          {
+            "node": "Code - Build WAMID Resolution Settle",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build WAMID Resolution Settle": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Settle WAMID Resolution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false,
+    "executionTimeout": 30,
+    "errorWorkflow": "kD0eQVA4xbuhJTAb",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "f6928065-11f8-5279-a658-fe5f0752143e",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

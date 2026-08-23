@@ -1,0 +1,2087 @@
+{
+  "id": "YrDIFnIf6t6KMpzy_quicklink",
+  "name": "REN-01 — QuickLink Renovación_quicklink",
+  "nodes": [
+    {
+      "id": "f1c44bab-0c3f-4cca-b5a7-967ba834215a",
+      "name": "NOTE_E1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -200,
+        -100
+      ],
+      "parameters": {
+        "content": "## 🟢 E1 — INBOUND\nChatwoot webhook → Estado → Menú botones WA\nEscenario 1: cliente asignado → ejecutivo\nEscenario 2: nuevo → menú"
+      }
+    },
+    {
+      "id": "efadda13-710d-4e8e-8ce9-7fa8f26e2f7a",
+      "name": "NOTE_E2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3600,
+        -100
+      ],
+      "parameters": {
+        "content": "## 🔵 E2 — CAMPAIGN DISPATCH\nSalesforce push → batch WhatsApp template\nUpsert asignaciones + idempotencia"
+      }
+    },
+    {
+      "id": "ab7e4649-705f-4b96-acb1-7bf9cabe81d5",
+      "name": "NOTE_E3",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4800,
+        -100
+      ],
+      "parameters": {
+        "content": "## 🟣 E3 — ASSIGNMENT SYNC\nSalesforce push → upsert renov_asignaciones\nVentana móvil mensual / reasignaciones"
+      }
+    },
+    {
+      "id": "df29732c-81b9-4823-bd4c-25cffd74a206",
+      "name": "Webhook Inbound",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "renovacion-inbound",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "webhookId": "8cb536ea-e0f0-4573-8c32-985eca04cb4b"
+    },
+    {
+      "id": "375faffa-e948-4e7a-bdc0-d8743ecdc56f",
+      "name": "Normalizar Payload",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "09393269-8fc5-4d98-8d7e-c5a5ca0204d0",
+              "name": "sessionId",
+              "value": "={{ $json.body.conversation.id }}",
+              "type": "number"
+            },
+            {
+              "id": "3c7aaab8-58b3-4ea5-9cf6-4de1c2e9d13a",
+              "name": "phone",
+              "value": "={{ $json.body.conversation.meta?.sender?.phone || $json.body.conversation.meta?.sender?.identifier || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "4af31eb6-7b25-4892-b91d-687b2bb96ce6",
+              "name": "content",
+              "value": "={{ $json.body.conversation.messages?.[0]?.content || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "d6982cea-6e46-4bc6-973b-83d5e1cddac4",
+              "name": "button_reply_id",
+              "value": "={{ $json.body.conversation.messages?.[0]?.content_attributes?.button_reply?.id || null }}",
+              "type": "string"
+            },
+            {
+              "id": "acdbf5e4-2878-4fe4-9549-1dc14145f4f1",
+              "name": "chatwoot_conv_id",
+              "value": "={{ $json.body.conversation.id }}",
+              "type": "number"
+            },
+            {
+              "id": "6ce9afea-0803-413a-a222-2cfbad587a07",
+              "name": "chatwoot_contact_id",
+              "value": "={{ $json.body.conversation.meta?.sender?.id || null }}",
+              "type": "number"
+            },
+            {
+              "id": "76648ece-4b2c-404c-8326-3b983c5f2e6a",
+              "name": "inbox_id",
+              "value": "={{ $json.body.conversation.inbox_id || null }}",
+              "type": "number"
+            },
+            {
+              "id": "33727922-7f32-44e0-a386-309720569382",
+              "name": "chatwoot_url",
+              "value": "=http://chatwoot:3000",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "02cfbe9b-0cc5-4753-9529-ed968bc3cd07",
+      "name": "Push Buffer",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "operation": "push",
+        "list": "={{ $json.sessionId }}_renov_buffer",
+        "messageData": "={{ JSON.stringify($json) }}"
+      },
+      "credentials": {
+        "redis": {
+          "id": "2XGs9gT6llgfk5YT_quicklink",
+          "name": "Redis account_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "a7a4ead0-907a-44e4-82ac-0ee08fb916ff",
+      "name": "Wait 2s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "amount": 2,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "07aa41e3-62cf-40db-bb75-d940dc77b4b1",
+      "name": "Get Buffer",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "operation": "get",
+        "propertyName": "buffer_data",
+        "key": "={{ $('Normalizar Payload').item.json.sessionId }}_renov_buffer",
+        "options": {}
+      },
+      "credentials": {
+        "redis": {
+          "id": "2XGs9gT6llgfk5YT_quicklink",
+          "name": "Redis account_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "278a84d0-fabb-4323-acca-3d5086cda5b7",
+      "name": "Del Buffer",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        0
+      ],
+      "parameters": {
+        "operation": "delete",
+        "key": "={{ $('Normalizar Payload').item.json.sessionId }}_renov_buffer"
+      },
+      "credentials": {
+        "redis": {
+          "id": "2XGs9gT6llgfk5YT_quicklink",
+          "name": "Redis account_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "9750444b-977b-4290-862d-f1d7acd461af",
+      "name": "PG Config",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1680,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT rc.*, ra.wa_number as supervisor_wa_real, ra.chatwoot_agent_id as supervisor_agent_id FROM renov_config rc LEFT JOIN renov_asesores ra ON ra.advisor_id='SUPERVISOR' AND ra.campaign_id=rc.campaign_id WHERE rc.campaign_id='KIA' LIMIT 1;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "63fe668f-a829-4f08-b54f-cf710dbb5752",
+      "name": "PG Buscar Asignación",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1920,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT ra.*, rc.supervisor_wa, rc.supervisor_chatwoot_agent_id, rc.meta_waba_phone_id, rc.meta_token, rc.mensajes, rc.horario_inicio, rc.horario_fin FROM renov_asignaciones ra LEFT JOIN renov_config rc ON rc.campaign_id = UPPER(ra.marca) WHERE ra.telefono_e164 = $1 LIMIT 1;",
+        "options": {
+          "queryReplacement": "={{ $('Normalizar Payload').item.json.phone }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "e4284de4-e363-48fd-b86b-efc1a9610fc8",
+      "name": "Redis Get Estado",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        2160,
+        0
+      ],
+      "parameters": {
+        "operation": "get",
+        "propertyName": "estado_actual",
+        "key": "={{ $('Normalizar Payload').item.json.sessionId }}_renov_estado",
+        "options": {}
+      },
+      "credentials": {
+        "redis": {
+          "id": "2XGs9gT6llgfk5YT_quicklink",
+          "name": "Redis account_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "e704ce51-e122-426e-9515-d8279175e4ce",
+      "name": "Code Saludo y Horario",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        0
+      ],
+      "parameters": {
+        "jsCode": "\n// Calcula saludo y horario laboral (TZ America/Guayaquil = UTC-5)\nconst now = new Date();\nconst guayaquil = new Date(now.toLocaleString('en-US', {timeZone: 'America/Guayaquil'}));\nconst h = guayaquil.getHours();\nconst m = guayaquil.getMinutes();\nconst dow = guayaquil.getDay(); // 0=Dom 6=Sáb\n\nlet saludo;\nif (h >= 2 && h < 12) saludo = 'Buenos días';\nelse if (h >= 12 && h < 19) saludo = 'Buenas tardes';\nelse saludo = 'Buenas noches';\n\n// Lun(1)–Vie(5) 08:30–17:30\nconst minutos = h * 60 + m;\nconst enHorario = dow >= 1 && dow <= 5 && minutos >= 510 && minutos < 1050;\n\nreturn [{json: {\n  ...items[0].json,\n  saludo,\n  is_horario_laboral: enHorario\n}}];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "0e3b9524-b2ec-4904-9a9c-7a93e61a2cad",
+      "name": "Code Router",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        0
+      ],
+      "parameters": {
+        "jsCode": "\n// Determina escenario: 1=cliente asignado respondiendo, 2=desconocido/otro número\nconst item = items[0].json;\nconst isAssigned = item.is_assigned === true;\n\n// Detectar si viene un button_reply (interacción de menú) o texto libre\nconst buttonId = item.button_reply_id || null;\nconst estado = item.estado_actual || 'NUEVO';\n\nlet scenario;\nif (estado !== 'NUEVO' && estado !== 'MENU_PRINCIPAL') {\n  scenario = 'ESTADO_ACTIVO'; // continúa la conversación\n} else if (isAssigned && !buttonId) {\n  scenario = 'ESC1_ASIGNADO'; // cliente registrado responde directo\n} else {\n  scenario = 'ESC2_MENU'; // desconocido o pide menú\n}\n\nreturn [{json: {...item, scenario}}];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "0a0a4c49-1d48-4c44-bbd5-32af7652d411",
+      "name": "Switch Escenario",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2880,
+        0
+      ],
+      "parameters": {
+        "mode": "expression",
+        "output": "single",
+        "rules": {
+          "values": [
+            {
+              "outputKey": "ESC1",
+              "conditions": {
+                "options": {
+                  "version": 2,
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "243ee1cc-a3f0-4e1d-8251-2fa266e8155f",
+                    "leftValue": "={{ $json.scenario }}",
+                    "rightValue": "ESC1_ASIGNADO",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "ESTADO",
+              "conditions": {
+                "options": {
+                  "version": 2,
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "de0965ca-827a-4ad2-b9cf-2764743288b9",
+                    "leftValue": "={{ $json.scenario }}",
+                    "rightValue": "ESTADO_ACTIVO",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "MENU",
+              "conditions": {
+                "options": {
+                  "version": 2,
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "b49f2300-f518-473d-8ae0-3e6ca706cc50",
+                    "leftValue": "={{ $json.scenario }}",
+                    "rightValue": "ESC2_MENU",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "fallbackOutput": "extra"
+      }
+    },
+    {
+      "id": "927bc5ca-ffa1-4ebc-86ba-58f045ca4f7d",
+      "name": "Code Armar ESC1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        -320
+      ],
+      "parameters": {
+        "jsCode": "\nconst d = items[0].json;\nconst nombre = d.nombre_cliente || 'Cliente';\nconst msg = `Hola ${nombre}. Gracias por comunicarte con nosotros. Su ejecutivo de renovación ha sido notificado y se pondrá en contacto con usted dentro de nuestro horario de atención.`;\nreturn [{json: {...d, wa_message: msg, wa_to: d.phone, next_estado: 'RENOV_NOTIFICADO'}}];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "b9fd35fb-47f9-44c3-ba1a-119438bff4ae",
+      "name": "WA Enviar ESC1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3360,
+        -320
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v23.0/{{ $('PG Buscar Asignación').item.json.meta_waba_phone_id || 'PENDING' }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('PG Buscar Asignación').item.json.meta_token || 'PENDING' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({messaging_product:'whatsapp',to:$json.wa_to,type:'text',text:{body:$json.wa_message}}) }}",
+        "options": {
+          "continueOnFail": true
+        }
+      }
+    },
+    {
+      "id": "75d17488-69b2-4dcf-8d57-6a7daefec60e",
+      "name": "WA Menú Principal",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3120,
+        320
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v23.0/{{ $('PG Buscar Asignación').item.json.meta_waba_phone_id || 'PENDING' }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('PG Buscar Asignación').item.json.meta_token || 'PENDING' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  messaging_product: 'whatsapp',\n  to: $('Normalizar Payload').item.json.phone,\n  type: 'interactive',\n  interactive: {\n    type: 'button',\n    body: { text: $('Code Saludo y Horario').item.json.saludo + '\\nGracias por ponerse en contacto con Quicklink. Por favor, seleccione una opción para ser atendido:' },\n    action: {\n      buttons: [\n        { type: 'reply', reply: { id: 'renov_menu_cliente_renovar', title: '1. Soy cliente y deseo renovar' } },\n        { type: 'reply', reply: { id: 'renov_menu_otros', title: '2. Otros' } }\n      ]\n    }\n  }\n}) }}",
+        "options": {
+          "continueOnFail": true
+        }
+      }
+    },
+    {
+      "id": "19f9cc9f-5b50-49fb-9974-785556f68a3a",
+      "name": "Switch Estado Activo",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        3120,
+        0
+      ],
+      "parameters": {
+        "mode": "expression",
+        "output": "single",
+        "rules": {
+          "values": [
+            {
+              "outputKey": "RENOV_DATOS",
+              "conditions": {
+                "options": {
+                  "version": 2,
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "c791c3a8-a446-4be6-918f-600d54ce9664",
+                    "leftValue": "={{ $json.estado_actual }}",
+                    "rightValue": "RENOV_DATOS",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "RENOV_MENU2",
+              "conditions": {
+                "options": {
+                  "version": 2,
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "38c78cdb-903e-4009-89b3-97c1ec1de762",
+                    "leftValue": "={{ $json.button_reply_id }}",
+                    "rightValue": "renov_contactar_ejecutivo",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "OTROS_MENU",
+              "conditions": {
+                "options": {
+                  "version": 2,
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "ac12a6fe-db5e-444d-b6c4-6c410be6edd3",
+                    "leftValue": "={{ $json.button_reply_id }}",
+                    "rightValue": "renov_menu_otros",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "SAC_DATOS",
+              "conditions": {
+                "options": {
+                  "version": 2,
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "79c0a837-b7a8-4f75-aeb4-e47d4bca7206",
+                    "leftValue": "={{ $json.button_reply_id }}",
+                    "rightValue": "renov_sac",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "VENTA_DATOS",
+              "conditions": {
+                "options": {
+                  "version": 2,
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "1232af47-c28d-487a-a47d-5bd666d38fd8",
+                    "leftValue": "={{ $json.button_reply_id }}",
+                    "rightValue": "renov_venta_nueva",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "MENU_PRINCIPAL",
+              "conditions": {
+                "options": {
+                  "version": 2,
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "bea41fac-907e-44dc-a10e-e7934948ceff",
+                    "leftValue": "={{ $json.button_reply_id }}",
+                    "rightValue": "renov_atras_menu_principal",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "RENOV_CAPTURAR",
+              "conditions": {
+                "options": {
+                  "version": 2,
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "279bf8ac-e0ee-40fd-8b91-c7e00342b0ba",
+                    "leftValue": "={{ $json.button_reply_id }}",
+                    "rightValue": "renov_menu_cliente_renovar",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.estado_actual }}",
+                    "rightValue": "SAC_DATOS",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and",
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              }
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.estado_actual }}",
+                    "rightValue": "VENTA_DATOS",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and",
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              }
+            }
+          ]
+        },
+        "fallbackOutput": "extra"
+      }
+    },
+    {
+      "id": "6323cbf9-1a8d-44da-8fd9-a61332d3f7eb",
+      "name": "WA Pedir Datos Renov",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3360,
+        -160
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v23.0/{{ $('PG Buscar Asignación').item.json.meta_waba_phone_id || 'PENDING' }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('PG Buscar Asignación').item.json.meta_token || 'PENDING' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({messaging_product:'whatsapp',to:$('Normalizar Payload').item.json.phone,type:'text',text:{body:'Muchas gracias por su respuesta, su ayuda confirmando nombres completos y cédula o RUC del propietario del Vehículo a renovar'}}) }}",
+        "options": {
+          "continueOnFail": true
+        }
+      }
+    },
+    {
+      "id": "6401f785-2778-4b61-aa7f-3aeea2dc2d82",
+      "name": "WA Menú Renov 2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3600,
+        -160
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v23.0/{{ $('PG Buscar Asignación').item.json.meta_waba_phone_id || 'PENDING' }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('PG Buscar Asignación').item.json.meta_token || 'PENDING' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({messaging_product:'whatsapp',to:$('Normalizar Payload').item.json.phone,type:'interactive',interactive:{type:'button',body:{text:'A continuación, seleccione una opción para ser atendido:'},action:{buttons:[{type:'reply',reply:{id:'renov_contactar_ejecutivo',title:'1. Contactar a mi ejecutivo'}},{type:'reply',reply:{id:'renov_atras_menu_principal',title:'2. Atrás'}}]}}}) }}",
+        "options": {
+          "continueOnFail": true
+        }
+      }
+    },
+    {
+      "id": "7f6f8a00-3e27-47e2-9023-ea5c8e467a93",
+      "name": "WA Menú Otros",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3360,
+        160
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v23.0/{{ $('PG Buscar Asignación').item.json.meta_waba_phone_id || 'PENDING' }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('PG Buscar Asignación').item.json.meta_token || 'PENDING' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({messaging_product:'whatsapp',to:$('Normalizar Payload').item.json.phone,type:'interactive',interactive:{type:'button',body:{text:'En Quicklink nos preocupamos por ti y por la seguridad de tu vehículo. Para continuar, por favor, seleccione una opción:'},action:{buttons:[{type:'reply',reply:{id:'renov_sac',title:'1. Servicio al Cliente'}},{type:'reply',reply:{id:'renov_venta_nueva',title:'2. Venta nueva'}}]}}}) }}",
+        "options": {
+          "continueOnFail": true
+        }
+      }
+    },
+    {
+      "id": "820d3c55-31ad-404a-bd85-78ca02031649",
+      "name": "WA Pedir Datos SAC",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3360,
+        320
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v23.0/{{ $('PG Buscar Asignación').item.json.meta_waba_phone_id || 'PENDING' }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('PG Buscar Asignación').item.json.meta_token || 'PENDING' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({messaging_product:'whatsapp',to:$('Normalizar Payload').item.json.phone,type:'text',text:{body: ($('Code Saludo y Horario').item.json.is_horario_laboral ? '' : 'recuerde que nuestro horario de atención es de 8:30 a 17:30 PM de Lunes a Viernes. Si tienes alguna emergencia contáctanos a nuestro Centro de monitoreo: 026020601 o 0990603193. Un asesor de atención al cliente se pondrá en contacto con usted dentro de nuestro horario de atención. ¡ Gracias por elegir Quicklink !\\n\\n') + 'Para brindarte una mejor atención su ayuda confirmando nombres completos y cédula o RUC del propietario del Vehículo'}}) }}",
+        "options": {
+          "continueOnFail": true
+        }
+      }
+    },
+    {
+      "id": "af39045a-736a-41e5-a0ed-8a2c89537c45",
+      "name": "WA Pedir Datos Venta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3360,
+        480
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v23.0/{{ $('PG Buscar Asignación').item.json.meta_waba_phone_id || 'PENDING' }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('PG Buscar Asignación').item.json.meta_token || 'PENDING' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({messaging_product:'whatsapp',to:$('Normalizar Payload').item.json.phone,type:'text',text:{body: ($('Code Saludo y Horario').item.json.is_horario_laboral ? '' : 'recuerde que nuestro horario de atención es de 8:30 a 17:30 PM de Lunes a Viernes. Si tienes alguna emergencia contáctanos a nuestro Centro de monitoreo: 026020601 o 0990603193.\\n\\n') + 'Muchas gracias por su respuesta. En Quicklink queremos brindarle una atención mas personalizada. Por favor, su ayuda proporcionando los siguientes datos:\\nCédula / RUC\\nNombre y Apellido\\nMoto o Auto:'}}) }}",
+        "options": {
+          "continueOnFail": true
+        }
+      }
+    },
+    {
+      "id": "b9b3f51b-33ad-4ae0-a647-627a7d02e48d",
+      "name": "Code Parsear Datos SAC",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        320
+      ],
+      "parameters": {
+        "jsCode": "\n// Parsea texto libre con datos de renovación: nombre + cédula/RUC\nconst texto = (items[0].json.content || '').trim();\nconst cedRuc = texto.match(/\\b(\\d{10}|\\d{13})\\b/);\nlet docNum = cedRuc ? cedRuc[1] : null;\nlet docTipo = null;\nlet docValido = null;\nif (docNum) {\n  if (docNum.length === 10) { docTipo = 'CEDULA'; docValido = true; }\n  else if (docNum.length === 13) { docTipo = 'RUC'; docValido = true; }\n}\n// Nombre: todo lo que no sea el número\nconst nombre = texto.replace(/\\b\\d{10,13}\\b/g, '').replace(/\\s+/g,' ').trim();\n\nreturn [{json: {\n  ...items[0].json,\n  datos_capturados: {nombre: nombre || null, documento: docNum},\n  documento_tipo: docTipo,\n  documento_numero: docNum,\n  documento_valido: docValido\n}}];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "9861b10b-4467-4f73-9aa1-50639627864a",
+      "name": "PG Guardar SAC",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3840,
+        320
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO renov_conversaciones (conv_id, telefono_e164, estado, datos_capturados, documento_tipo, documento_numero, documento_valido, updated_at) VALUES ($1, $2, 'SAC_DERIVADO', $3::JSONB, $4, $5, $6, NOW()) ON CONFLICT (conv_id) DO UPDATE SET estado='SAC_DERIVADO', datos_capturados=$3::JSONB, documento_tipo=$4, documento_numero=$5, documento_valido=$6, updated_at=NOW();",
+        "options": {
+          "queryReplacement": "={{ $json.chatwoot_conv_id.toString() }},={{ $json.phone }},={{ JSON.stringify($json.datos_capturados || {}) }},={{ $json.documento_tipo || null }},={{ $json.documento_numero || null }},={{ $json.documento_valido }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "c344a741-b096-43f0-8b3d-5de37a32cca9",
+      "name": "WA Confirmar SAC",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4080,
+        320
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v23.0/{{ $('PG Buscar Asignación').item.json.meta_waba_phone_id || 'PENDING' }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('PG Buscar Asignación').item.json.meta_token || 'PENDING' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({messaging_product:'whatsapp',to:$('Normalizar Payload').item.json.phone,type:'text',text:{body:'Muchas gracias por su respuesta. En breve, un asesor de atención al cliente se pondrá en contacto con usted.'}}) }}",
+        "options": {
+          "continueOnFail": true
+        }
+      }
+    },
+    {
+      "id": "012221fb-2a63-4096-bfd3-8ba42ed0108a",
+      "name": "Code Parsear Datos Venta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        480
+      ],
+      "parameters": {
+        "jsCode": "\n// Parsea texto libre con datos de renovación: nombre + cédula/RUC\nconst texto = (items[0].json.content || '').trim();\nconst cedRuc = texto.match(/\\b(\\d{10}|\\d{13})\\b/);\nlet docNum = cedRuc ? cedRuc[1] : null;\nlet docTipo = null;\nlet docValido = null;\nif (docNum) {\n  if (docNum.length === 10) { docTipo = 'CEDULA'; docValido = true; }\n  else if (docNum.length === 13) { docTipo = 'RUC'; docValido = true; }\n}\n// Nombre: todo lo que no sea el número\nconst nombre = texto.replace(/\\b\\d{10,13}\\b/g, '').replace(/\\s+/g,' ').trim();\n\nreturn [{json: {\n  ...items[0].json,\n  datos_capturados: {nombre: nombre || null, documento: docNum},\n  documento_tipo: docTipo,\n  documento_numero: docNum,\n  documento_valido: docValido\n}}];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "374214ce-0ece-4578-bdfb-50d20815bfa4",
+      "name": "PG Guardar Venta",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3840,
+        480
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO renov_conversaciones (conv_id, telefono_e164, estado, datos_capturados, documento_tipo, documento_numero, documento_valido, updated_at) VALUES ($1, $2, 'VENTA_CRIS', $3::JSONB, $4, $5, $6, NOW()) ON CONFLICT (conv_id) DO UPDATE SET estado='VENTA_CRIS', datos_capturados=$3::JSONB, documento_tipo=$4, documento_numero=$5, documento_valido=$6, updated_at=NOW();",
+        "options": {
+          "queryReplacement": "={{ $json.chatwoot_conv_id.toString() }},={{ $json.phone }},={{ JSON.stringify($json.datos_capturados || {}) }},={{ $json.documento_tipo || null }},={{ $json.documento_numero || null }},={{ $json.documento_valido }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "c3e11061-0fe8-45b0-adf6-c8254857b7ce",
+      "name": "PG Buscar Asesor",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3360,
+        -480
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM renov_asesores WHERE advisor_id = $1 AND campaign_id = UPPER($2) LIMIT 1;",
+        "options": {
+          "queryReplacement": "={{ $('PG Buscar Asignación').item.json.advisor_id || 'SUPERVISOR' }},={{ $('PG Buscar Asignación').item.json.marca || 'KIA' }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "aeb8210f-aff4-40b2-948e-6413c944e8d8",
+      "name": "Code Armar Notif Asesor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        -480
+      ],
+      "parameters": {
+        "jsCode": "\n// Construye mensaje WhatsApp para el asesor con contexto del cliente\nconst d = items[0].json;\nconst asesor = d.asesor || {};\nconst asig = d.asig || {};\n\nconst nombre = asig.nombre_cliente || 'Cliente';\nconst placa = (asig.vehiculos?.[0]?.plate) || 'N/D';\nconst vehiculo = (asig.vehiculos?.[0]?.model) || 'N/D';\nconst vencimiento = (asig.contratos?.[0]?.endDate) || 'N/D';\nconst telefono = asig.telefono_e164 || d.phone || '';\n\nconst msg = `🔔 *Renovación QuickLink*\\n\\n`\n  + `👤 Cliente: ${nombre}\\n`\n  + `📱 Teléfono: ${telefono}\\n`\n  + `🚗 Vehículo: ${vehiculo} (${placa})\\n`\n  + `📅 Vencimiento: ${vencimiento}\\n\\n`\n  + `El cliente solicitó contacto con su ejecutivo.`;\n\nreturn [{json: {\n  ...d,\n  wa_message_asesor: msg,\n  wa_to_asesor: asesor.wa_number || ''\n}}];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "a41d75fb-e9cc-4505-9bcd-0d009e77a685",
+      "name": "WA Notificar Asesor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3840,
+        -480
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v23.0/{{ $('PG Buscar Asignación').item.json.meta_waba_phone_id || 'PENDING' }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('PG Buscar Asignación').item.json.meta_token || 'PENDING' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({messaging_product:'whatsapp',to:$json.wa_to_asesor,type:'text',text:{body:$json.wa_message_asesor}}) }}",
+        "options": {
+          "continueOnFail": true
+        }
+      }
+    },
+    {
+      "id": "0f293671-9e6c-48cd-a4db-8905ee4f7261",
+      "name": "Chatwoot Asignar Equipo QuickLink",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4080,
+        -480
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Normalizar Payload').item.json.chatwoot_url }}/api/v1/accounts/2/conversations/{{ $('Normalizar Payload').item.json.chatwoot_conv_id }}/assignments",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "=RdPq7dPuoSZHYHExxWe5HyhY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"team_id\":2}",
+        "options": {}
+      }
+    },
+    {
+      "id": "1dfdfdab-fa68-4eff-97c1-f315c715feef",
+      "name": "Chatwoot Nota Privada",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4320,
+        -480
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Normalizar Payload').item.json.chatwoot_url }}/api/v1/accounts/2/conversations/{{ $('Normalizar Payload').item.json.chatwoot_conv_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "=RdPq7dPuoSZHYHExxWe5HyhY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({content: '🔔 QuickLink Renovación\\nCliente solicitó contacto.\\n' + $('Code Armar Notif Asesor').item.json.wa_message_asesor, message_type: 'outgoing', private: true}) }}",
+        "options": {
+          "continueOnFail": true
+        }
+      }
+    },
+    {
+      "id": "de9918e3-a99d-4811-a0cb-d65c2c75a4d1",
+      "name": "Redis Set Estado",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        4560,
+        0
+      ],
+      "parameters": {
+        "operation": "set",
+        "key": "={{ $('Normalizar Payload').item.json.sessionId }}_renov_estado",
+        "value": "={{ $json.next_estado || $json.estado_actual || 'MENU_PRINCIPAL' }}",
+        "additionalFields": {
+          "ttl": 86400
+        }
+      },
+      "credentials": {
+        "redis": {
+          "id": "2XGs9gT6llgfk5YT_quicklink",
+          "name": "Redis account_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "130f3c6a-544f-453e-95c3-6fa3345f6e5b",
+      "name": "Webhook Dispatch",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        1600
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "renovacion-campaign-dispatch",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "webhookId": "d13b56f1-f243-4142-923f-29e65f7b797f"
+    },
+    {
+      "id": "575b85ff-89d6-4713-92e4-253dc8726af5",
+      "name": "Code Validar Dispatch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        1600
+      ],
+      "parameters": {
+        "jsCode": "// Validate and normalize the campaign dispatch payload.\nconst body = items[0].json.body || items[0].json;\nconst dispatchId = body.dispatchId || ('DSP-' + Date.now());\nconst recipients = Array.isArray(body.recipients) ? body.recipients : [];\n\nconst templateId = body.templateId || body.template_id || null;\nconst templateName = body.templateName || body.template_name || templateId || null;\nconst metaWabaPhoneId = body.meta_waba_phone_id || body.metaWabaPhoneId || body.phone_number_id || null;\nconst metaToken = body.meta_token || body.metaToken || body.access_token || null;\nconst outboundBatchSize = Number(body.outbound_batch_size || body.outboundBatchSize || 25);\n\nconst valid = [];\nconst errors = [];\nfor (const r of recipients) {\n  if (!r.phone || !r.customerId) {\n    errors.push({customerId: r.customerId, error: 'missing phone or customerId'});\n    continue;\n  }\n\n  const recipientTemplateId = r.templateId || r.template_id || templateId;\n  const recipientTemplateName = r.templateName || r.template_name || recipientTemplateId || templateName;\n  valid.push({\n    ...r,\n    dispatchId,\n    campaignId: r.campaignId || r.campaign_id || body.campaignId,\n    campaignName: r.campaignName || r.campaign_name || body.campaignName,\n    advisorId: r.advisorId || r.advisor_id || body.advisorId,\n    templateId: recipientTemplateId,\n    templateName: recipientTemplateName,\n    meta_waba_phone_id: r.meta_waba_phone_id || r.metaWabaPhoneId || r.phone_number_id || metaWabaPhoneId,\n    meta_token: r.meta_token || r.metaToken || r.access_token || metaToken,\n  });\n}\n\nreturn [{json: {\n  dispatchId,\n  campaignId: body.campaignId,\n  campaignName: body.campaignName,\n  segmentMonth: body.segmentMonth,\n  advisorId: body.advisorId,\n  templateId,\n  templateName,\n  meta_waba_phone_id: metaWabaPhoneId,\n  meta_token: metaToken,\n  outbound_batch_size: outboundBatchSize,\n  valid_recipients: valid,\n  errors,\n  total: recipients.length\n}}];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "44ceb2a4-e7c6-46da-9012-5668d8bd8913",
+      "name": "PG Insertar Dispatch",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        480,
+        1600
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO renov_campaign_dispatches (dispatch_id, campaign_id, segment_month, advisor_id, template_id) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (dispatch_id) DO NOTHING RETURNING dispatch_id;",
+        "options": {
+          "queryReplacement": "={{ $json.dispatchId }},={{ $json.campaignId }},={{ $json.segmentMonth }},={{ $json.advisorId }},={{ $json.templateId }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "a12c77d9-37fc-4f27-922e-3cfaa4e89141",
+      "name": "PG Upsert Asignaciones Dispatch",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        720,
+        1600
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "\nDO $$\nDECLARE r JSONB;\nBEGIN\n  FOR r IN SELECT jsonb_array_elements($1::JSONB) LOOP\n    INSERT INTO renov_asignaciones (telefono_e164, customer_id, advisor_id, is_assigned, marca, segment_month, campaign_id, updated_at)\n    VALUES (r->>'phone', r->>'customerId', r->>'assignedAdvisorId', (r->>'isAssigned')::BOOLEAN, $2, $3, $2, NOW())\n    ON CONFLICT (telefono_e164) DO UPDATE SET advisor_id=EXCLUDED.advisor_id, is_assigned=EXCLUDED.is_assigned, segment_month=EXCLUDED.segment_month, updated_at=NOW();\n  END LOOP;\nEND $$;\nSELECT COUNT(*) as upserted FROM renov_asignaciones WHERE campaign_id=$2;\n",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($('Code Validar Dispatch').item.json.valid_recipients) }},={{ $('Code Validar Dispatch').item.json.campaignId }},={{ $('Code Validar Dispatch').item.json.segmentMonth }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "007adf1a-b693-491f-a5cf-b1a6c7ce97c7",
+      "name": "Split Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        960,
+        1600
+      ],
+      "parameters": {
+        "batchSize": "={{ $('Code Validar Dispatch').item.json.outbound_batch_size || 25 }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "689f23e7-963d-4294-a34f-ad6e77228d96",
+      "name": "Code Build Template Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        1600
+      ],
+      "parameters": {
+        "jsCode": "// Build a guarded WhatsApp template payload for Meta Graph API.\nconst r = items[0].json;\nconst mf = r.mergeFields || {};\n\nfunction brandFrom(...values) {\n  const raw = values.map(v => String(v || '').toUpperCase()).join(' ');\n  if (raw.includes('HYUNDAI')) return 'HYUNDAI';\n  if (raw.includes('KIA')) return 'KIA';\n  return '';\n}\n\nfunction firstText(keys, fallback) {\n  for (const key of keys) {\n    const value = mf[key] ?? r[key];\n    if (value !== undefined && value !== null && String(value).trim() !== '') return String(value);\n  }\n  return fallback;\n}\n\nconst brand = brandFrom(r.marca, r.brand, r.vehicle_brand, r.campaignId, r.campaign_id, r.campaignName, r.campaign_name);\nconst defaultTemplateByBrand = {\n  KIA: 'kia_bienvenida_intro_v4_1',\n  HYUNDAI: 'hyundai_bienvenida_intro_v4_2',\n};\n\nconst approvedTemplates = {\n  kia_bienvenida_intro_v4_1: { brand: 'KIA', lang: 'es', fields: ['nombre', 'modelo'] },\n  kia_bienvenida_intro_v4_2: { brand: 'KIA', lang: 'es', fields: ['nombre', 'modelo'] },\n  kia_bienvenida_intro_v4_3: { brand: 'KIA', lang: 'es', fields: ['nombre', 'modelo'] },\n  kia_bienvenida_cta_v4_1: { brand: 'KIA', lang: 'es', fields: [] },\n  kia_bienvenida_cta_v4_2: { brand: 'KIA', lang: 'es', fields: [] },\n  kia_bienvenida_cta_v4_3: { brand: 'KIA', lang: 'es', fields: [] },\n  hyundai_bienvenida_intro_v4_2: { brand: 'HYUNDAI', lang: 'es', fields: ['nombre', 'modelo'] },\n  hyundai_bienvenida_intro_v4_3: { brand: 'HYUNDAI', lang: 'es', fields: ['nombre', 'modelo'] },\n  hyundai_bienvenida_cta_v4_2: { brand: 'HYUNDAI', lang: 'es', fields: [] },\n  hyundai_bienvenida_cta_v4_3: { brand: 'HYUNDAI', lang: 'es', fields: [] },\n  kia_contacto2_v1: { brand: 'KIA', lang: 'es' },\n  kia_contacto2_v2: { brand: 'KIA', lang: 'es' },\n  kia_contacto2_v3: { brand: 'KIA', lang: 'es' },\n  kia_contacto3_v1: { brand: 'KIA', lang: 'es' },\n  kia_contacto3_v2: { brand: 'KIA', lang: 'es' },\n  kia_contacto3_v3: { brand: 'KIA', lang: 'es' },\n  hyundai_contacto2_v1: { brand: 'HYUNDAI', lang: 'es' },\n  hyundai_contacto2_v2: { brand: 'HYUNDAI', lang: 'es' },\n  hyundai_contacto2_v3: { brand: 'HYUNDAI', lang: 'es' },\n  hyundai_contacto3_v1: { brand: 'HYUNDAI', lang: 'es' },\n  hyundai_contacto3_v2: { brand: 'HYUNDAI', lang: 'es' },\n  hyundai_contacto3_v3: { brand: 'HYUNDAI', lang: 'es' },\n};\n\nlet requestedTemplate = String(r.templateName || r.template_name || r.templateId || r.template_id || '').trim();\nif (!requestedTemplate || requestedTemplate === 'recordatorio_renovacion_generico') {\n  requestedTemplate = defaultTemplateByBrand[brand] || '';\n}\n\nconst tpl = approvedTemplates[requestedTemplate];\nif (!tpl) {\n  throw new Error(`[REN TEMPLATE GUARD] Template \"${requestedTemplate || '(empty)'}\" is not in the approved REN allowlist. campaignId=${r.campaignId || r.campaign_id || ''} customerId=${r.customerId || ''}`);\n}\nif (!brand || tpl.brand !== brand) {\n  throw new Error(`[REN TEMPLATE GUARD] Template \"${requestedTemplate}\" belongs to ${tpl.brand}, but dispatch brand is ${brand || '(empty)'}. campaignId=${r.campaignId || r.campaign_id || ''} customerId=${r.customerId || ''}`);\n}\n\nlet parameters = [];\nif (Array.isArray(tpl.fields)) {\n  if (tpl.fields.includes('nombre')) {\n    parameters.push({type: 'text', text: firstText(['nombre_cliente', 'nombre', 'customerName', 'customer_name'], 'Cliente')});\n  }\n  if (tpl.fields.includes('modelo')) {\n    parameters.push({type: 'text', text: firstText(['modelo', 'vehicle_model', 'model'], 'su vehiculo')});\n  }\n} else {\n  parameters = Object.values(mf).map(v => ({type: 'text', text: String(v)}));\n}\n\nconst template = {\n  name: requestedTemplate,\n  language: {code: tpl.lang},\n};\nif (parameters.length > 0) {\n  template.components = [{type: 'body', parameters}];\n}\n\nreturn [{json: {\n  ...r,\n  templateId: requestedTemplate,\n  templateName: requestedTemplate,\n  template_name_used: requestedTemplate,\n  wa_payload: {\n    messaging_product: 'whatsapp',\n    to: r.phone,\n    type: 'template',\n    template,\n  }\n}}];\n",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "a15104ee-4ff9-45eb-926b-feeee2345e01",
+      "name": "HTTP Enviar Template WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        1600
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v23.0/{{ $json.meta_waba_phone_id || $('Code Validar Dispatch').item.json.meta_waba_phone_id || 'PENDING' }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.meta_token || $('Code Validar Dispatch').item.json.meta_token || 'PENDING' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.wa_payload) }}",
+        "options": {
+          "continueOnFail": true
+        }
+      }
+    },
+    {
+      "id": "aabc9673-37c9-4223-bdf3-37db16f79145",
+      "name": "PG Update Recipient Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1680,
+        1600
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO renov_campaign_recipients (dispatch_id, customer_id, telefono_e164, status, wa_message_id, error) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (dispatch_id, customer_id) DO UPDATE SET status=$4, wa_message_id=$5, error=$6;",
+        "options": {
+          "queryReplacement": "={{ $('Code Validar Dispatch').item.json.dispatchId }},={{ $json.customerId }},={{ $json.phone }},={{ $json.messages?.[0]?.message_status ? 'SENT' : 'FAILED' }},={{ $json.messages?.[0]?.id || null }},={{ $json.error?.message || null }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "94bbdeaa-1938-424a-9048-104dcf019bb4",
+      "name": "Webhook Sync",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        2240
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "renovacion-assignment-sync",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "webhookId": "4c2eb2e3-a162-4321-b47e-1cee04323b54"
+    },
+    {
+      "id": "50f9408d-9bd9-4c97-98e9-8cd0458047ef",
+      "name": "Code Validar Sync",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        2240
+      ],
+      "parameters": {
+        "jsCode": "\n// Valida y normaliza el payload del assignment sync\nconst body = items[0].json.body || items[0].json;\nconst assignments = body.assignments || [];\nconst syncId = body.syncId || ('SYNC-' + Date.now());\n\nreturn [{json: {\n  syncId,\n  campaignId: body.campaignId,\n  assignments: assignments.filter(a => a.phone && a.customerId)\n}}];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "ee96ad00-f65e-406f-85f4-7b3190f1535c",
+      "name": "PG Upsert Asignaciones Sync",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        480,
+        2240
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "\nDO $$\nDECLARE r JSONB;\nBEGIN\n  FOR r IN SELECT jsonb_array_elements($1::JSONB) LOOP\n    INSERT INTO renov_asignaciones (telefono_e164, customer_id, advisor_id, is_assigned, marca, segment_month, nombre_cliente, vehiculos, contratos, campaign_id, updated_at)\n    VALUES (r->>'phone', r->>'customerId', r->>'advisorId', (r->>'isAssigned')::BOOLEAN, UPPER($2), r->>'segmentMonth', r->>'advisorName', COALESCE(r->'vehicles','[]'::jsonb), COALESCE(r->'contracts','[]'::jsonb), UPPER($2), NOW())\n    ON CONFLICT (telefono_e164) DO UPDATE SET advisor_id=EXCLUDED.advisor_id, is_assigned=EXCLUDED.is_assigned, segment_month=EXCLUDED.segment_month, nombre_cliente=EXCLUDED.nombre_cliente, vehiculos=EXCLUDED.vehiculos, contratos=EXCLUDED.contratos, updated_at=NOW();\n  END LOOP;\nEND $$;\nSELECT COUNT(*) as total FROM renov_asignaciones WHERE campaign_id=UPPER($2);\n",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($json.assignments) }},={{ $json.campaignId }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "2b1eb394-5a57-4c52-8692-f329048d91a2",
+      "name": "IF Renov vs SAC",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2480,
+        320
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.estado_actual }}",
+              "rightValue": "RENOV_DATOS",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "84cc4abf-4734-4a16-9fd7-c94931b55163",
+      "name": "Redis Set MENU_PRINCIPAL",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        2100,
+        -240
+      ],
+      "parameters": {
+        "operation": "set",
+        "key": "={{ $('Normalizar Payload').item.json.sessionId }}_renov_estado",
+        "value": "MENU_PRINCIPAL",
+        "additionalFields": {
+          "ttl": 86400
+        }
+      },
+      "credentials": {
+        "redis": {
+          "id": "2XGs9gT6llgfk5YT_quicklink",
+          "name": "Redis account_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "ad4cd1b1-fab9-4810-be94-24d1e13af1d0",
+      "name": "Redis Set RENOV_DATOS",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        2100,
+        -80
+      ],
+      "parameters": {
+        "operation": "set",
+        "key": "={{ $('Normalizar Payload').item.json.sessionId }}_renov_estado",
+        "value": "RENOV_DATOS",
+        "additionalFields": {
+          "ttl": 86400
+        }
+      },
+      "credentials": {
+        "redis": {
+          "id": "2XGs9gT6llgfk5YT_quicklink",
+          "name": "Redis account_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "aa0006ad-226d-49a8-b7f0-9d84c2bbe20b",
+      "name": "Redis Set OTROS_MENU",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        2100,
+        80
+      ],
+      "parameters": {
+        "operation": "set",
+        "key": "={{ $('Normalizar Payload').item.json.sessionId }}_renov_estado",
+        "value": "OTROS_MENU",
+        "additionalFields": {
+          "ttl": 86400
+        }
+      },
+      "credentials": {
+        "redis": {
+          "id": "2XGs9gT6llgfk5YT_quicklink",
+          "name": "Redis account_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "fca982fc-e3cf-4885-8f98-57ca1ccf5821",
+      "name": "Redis Set SAC_DATOS",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        2100,
+        240
+      ],
+      "parameters": {
+        "operation": "set",
+        "key": "={{ $('Normalizar Payload').item.json.sessionId }}_renov_estado",
+        "value": "SAC_DATOS",
+        "additionalFields": {
+          "ttl": 86400
+        }
+      },
+      "credentials": {
+        "redis": {
+          "id": "2XGs9gT6llgfk5YT_quicklink",
+          "name": "Redis account_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "52e335bd-5de8-444d-8843-31c8587b589b",
+      "name": "Redis Set VENTA_DATOS",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        2100,
+        400
+      ],
+      "parameters": {
+        "operation": "set",
+        "key": "={{ $('Normalizar Payload').item.json.sessionId }}_renov_estado",
+        "value": "VENTA_DATOS",
+        "additionalFields": {
+          "ttl": 86400
+        }
+      },
+      "credentials": {
+        "redis": {
+          "id": "2XGs9gT6llgfk5YT_quicklink",
+          "name": "Redis account_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "8e96a9a3-3a39-40d7-8ee4-73e505f392d1",
+      "name": "Redis Set RENOV_MENU2",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        2900,
+        320
+      ],
+      "parameters": {
+        "operation": "set",
+        "key": "={{ $('Normalizar Payload').item.json.sessionId }}_renov_estado",
+        "value": "RENOV_MENU2",
+        "additionalFields": {
+          "ttl": 86400
+        }
+      },
+      "credentials": {
+        "redis": {
+          "id": "2XGs9gT6llgfk5YT_quicklink",
+          "name": "Redis account_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "4c4b0e70-889e-49a9-a998-60920c07bb6b",
+      "name": "Redis Set NOTIFICADO",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        1920,
+        -480
+      ],
+      "parameters": {
+        "operation": "set",
+        "key": "={{ $('Normalizar Payload').item.json.sessionId }}_renov_estado",
+        "value": "RENOV_NOTIFICADO",
+        "additionalFields": {
+          "ttl": 86400
+        }
+      },
+      "credentials": {
+        "redis": {
+          "id": "2XGs9gT6llgfk5YT_quicklink",
+          "name": "Redis account_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "chatwoot-clear-individual-assignee-001",
+      "name": "Chatwoot Limpiar Asesor Individual",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4320,
+        -480
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Normalizar Payload').item.json.chatwoot_url }}/api/v1/accounts/2/conversations/{{ $('Normalizar Payload').item.json.chatwoot_conv_id }}/assignments",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "=RdPq7dPuoSZHYHExxWe5HyhY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"assignee_id\":null}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Inbound": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar Payload": {
+      "main": [
+        [
+          {
+            "node": "Push Buffer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Push Buffer": {
+      "main": [
+        [
+          {
+            "node": "Wait 2s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 2s": {
+      "main": [
+        [
+          {
+            "node": "Get Buffer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Buffer": {
+      "main": [
+        [
+          {
+            "node": "Del Buffer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Del Buffer": {
+      "main": [
+        [
+          {
+            "node": "PG Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG Config": {
+      "main": [
+        [
+          {
+            "node": "PG Buscar Asignación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG Buscar Asignación": {
+      "main": [
+        [
+          {
+            "node": "Redis Get Estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis Get Estado": {
+      "main": [
+        [
+          {
+            "node": "Code Saludo y Horario",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code Saludo y Horario": {
+      "main": [
+        [
+          {
+            "node": "Code Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code Router": {
+      "main": [
+        [
+          {
+            "node": "Switch Escenario",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Escenario": {
+      "main": [
+        [
+          {
+            "node": "Code Armar ESC1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Switch Estado Activo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "WA Menú Principal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code Armar ESC1": {
+      "main": [
+        [
+          {
+            "node": "PG Buscar Asesor",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "WA Enviar ESC1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WA Enviar ESC1": {
+      "main": [
+        [
+          {
+            "node": "Redis Set NOTIFICADO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WA Menú Principal": {
+      "main": [
+        [
+          {
+            "node": "Redis Set MENU_PRINCIPAL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Estado Activo": {
+      "main": [
+        [
+          {
+            "node": "Code Parsear Datos SAC",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PG Buscar Asesor",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "WA Menú Otros",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "WA Pedir Datos SAC",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "WA Pedir Datos Venta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "WA Menú Principal",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "WA Pedir Datos Renov",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code Parsear Datos SAC",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code Parsear Datos Venta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WA Pedir Datos Renov": {
+      "main": [
+        [
+          {
+            "node": "Redis Set RENOV_DATOS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WA Menú Renov 2": {
+      "main": [
+        [
+          {
+            "node": "Redis Set RENOV_MENU2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WA Menú Otros": {
+      "main": [
+        [
+          {
+            "node": "Redis Set OTROS_MENU",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code Parsear Datos SAC": {
+      "main": [
+        [
+          {
+            "node": "IF Renov vs SAC",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG Guardar SAC": {
+      "main": [
+        [
+          {
+            "node": "WA Confirmar SAC",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WA Confirmar SAC": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot Asignar Equipo QuickLink",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WA Pedir Datos Venta": {
+      "main": [
+        [
+          {
+            "node": "Redis Set VENTA_DATOS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code Parsear Datos Venta": {
+      "main": [
+        [
+          {
+            "node": "PG Guardar Venta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG Guardar Venta": {
+      "main": [
+        [
+          {
+            "node": "Redis Set Estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG Buscar Asesor": {
+      "main": [
+        [
+          {
+            "node": "Code Armar Notif Asesor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code Armar Notif Asesor": {
+      "main": [
+        [
+          {
+            "node": "WA Notificar Asesor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WA Notificar Asesor": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot Asignar Equipo QuickLink",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chatwoot Nota Privada": {
+      "main": [
+        [
+          {
+            "node": "Redis Set NOTIFICADO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Dispatch": {
+      "main": [
+        [
+          {
+            "node": "Code Validar Dispatch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code Validar Dispatch": {
+      "main": [
+        [
+          {
+            "node": "PG Insertar Dispatch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG Insertar Dispatch": {
+      "main": [
+        [
+          {
+            "node": "PG Upsert Asignaciones Dispatch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG Upsert Asignaciones Dispatch": {
+      "main": [
+        [
+          {
+            "node": "Split Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Batches": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Code Build Template Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code Build Template Payload": {
+      "main": [
+        [
+          {
+            "node": "HTTP Enviar Template WA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Enviar Template WA": {
+      "main": [
+        [
+          {
+            "node": "PG Update Recipient Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG Update Recipient Status": {
+      "main": [
+        [
+          {
+            "node": "Split Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Sync": {
+      "main": [
+        [
+          {
+            "node": "Code Validar Sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code Validar Sync": {
+      "main": [
+        [
+          {
+            "node": "PG Upsert Asignaciones Sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG Upsert Asignaciones Sync": {
+      "main": [
+        []
+      ]
+    },
+    "WA Pedir Datos SAC": {
+      "main": [
+        [
+          {
+            "node": "Redis Set SAC_DATOS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Renov vs SAC": {
+      "main": [
+        [
+          {
+            "node": "WA Menú Renov 2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PG Guardar SAC",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chatwoot Asignar Equipo QuickLink": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot Limpiar Asesor Individual",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chatwoot Limpiar Asesor Individual": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot Nota Privada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "1af9c687-4cb0-59a7-9632-7e9237bdc9ce",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

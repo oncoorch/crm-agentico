@@ -184,6 +184,38 @@ services:
     logging: *default-logging
     networks: [internal, dokploy-network]
 
+  n8n_seed:
+    image: n8nio/n8n:1.123.11
+    restart: "no"
+    depends_on:
+      n8n_postgres:
+        condition: service_healthy
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: n8n_postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: n8n_production
+      DB_POSTGRESDB_USER: n8n
+      DB_POSTGRESDB_PASSWORD: ${N8N_POSTGRES_PASSWORD:?Set N8N_POSTGRES_PASSWORD}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?Set N8N_ENCRYPTION_KEY}
+      N8N_RUNNERS_ENABLED: "true"
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      GENERIC_TIMEZONE: ${TZ:-America/Guayaquil}
+      TZ: ${TZ:-America/Guayaquil}
+      N8N_SEED_PROJECT_ID: ${N8N_SEED_PROJECT_ID:-}
+      N8N_SEED_CREDENTIALS_TGZ_B64: ${N8N_SEED_CREDENTIALS_TGZ_B64:-}
+      N8N_SEED_IMPORT_CREDENTIALS: ${N8N_SEED_IMPORT_CREDENTIALS:-true}
+      N8N_SEED_IMPORT_WORKFLOWS: ${N8N_SEED_IMPORT_WORKFLOWS:-true}
+      N8N_SEED_ASSIGN_FOLDERS: ${N8N_SEED_ASSIGN_FOLDERS:-true}
+    command: ["sh", "/usr/local/bin/n8n_seed_import.sh"]
+    volumes:
+      - ./n8n-seed:/opt/n8n-seed:ro
+      - ./scripts/n8n_seed_import.sh:/usr/local/bin/n8n_seed_import.sh:ro
+      - ./scripts/n8n_seed_assign_folders.js:/usr/local/bin/n8n_seed_assign_folders.js:ro
+      - n8n_data:/home/node/.n8n
+    logging: *default-logging
+    networks: [internal]
+
   evolution_postgres:
     image: postgres:15-alpine
     restart: unless-stopped

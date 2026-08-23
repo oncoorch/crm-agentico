@@ -1,0 +1,59 @@
+{
+  "id": "EDgJVdvMfx8Iv4ci_autocom",
+  "name": "Meta Flow Router Test - Autocom_autocom",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "meta_flow_router_test",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -240,
+        0
+      ],
+      "id": "0d042f0c-9318-4e89-b6b3-27c64bc0ef1a",
+      "name": "Webhook",
+      "webhookId": "meta-flow-router-test-4b0e0d3a"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || {};\nconst currentScreen = String(body.current_screen || body.screen || '').trim();\nconst leadType = String(body.lead_type || body.model_type || 'particular').trim().toLowerCase();\nconst p5Competencia = String(body.p5_competencia || '').trim().toLowerCase();\n\nlet nextScreen = String(body.next_screen || '').trim();\nconst data = { ...body, lead_type: leadType };\n\nif (!nextScreen) {\n  if (currentScreen === 'P_DOS_TIEMPO_COMPRA') {\n    if (leadType === 'comercial') {\n      nextScreen = 'P_CUATRO_FORMA_PAGO';\n      data.p3_test_drive = '';\n    } else {\n      nextScreen = 'P_TRES_TEST_DRIVE';\n    }\n  } else if (currentScreen === 'P_CINCO_COMPETENCIA') {\n    if (p5Competencia === 'si') {\n      nextScreen = 'P_CINCO_DETALLE_COMPETENCIA';\n    } else {\n      nextScreen = 'P_SEIS_COTIZACION';\n      data.p5_competencia_detalle = '';\n    }\n  } else if (currentScreen === 'P_CINCO_DETALLE_COMPETENCIA') {\n    nextScreen = 'P_SEIS_COTIZACION';\n  } else if (currentScreen === 'P_SEIS_COTIZACION') {\n    nextScreen = 'P_SIETE_COMENTARIO';\n  } else {\n    nextScreen = 'WELCOME_SCREEN';\n  }\n}\n\nreturn [{\n  json: {\n    version: '7.3',\n    screen: nextScreen,\n    data,\n    debug: {\n      current_screen: currentScreen,\n      lead_type: leadType,\n      p5_competencia: p5Competencia\n    }\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        40,
+        0
+      ],
+      "id": "7ddd3cc1-faf8-4cf5-9b70-0f1aeb66f7b7",
+      "name": "Route Screen"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Route Screen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "0bdb788f-f982-535c-97bb-6a1a56c17b33",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

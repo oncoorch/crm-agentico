@@ -1,0 +1,69 @@
+{
+  "id": "qG8TCmrHuBVO9vfW_kia-electrolineras",
+  "name": "Form Trigger Example_kia-electrolineras",
+  "nodes": [
+    {
+      "parameters": {
+        "functionCode": "return [{json:{mensaje:`Hola ${$json.name}, formulario recibido!`}}];"
+      },
+      "id": "2110d10d-685e-4738-8830-3f435dd434ec",
+      "name": "Procesar Datos",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        592,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "path": "config-bot",
+        "formTitle": "Promt",
+        "formDescription": "Configuración de promt",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Promt",
+              "requiredField": true
+            }
+          ]
+        },
+        "responseMode": "lastNode",
+        "options": {
+          "formSubmittedText": "Promt actualizado"
+        }
+      },
+      "id": "a8d2f71d-cb4b-449c-9109-1a6f97cb259b",
+      "name": "Form Trigger1",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 1,
+      "position": [
+        320,
+        0
+      ],
+      "webhookId": "dbcccd44-c10c-4934-8657-2aeeb76e475d"
+    }
+  ],
+  "connections": {
+    "Form Trigger1": {
+      "main": [
+        [
+          {
+            "node": "Procesar Datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "569ff62a-be15-5aec-b89c-ae16697225ac",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

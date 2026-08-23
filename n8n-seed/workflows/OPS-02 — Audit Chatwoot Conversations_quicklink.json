@@ -1,0 +1,129 @@
+{
+  "id": "RE8DGSYxtsubIHp8_quicklink",
+  "name": "OPS-02 — Audit Chatwoot Conversations_quicklink",
+  "nodes": [
+    {
+      "id": "audit-chatwoot-webhook-001",
+      "name": "Webhook Audit Chatwoot",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        120,
+        260
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cris-ops-audit-chatwoot-conversations",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "0hYeKlozui5dMRDE_quicklink",
+          "name": "QL Sync Manual Webhook Token_QUICKLINK"
+        }
+      },
+      "webhookId": "cris-ops-audit-chatwoot-conversations"
+    },
+    {
+      "id": "audit-chatwoot-normalize-001",
+      "name": "Code - Normalize Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        260
+      ],
+      "parameters": {
+        "jsCode": "const src = $json.body || $json || {};\nconst accountId = Number(src.account_id || 2);\nconst baseUrl = String(src.base_url || 'http://chatwoot:3000').replace(/\\/$/, '');\nif (src.mode === 'list' || src.list === true) {\n  return [{ json: { mode: 'list', page: Number(src.page || 1), status: String(src.status || 'open'), account_id: accountId, base_url: baseUrl } }];\n}\nconst ids = Array.isArray(src.chatwoot_conv_ids) ? src.chatwoot_conv_ids.map(Number).filter(Boolean) : [];\nif (!ids.length) throw new Error('chatwoot_conv_ids is required unless mode=list');\nreturn ids.map(id => ({ json: { mode: 'messages', id, account_id: accountId, base_url: baseUrl } }));"
+      }
+    },
+    {
+      "id": "audit-chatwoot-messages-001",
+      "name": "HTTP - Get Messages",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        740,
+        260
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.mode === 'list' ? $json.base_url + '/api/v1/accounts/' + $json.account_id + '/conversations?assignee_type=all&status=' + $json.status + '&page=' + $json.page : $json.base_url + '/api/v1/accounts/' + $json.account_id + '/conversations/' + $json.id + '/messages' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "audit-chatwoot-summary-001",
+      "name": "Code - Summarize Messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1060,
+        260
+      ],
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst result = [];\nfor (const item of items) {\n  const row = item.json || {};\n  const payload = Array.isArray(row.payload)\n    ? row.payload\n    : (Array.isArray(row.data?.payload) ? row.data.payload : (Array.isArray(row.data) ? row.data : (Array.isArray(row) ? row : [])));\n  const first = payload[0] || {};\n  const looksLikeMessages = Boolean(first.content_type || first.message_type || first.conversation_id || first.sender);\n  if (!looksLikeMessages) {\n    result.push({ json: { mode: 'list', conversation_count: payload.length, conversations: payload, meta: row.meta || row.data?.meta || {}, raw_keys: Object.keys(row), payload_type: Array.isArray(row.payload) ? 'array' : typeof row.payload } });\n    continue;\n  }\n  const messages = payload.map(m => ({\n    id: m.id,\n    conversation_id: m.conversation_id,\n    message_type: m.message_type,\n    content_type: m.content_type,\n    content: m.content,\n    private: m.private,\n    created_at: m.created_at,\n    sender_type: m.sender_type || m.sender?.type || null,\n    sender_name: m.sender?.name || m.sender?.available_name || null,\n    content_attributes: m.content_attributes || {},\n  }));\n  result.push({ json: { mode: 'messages', conversation_id: messages[0]?.conversation_id || null, message_count: messages.length, messages } });\n}\nreturn result;"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Audit Chatwoot": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalize Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Normalize Request": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Get Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Get Messages": {
+      "main": [
+        [
+          {
+            "node": "Code - Summarize Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "477a9a0c-4e34-5c46-9ebb-a53bc7a4e540",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

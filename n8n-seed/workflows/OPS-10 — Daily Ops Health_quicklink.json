@@ -1,0 +1,260 @@
+{
+  "id": "5nF6s3VBYLFZRIgU_quicklink",
+  "name": "OPS-10 — Daily Ops Health_quicklink",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 13 * * *"
+            }
+          ]
+        }
+      },
+      "id": "ops10-cron",
+      "name": "Schedule - Daily 13:00 UTC",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        220,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ops-health-now",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "ops10-webhook",
+      "name": "Webhook - Run Health Now",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        220,
+        420
+      ],
+      "webhookId": "ops-health-now-permanent"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nSELECT\n  now()::text AS checked_at,\n  (SELECT COALESCE(jsonb_agg(t), '[]'::jsonb) FROM (\n     SELECT tipo_followup::text AS tipo, status::text AS status,\n            COALESCE(NULLIF(error_msg, ''), '-') AS motivo, count(*)::int AS n\n     FROM scheduled_followups\n     WHERE COALESCE(processed_at, scheduled_at) >= now() - interval '24 hours'\n     GROUP BY 1, 2, 3 ORDER BY 2, 1) t) AS followups_24h,\n  (SELECT COALESCE(jsonb_agg(t), '[]'::jsonb) FROM (\n     SELECT lm.phone, COALESCE(lm.conversation_id::text, '-') AS conversation_id,\n            lm.updated_at::text\n     FROM lead_memory lm\n     WHERE upper(COALESCE(lm.conversation_state, '')) = 'LOSS_REASON_PENDING'\n       AND lm.updated_at < now() - interval '24 hours'\n     ORDER BY lm.updated_at ASC LIMIT 20) t) AS loss_reason_stuck,\n  (SELECT COALESCE(jsonb_agg(t), '[]'::jsonb) FROM (\n     SELECT workflow_name, count(*)::int AS n, max(occurred_at)::text AS last_at\n     FROM workflow_errors\n     WHERE occurred_at >= now() - interval '24 hours'\n     GROUP BY 1 ORDER BY 2 DESC LIMIT 10) t) AS workflow_errors_24h,\n  (SELECT COALESCE(jsonb_agg(t), '[]'::jsonb) FROM (\n     SELECT tipo_evento, COALESCE(datos_evento->>'reason', '-') AS reason, count(*)::int AS n\n     FROM eventos_conversacion\n     WHERE tipo_evento IN ('PRICING_SENT', 'PRICING_SKIPPED')\n       AND created_at >= now() - interval '24 hours'\n       AND COALESCE(datos_evento->>'qa_seed', '') <> 'true'\n     GROUP BY 1, 2 ORDER BY 1, 3 DESC LIMIT 10) t) AS pricing_events_24h,\n  -- POST_PRICING_MONITOR_BASELINE: ignore the repaired rollout incident and watch new regressions.\n  (SELECT COALESCE(jsonb_agg(t), '[]'::jsonb) FROM (\n     SELECT e.conversacion_id::text AS conversation_id,\n            e.created_at::text AS created_at,\n            e.estado_nuevo::text AS new_state,\n            COALESCE(e.metadata->>'source', '-') AS source,\n            COALESCE(e.metadata->>'last_response_type', '-') AS last_response_type\n     FROM eventos_conversacion e\n     WHERE e.tipo = 'CAMBIO_ESTADO'\n       AND e.estado_anterior::text = 'QUOTED'\n       AND e.estado_nuevo::text IN (\n         'NEW_LEAD', 'CONTACTED_1', 'CONTACTED_2', 'CONTACTED_3',\n         'ENGAGED', 'VEHICLE_SELECTION', 'VALUE_PRESENTED'\n       )\n       AND e.created_at > GREATEST(\n         now() - interval '24 hours',\n         timestamptz '2026-08-06 21:05:44+00'\n       )\n       AND COALESCE(e.metadata->>'source', '') NOT IN (\n         'manual_repair_post_pricing_state_guard', 'qa_n8n_seed'\n       )\n       AND COALESCE(e.metadata->>'last_response_type', '') <> 'REVIEW_OTHER_PLAN'\n     ORDER BY e.created_at DESC\n     LIMIT 20) t) AS post_pricing_state_regressions_24h;",
+        "options": {}
+      },
+      "id": "ops10-pg-fetch",
+      "name": "PG - Ops Health Fetch",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        500,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $input.first().json || {};\nconst staticData = $getWorkflowStaticData('global');\nconst isWebhook = Boolean($json.body || $json.query || $json.headers) || Boolean($('Webhook - Run Health Now').isExecuted);\nconst today = new Date().toISOString().slice(0, 10);\nif (!isWebhook && staticData.lastDailySent === today) {\n  return [{ json: { send_alert: false, status: 'already_sent_today', date: today } }];\n}\nconst fu = Array.isArray(row.followups_24h) ? row.followups_24h : [];\nconst stuck = Array.isArray(row.loss_reason_stuck) ? row.loss_reason_stuck : [];\nconst errs = Array.isArray(row.workflow_errors_24h) ? row.workflow_errors_24h : [];\nconst lines = ['CRIS OPS-10 — Salud diaria (' + today + ')'];\nlines.push('');\nlines.push('Followups 24h:');\nif (!fu.length) lines.push('  (sin actividad)');\nfor (const f of fu.slice(0, 12)) lines.push(`  ${f.status} ${f.tipo} x${f.n}` + (f.motivo && f.motivo !== '-' ? ` (${String(f.motivo).slice(0, 40)})` : ''));\nlines.push('');\nlines.push('LOSS_REASON_PENDING >24h: ' + stuck.length + (stuck.length ? '  <- revisar' : ''));\nfor (const s of stuck.slice(0, 5)) lines.push(`  ${s.phone} desde ${String(s.updated_at).slice(0, 16)}`);\nlines.push('');\nlines.push('Errores de workflows 24h: ' + (errs.length ? '' : '0'));\nfor (const e of errs) lines.push(`  ${e.workflow_name || '?'} x${e.n} (ultimo ${String(e.last_at).slice(0, 16)})`);\nconst pricing = Array.isArray(row.pricing_events_24h) ? row.pricing_events_24h : [];\nlines.push('');\nlines.push('Pricing 24h:' + (pricing.length ? '' : ' (sin eventos)'));\nfor (const p of pricing) lines.push(`  ${p.tipo_evento} x${p.n}` + (p.reason && p.reason !== '-' ? ` (${String(p.reason).slice(0, 50)})` : ''));\nconst skipped = pricing.filter(p => p.tipo_evento === 'PRICING_SKIPPED').reduce((s, p) => s + Number(p.n || 0), 0);\nif (skipped > 0) lines.push('  <- revisar PRICING_SKIPPED: posible menu no entregado');\nconst regressions = Array.isArray(row.post_pricing_state_regressions_24h) ? row.post_pricing_state_regressions_24h : [];\nlines.push('');\nlines.push('Regresiones post-cotizacion 24h: ' + regressions.length + (regressions.length ? '  <- revisar' : ''));\nfor (const r of regressions.slice(0, 10)) {\n  lines.push('  ' + String(r.conversation_id || '?').slice(0, 8) + ' -> ' + (r.new_state || '?')\n    + ' (' + String(r.created_at || '').slice(0, 16) + ')');\n}\nif (!isWebhook) staticData.lastDailySent = today;\nreturn [{ json: {\n  send_alert: true,\n  source: isWebhook ? 'manual' : 'schedule',\n  date: today,\n  followups_24h: fu,\n  loss_reason_stuck: stuck,\n  workflow_errors_24h: errs,\n  post_pricing_state_regressions_24h: regressions,\n  meta_payload: {\n    messaging_product: 'whatsapp',\n    recipient_type: 'individual',\n    to: '5521999910781',\n    type: 'text',\n    text: { preview_url: false, body: lines.join('\\n').slice(0, 3900) },\n  },\n} }];"
+      },
+      "id": "ops10-build",
+      "name": "Code - Build Health Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        740,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.send_alert === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ops10-if-send",
+      "name": "IF - Should Send",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        980,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v23.0/1114673978398967/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer ${REDACTED_TOKEN}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Code - Build Health Summary').first().json.meta_payload) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "ops10-http-send",
+      "name": "HTTP - Send WhatsApp Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1220,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $json || {};\nconst status = resp.statusCode || resp.status || null;\nreturn [{ json: { status: 'summary_sent', http_status: status, date: $('Code - Build Health Summary').first().json.date } }];"
+      },
+      "id": "ops10-response",
+      "name": "Code - Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1460,
+        200
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "ops10-noop",
+      "name": "No Send",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1220,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule - Daily 13:00 UTC": {
+      "main": [
+        [
+          {
+            "node": "PG - Ops Health Fetch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Run Health Now": {
+      "main": [
+        [
+          {
+            "node": "PG - Ops Health Fetch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Ops Health Fetch": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Health Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Health Summary": {
+      "main": [
+        [
+          {
+            "node": "IF - Should Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Should Send": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Send WhatsApp Summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Send WhatsApp Summary": {
+      "main": [
+        [
+          {
+            "node": "Code - Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "0070e4a7-f9f4-5c8a-bc0d-90fb99aeb627",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

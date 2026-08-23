@@ -1,0 +1,184 @@
+{
+  "id": "pGhEC0ASbYjmEujF_quitomotors",
+  "name": "QUITOMOTORS PRO - Sync Appointments to SGC cada 3 min_quitomotors",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger-quitomotors-sync",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -560,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/3 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger-quitomotors-sync",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -560,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "path": "quitomotors-step6-sync-run",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-trigger-quitomotors-sync",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -560,
+        240
+      ],
+      "webhookId": "quitomotors-step6-sync-run"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "set-mcp-url-quitomotors-sync",
+              "name": "URL_MCP",
+              "value": "http://mcp_server:8000",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "set-mcp-url-node-quitomotors-sync",
+      "name": "Set MCP URL",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -304,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.URL_MCP + '/api/appointments/sync-next' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({}) }}",
+        "options": {}
+      },
+      "id": "http-appointment-sync-next-quitomotors",
+      "name": "HTTP Appointment Sync Next",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -16,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $json || {};\nconst chatwootSync = result.chatwoot_sync_result || null;\nreturn [{ json: {\n  ok: Boolean(result.ok),\n  skipped: Boolean(result.skipped),\n  appointment_id: result.appointment_id || null,\n  sgc_sync_status: result.sgc_sync_status || null,\n  sgc_lead_id: result.sgc_lead_id || null,\n  sgc_result: result.sgc_result || null,\n  chatwoot_sync_result: chatwootSync,\n  labels_synced: Boolean(chatwootSync?.labels_result?.ok),\n  message: result.message || result.error || null,\n  raw: result,\n} }];"
+      },
+      "id": "format-sync-result-quitomotors",
+      "name": "Format Sync Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        80
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set MCP URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set MCP URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set MCP URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set MCP URL": {
+      "main": [
+        [
+          {
+            "node": "HTTP Appointment Sync Next",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Appointment Sync Next": {
+      "main": [
+        [
+          {
+            "node": "Format Sync Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "b88bdb50-386c-5a81-b962-cf37484eeb5a",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

@@ -1,0 +1,1471 @@
+{
+  "id": "aNRT3PCFnxgH1aPL_quicklink",
+  "name": "REN - DEV - WF-03 - Meta Inbound Camila_quicklink",
+  "nodes": [
+    {
+      "id": "wh-verify-get-001",
+      "name": "Webhook Verify GET",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -900,
+        -280
+      ],
+      "parameters": {
+        "path": "renov/dev/meta-inbound",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "ren-dev-wf03-meta-verify"
+    },
+    {
+      "id": "code-verify-token-001",
+      "name": "Code - Validate Verify Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        -280
+      ],
+      "parameters": {
+        "jsCode": "const q = $json.query || {};\nconst mode = q['hub.mode'];\nconst token = q['hub.verify_token'];\nconst challenge = q['hub.challenge'];\n\nfunction env(name, fallback = '') {\n  try { return $env[name] || fallback; } catch (e) { return fallback; }\n}\n\nconst expected = env('RENOV_META_VERIFY_TOKEN', env('META_VERIFY_TOKEN'));\nif (mode === 'subscribe' && expected && token === expected) {\n  return [{ json: { ok: true, challenge } }];\n}\n\nreturn [{ json: { ok: false, error: 'Verification token mismatch' } }];"
+      }
+    },
+    {
+      "id": "if-verify-ok-001",
+      "name": "IF - Verify OK",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -420,
+        -280
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "verify-ok",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "respond-verify-ok-001",
+      "name": "Respond - 200 Challenge",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -180,
+        -360
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.challenge }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "respond-verify-fail-001",
+      "name": "Respond - 403 Verify Failed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -180,
+        -200
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"error\":\"verification failed\"}",
+        "options": {
+          "responseCode": 403
+        }
+      }
+    },
+    {
+      "id": "wh-events-post-001",
+      "name": "Webhook Events POST",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1380,
+        260
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "renov/dev/meta-inbound",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "webhookId": "ren-dev-wf03-meta-events"
+    },
+    {
+      "id": "code-normalize-meta-001",
+      "name": "Code - Normalize Meta Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        260
+      ],
+      "parameters": {
+        "jsCode": "const MESSAGE_TYPES = [\"text\",\"image\",\"document\",\"audio\",\"video\",\"location\",\"button\",\"interactive\",\"contacts\",\"sticker\",\"reaction\",\"unsupported\"];\n\nfunction toE164(value) {\n  const raw = String(value || '').trim();\n  if (!raw) return '';\n  const digits = raw.replace(/[^0-9]/g, '');\n  if (raw.startsWith('+')) return digits ? `+${digits}` : '';\n  if (digits.startsWith('593')) return `+${digits}`;\n  if (digits.startsWith('0') && digits.length === 10) return `+593${digits.slice(1)}`;\n  if (digits.length === 9 && digits.startsWith('9')) return `+593${digits}`;\n  return digits ? `+${digits}` : '';\n}\n\nfunction normalizeKey(value) {\n  return String(value || '')\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '')\n    .toLowerCase();\n}\n\nfunction normalizeTimestamp(value, epochSeconds = false) {\n  if (value === null || value === undefined || value === '') return null;\n  const raw = String(value).trim();\n  const numeric = Number(raw);\n  const date = Number.isFinite(numeric)\n    ? new Date(epochSeconds || numeric < 9999999999 ? numeric * 1000 : numeric)\n    : new Date(raw);\n  return Number.isFinite(date.getTime()) ? date.toISOString() : null;\n}\n\nfunction validatedWamid(value) {\n  const id = String(value || '').trim();\n  return /^wamid\\.[A-Za-z0-9._~+\\/-]+$/.test(id) ? id : null;\n}\n\nfunction optionalString(value) {\n  if (value === null || value === undefined || value === '') return null;\n  return typeof value === 'string' ? value : JSON.stringify(value);\n}\n\nfunction firstMatchingMessage(body) {\n  if (body.message && typeof body.message === 'object') return body.message;\n  if (body.id && ('content' in body || 'source_id' in body || 'message_type' in body)) return body;\n  const candidates = [\n    ...(Array.isArray(body.conversation?.messages) ? body.conversation.messages : []),\n    ...(Array.isArray(body.messages) ? body.messages : []),\n  ];\n  const requestedId = String(body.id || body.message_id || '').trim();\n  if (requestedId) {\n    const exact = candidates.find((message) => String(message?.id || '') === requestedId);\n    if (exact) return exact;\n  }\n  return candidates.length === 1 ? candidates[0] : {};\n}\n\nfunction findMetadataWamid(message) {\n  const containers = [message.content_attributes, message.additional_attributes, message.metadata];\n  const keys = ['provider_message_id', 'whatsapp_message_id', 'wa_message_id', 'wamid'];\n  for (const container of containers) {\n    if (!container || typeof container !== 'object') continue;\n    for (const key of keys) {\n      const id = validatedWamid(container[key]);\n      if (id) return id;\n    }\n    const external = validatedWamid(container.external_source_ids?.whatsapp);\n    if (external) return external;\n  }\n  return null;\n}\n\nfunction normalizeMetaMessage(message, value) {\n  const rawType = String(message.type || 'unsupported').toLowerCase();\n  const type = MESSAGE_TYPES.includes(rawType) ? rawType : 'unsupported';\n  const content = message[type] || {};\n  const interactiveType = type === 'interactive' ? optionalString(message.interactive?.type) : null;\n  const reply = message.interactive?.button_reply || message.interactive?.list_reply || {};\n  const buttonText = optionalString(message.button?.text || reply.title);\n  const buttonPayload = optionalString(message.button?.payload || reply.id);\n  const providerMessageId = validatedWamid(message.id);\n  const timestamp = normalizeTimestamp(message.timestamp, true);\n  const phone = toE164(message.from || value.contacts?.[0]?.wa_id);\n  let body = null;\n  if (type === 'text') body = optionalString(message.text?.body);\n  else if (['image', 'document', 'video'].includes(type)) body = optionalString(content.caption);\n  else if (type === 'button') body = buttonText;\n  else if (type === 'interactive') body = optionalString(reply.title || message.interactive?.nfm_reply?.body);\n  else if (type === 'location') body = optionalString([content.name, content.address].filter(Boolean).join(' - '));\n  else if (type === 'reaction') body = optionalString(message.reaction?.emoji);\n\n  const payload = {\n    provider_message_id: providerMessageId,\n    sender_phone: phone || null,\n    message_type: type,\n    timestamp,\n    body,\n    media_id: optionalString(content.id),\n    latitude: optionalString(type === 'location' ? content.latitude : null),\n    longitude: optionalString(type === 'location' ? content.longitude : null),\n    button_text: buttonText,\n    button_payload: buttonPayload,\n    interactive_type: interactiveType,\n    context_provider_message_id: validatedWamid(message.reaction?.message_id || message.context?.id),\n    mime_type: optionalString(content.mime_type),\n    file_name: optionalString(content.filename),\n  };\n  const callbackEligible = Boolean(providerMessageId && phone && timestamp);\n  let text = String(body || '').trim();\n  let normalizedRoute = 'message';\n  if (buttonPayload || buttonText) {\n    normalizedRoute = 'button_reply';\n    text = `button_text: ${buttonText || '-'}\\nbutton_payload: ${buttonPayload || '-'}`;\n  } else if (!text) {\n    text = `[${type}] mensaje no textual recibido`;\n  }\n  return {\n    route: 'message',\n    normalized_route: normalizedRoute,\n    source_channel: 'meta_waba',\n    phone_e164: phone,\n    wa_id: value.contacts?.[0]?.wa_id || message.from || '',\n    profile_name: value.contacts?.[0]?.profile?.name || '',\n    phone_number_id: value.metadata?.phone_number_id || '',\n    message_id: providerMessageId || '',\n    local_message_id: providerMessageId || '',\n    provider_message_id: providerMessageId,\n    message_type: type,\n    message_text: text,\n    message_timestamp: timestamp || new Date().toISOString(),\n    provider_timestamp: timestamp,\n    button_payload: buttonPayload || '',\n    button_text: buttonText || '',\n    meta_context_id: payload.context_provider_message_id,\n    salesforce_inbound_payload: payload,\n    salesforce_callback_eligible: callbackEligible,\n    salesforce_callback_skip_reason: callbackEligible ? null : (!providerMessageId ? 'MISSING_OR_INVALID_WAMID' : (!timestamp ? 'MISSING_PROVIDER_TIMESTAMP' : 'INVALID_SENDER_PHONE')),\n  };\n}\n\nfunction normalizeMetaWebhook(body) {\n  const events = [];\n  for (const entry of Array.isArray(body.entry) ? body.entry : []) {\n    for (const change of Array.isArray(entry.changes) ? entry.changes : []) {\n      const value = change.value || {};\n      for (const status of Array.isArray(value.statuses) ? value.statuses : []) {\n        events.push({\n          route: 'status',\n          provider_message_id: validatedWamid(status.id),\n          delivery_status: String(status.status || '').toLowerCase(),\n          delivery_timestamp: normalizeTimestamp(status.timestamp, true),\n          recipient_phone: toE164(status.recipient_id),\n          meta_error: optionalString(status.errors?.[0]?.title || status.errors?.[0]?.message),\n        });\n      }\n      for (const message of Array.isArray(value.messages) ? value.messages : []) {\n        events.push(normalizeMetaMessage(message, value));\n      }\n    }\n  }\n  return events.length ? events : [{ route: 'ignore', ignore_reason: 'no_messages_or_statuses' }];\n}\n\nfunction sqlQuote(value) {\n  return String(value ?? '').replace(/'/g, \"''\");\n}\n\nfunction buildDeliveryStatusSql(event, schema = 'renovation_dev') {\n  const valid = event.provider_message_id\n    && ['sent', 'delivered', 'read', 'failed'].includes(event.delivery_status)\n    && event.delivery_timestamp;\n  if (!valid) {\n    return `INSERT INTO ${schema}.interaction_logs (event_type, correlation_id, payload, success, error_message) VALUES ('meta_status_invalid', NULL, '{\"reason\":\"INVALID_DELIVERY_STATUS_EVENT\"}'::jsonb, false, 'INVALID_DELIVERY_STATUS_EVENT') RETURNING id;`;\n  }\n  const phone = event.recipient_phone ? `'${sqlQuote(event.recipient_phone)}'` : 'NULL';\n  const error = event.meta_error ? `'${sqlQuote(event.meta_error)}'` : 'NULL';\n  return `SELECT * FROM ${schema}.ingest_delivery_status_callback('${sqlQuote(event.provider_message_id)}', '${sqlQuote(event.delivery_status)}', '${sqlQuote(event.delivery_timestamp)}'::timestamptz, ${phone}, ${error}, 'meta_webhook');`;\n}\n\nreturn normalizeMetaWebhook($json.body || {}).map((event) => ({ json: { ...event, status_sql: event.route === 'status' ? buildDeliveryStatusSql(event, 'renovation_dev') : null } }));"
+      }
+    },
+    {
+      "id": "if-route-status-001",
+      "name": "IF - Route Status",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -420,
+        120
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "route-status",
+              "leftValue": "={{ $json.route }}",
+              "rightValue": "status",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "pg-log-meta-status-001",
+      "name": "Postgres - Log Meta Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -180,
+        40
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.status_sql }}",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "respond-status-001",
+      "name": "Respond - 200 Status",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        60,
+        40
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"ok\":true,\"route\":\"status_logged\"}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "if-route-message-001",
+      "name": "IF - Route Message",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -180,
+        260
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "route-message",
+              "leftValue": "={{ $json.route }}",
+              "rightValue": "message",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "respond-ignore-001",
+      "name": "Respond - 200 Ignore",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        60,
+        420
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"ok\":true,\"route\":\"ignored\"}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "code-resolve-routing-001",
+      "name": "Code - Resolve Salesforce Routing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        80,
+        220
+      ],
+      "parameters": {
+        "jsCode": "const item = $json;\nconst startedAt = Date.now();\n\nfunction env(name, fallback = null) {\n  try { return $env[name] || fallback; } catch (e) { return fallback; }\n}\n\nfunction done(extra) {\n  return [{ json: { ...item, routing_duration_ms: Date.now() - startedAt, ...extra } }];\n}\n\nconst phone = String(item.phone_e164 || '').trim();\nif (!/^\\+[1-9][0-9]{7,14}$/.test(phone)) {\n  return done({ routing_success: false, routing_status: 'INVALID_REQUEST', routing_message: 'phone debe estar en formato E.164.' });\n}\n\nconst salesforceBaseUrl = env('SALESFORCE_DEV_BASE_URL', 'https://quicklink--uat.sandbox.my.salesforce.com').replace(/\\/+$/, '');\nconst tokenUrl = env('SALESFORCE_DEV_TOKEN_URL', salesforceBaseUrl + '/services/oauth2/token');\nconst clientId = env('SALESFORCE_DEV_CLIENT_ID');\nconst clientSecret = env('SALESFORCE_DEV_CLIENT_SECRET');\nif (!clientId || !clientSecret) {\n  return done({ routing_success: false, routing_status: 'CONFIG_ERROR', routing_message: 'Credenciales Salesforce DEV no configuradas.' });\n}\n\ntry {\n  const tokenResponse = await fetch(tokenUrl, {\n    method: 'POST',\n    headers: { 'content-type': 'application/x-www-form-urlencoded' },\n    body: new URLSearchParams({ grant_type: 'client_credentials', client_id: clientId, client_secret: clientSecret })\n  });\n  const tokenText = await tokenResponse.text();\n  let tokenBody = {};\n  try { tokenBody = tokenText ? JSON.parse(tokenText) : {}; } catch (e) { tokenBody = {}; }\n  if (!tokenResponse.ok || !tokenBody.access_token) {\n    return done({ routing_success: false, routing_status: 'SALESFORCE_AUTH_ERROR', routing_message: 'No se pudo obtener token Salesforce DEV.', salesforce_http_status: tokenResponse.status });\n  }\n\n  const routingUrl = new URL(salesforceBaseUrl + '/services/apexrest/quicklink/v1/routing/resolve');\n  routingUrl.searchParams.set('phone', phone);\n  const routingResponse = await fetch(routingUrl, {\n    method: 'GET',\n    headers: { authorization: 'Bearer ' + tokenBody.access_token, accept: 'application/json' }\n  });\n  const routingText = await routingResponse.text();\n  let routingBody = {};\n  try { routingBody = routingText ? JSON.parse(routingText) : {}; } catch (e) {\n    return done({ routing_success: false, routing_status: 'INVALID_RESPONSE', routing_message: 'Salesforce devolvio una respuesta no JSON.', salesforce_http_status: routingResponse.status });\n  }\n\n  const allowedStatuses = ['MATCHED', 'MULTI_MATCH', 'NOT_FOUND', 'INVALID_REQUEST'];\n  const businessStatus = String(routingBody.status || 'INVALID_RESPONSE');\n  if (!allowedStatuses.includes(businessStatus)) {\n    return done({ routing_success: false, routing_status: 'INVALID_RESPONSE', routing_message: 'Salesforce devolvio status no reconocido.', salesforce_http_status: routingResponse.status, raw_status: businessStatus });\n  }\n\n  return done({\n    routing_success: routingResponse.status >= 200 && routingResponse.status < 300 && businessStatus === 'MATCHED',\n    routing_status: businessStatus,\n    routing_message: routingBody.message || null,\n    salesforce_http_status: routingResponse.status,\n    sf_account_id: routingBody.accountId || null,\n    sf_account_name: routingBody.accountName || null,\n    sf_account_active: routingBody.accountActive ?? null,\n    sf_owner_id: routingBody.ownerId || null,\n    sf_owner_name: routingBody.ownerName || null,\n    sf_vehicle_id: routingBody.vehicleId || null,\n    sf_vehicle_plate: routingBody.vehiclePlate || null,\n    sf_contract_id: routingBody.contractId || null,\n    sf_contract_number: routingBody.contractNumber || null,\n    sf_contract_status: routingBody.contractStatus || null,\n    sf_contract_end_date: routingBody.contractEndDate || null,\n    sf_resolved_by: routingBody.resolvedBy || null,\n    sf_candidate_account_ids: routingBody.candidateAccountIds || null,\n    sf_escalate: routingBody.escalate ?? businessStatus === 'MULTI_MATCH'\n  });\n} catch (error) {\n  return done({ routing_success: false, routing_status: 'SALESFORCE_REQUEST_ERROR', routing_message: 'Fallo consultando Salesforce routing resolve.', error_message: String(error?.message || error) });\n}"
+      }
+    },
+    {
+      "id": "code-build-persist-sql-001",
+      "name": "Code - Build Persist Inbound SQL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        340,
+        220
+      ],
+      "parameters": {
+        "jsCode": "const item = $json;\nfunction q(value) { return String(value ?? '').replace(/'/g, \"''\"); }\nfunction json(value) { return JSON.stringify(value ?? {}).replace(/'/g, \"''\"); }\nconst metadata = {\n  profile_name: item.profile_name || null,\n  phone_number_id: item.phone_number_id || null,\n  normalized_route: item.normalized_route || null,\n  button_payload: item.button_payload || null,\n  button_text: item.button_text || null,\n  routing_status: item.routing_status || null,\n  salesforce_http_status: item.salesforce_http_status || null,\n  sf_account_id: item.sf_account_id || null,\n  sf_contract_id: item.sf_contract_id || null,\n};\n\nconst sql = \"SET search_path TO renovation_dev, public;\\n\" +\n\"WITH inbound AS (\\n\" +\n\"  SELECT '\" + q(item.phone_e164) + \"'::text AS phone,\\n\" +\n\"         '\" + q(item.message_id) + \"'::text AS wa_message_id,\\n\" +\n\"         '\" + q(item.message_text) + \"'::text AS content,\\n\" +\n\"         '\" + q(item.message_type || 'text') + \"'::text AS message_type,\\n\" +\n\"         '\" + q(item.message_timestamp) + \"'::timestamptz AS occurred_at,\\n\" +\n\"         '\" + json(metadata) + \"'::jsonb AS metadata\\n\" +\n\"), customer_match AS (\\n\" +\n\"  SELECT * FROM quicklink_account_assignments\\n   WHERE phone = (SELECT phone FROM inbound) AND deleted_at IS NULL LIMIT 1\\n\" +\n\"), existing_conv AS (\\n\" +\n\"  SELECT c.* FROM conversations c JOIN customer_match cm ON cm.id = c.customer_id\\n\" +\n\"  WHERE c.status IN ('bot_active','handed_off') ORDER BY c.created_at DESC LIMIT 1\\n\" +\n\"), created_conv AS (\\n\" +\n\"  INSERT INTO conversations (customer_id, status, summary)\\n\" +\n\"  SELECT cm.id, 'bot_active'::conversation_status, 'Inbound WhatsApp iniciado por WF-03 DEV'\\n\" +\n\"  FROM customer_match cm WHERE NOT EXISTS (SELECT 1 FROM existing_conv)\\n\" +\n\"  RETURNING *\\n\" +\n\"), conv AS (\\n\" +\n\"  SELECT * FROM existing_conv UNION ALL SELECT * FROM created_conv LIMIT 1\\n\" +\n\"), inserted_message AS (\\n\" +\n\"  INSERT INTO messages (conversation_id, direction, sender, message_type, content, wa_message_id, metadata, occurred_at)\\n\" +\n\"  SELECT conv.id, 'inbound'::message_direction, 'customer'::message_sender, inbound.message_type, inbound.content, NULLIF(inbound.wa_message_id, ''), inbound.metadata, inbound.occurred_at\\n\" +\n\"  FROM conv CROSS JOIN inbound\\n\" +\n\"  WHERE conv.id IS NOT NULL\\n\" +\n\"  ON CONFLICT (wa_message_id) DO NOTHING\\n\" +\n\"  RETURNING id\\n\" +\n\"), pause AS (\\n\" +\n\"  SELECT pause_customer_campaigns(cm.id, 'customer_inbound') AS paused FROM customer_match cm\\n\" +\n\"), history_rows AS (\\n\" +\n\"  SELECT m.direction, m.sender, m.content, m.occurred_at\\n\" +\n\"  FROM messages m WHERE m.conversation_id = (SELECT id FROM conv)\\n\" +\n\"  ORDER BY m.occurred_at DESC LIMIT 12\\n\" +\n\"), history AS (\\n\" +\n\"  SELECT COALESCE(jsonb_agg(jsonb_build_object('direction', direction, 'sender', sender, 'content', content, 'occurred_at', occurred_at) ORDER BY occurred_at), '[]'::jsonb) AS recent_messages\\n\" +\n\"  FROM history_rows\\n\" +\n\")\\n\" +\n\"SELECT\\n\" +\n\"  (SELECT phone FROM inbound) AS phone_e164,\\n\" +\n\"  (SELECT wa_message_id FROM inbound) AS wa_message_id,\\n\" +\n\"  (SELECT content FROM inbound) AS inbound_text,\\n\" +\n\"  cm.id AS customer_id, cm.full_name, cm.vehicle_brand, cm.vehicle_model, cm.vehicle_type, cm.service_name, cm.expiration_date, cm.gps_status, cm.opportunity_stage, cm.opportunity_closed, cm.campaign_paused,\\n\" +\n\"  cm.salesforce_contact_id, cm.salesforce_opportunity_id, cm.salesforce_contract_id, cm.salesforce_vehicle_id,\\n\" +\n\"  conv.id AS conversation_id, conv.status AS conversation_status, conv.identity_verified, conv.persuasion_attempts, conv.handoff_reason, conv.promotion_communicated, conv.contact_preference,\\n\" +\n\"  EXISTS (SELECT 1 FROM inserted_message) AS message_inserted,\\n\" +\n\"  COALESCE((SELECT paused FROM pause), false) AS campaign_paused_now,\\n\" +\n\"  is_automatic_send_allowed(now()) AS automatic_send_allowed,\\n\" +\n\"  (SELECT recent_messages FROM history) AS recent_messages,\\n\" +\n\"  '\" + q(item.routing_status || '') + \"'::text AS routing_status,\\n\" +\n\"  '\" + q(item.sf_account_id || '') + \"'::text AS sf_account_id,\\n\" +\n\"  '\" + q(item.sf_contract_id || '') + \"'::text AS sf_contract_id,\\n\" +\n\"  '\" + q(item.sf_contract_status || '') + \"'::text AS sf_contract_status,\\n\" +\n\"  '\" + q(item.sf_contract_end_date || '') + \"'::text AS sf_contract_end_date,\\n\" +\n\"  '\" + q(item.phone_number_id || '') + \"'::text AS phone_number_id;\";\n\nreturn [{ json: { ...item, persist_sql: sql } }];"
+      }
+    },
+    {
+      "id": "pg-persist-inbound-001",
+      "name": "Postgres - Persist Inbound and Context",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        600,
+        220
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.persist_sql }}",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "if-handed-off-001",
+      "name": "IF - Already Handed Off",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        860,
+        220
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "handed-off",
+              "leftValue": "={{ $json.conversation_status }}",
+              "rightValue": "handed_off",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $json;\nfunction env(name, fallback = '') { try { return $env[name] || fallback; } catch (e) { return fallback; } }\n\nconst url = env('RENOV_CHATWOOT_FORWARD_URL');\nif (!url) {\n  return [{ json: { ...item, cw_fwd_should_call: false, cw_fwd_skip: {\n    chatwoot_forwarded: false,\n    chatwoot_forward_reason: 'RENOV_CHATWOOT_FORWARD_URL not configured',\n  } } }];\n}\n\nreturn [{ json: {\n  ...item,\n  cw_fwd_should_call: true,\n  cw_fwd_url: url,\n  cw_fwd_body: {\n    source: 'REN-DEV-WF-03',\n    phone: item.phone_e164,\n    conversation_id: item.conversation_id,\n    message_id: item.wa_message_id,\n    message: item.inbound_text,\n  },\n} }];"
+      },
+      "id": "cw_fwd-prepare",
+      "name": "Code - Prepare Chatwoot Forward",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cw_fwd-cond",
+              "leftValue": "={{ $json.cw_fwd_should_call }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cw_fwd-gate",
+      "name": "IF - Chatwoot Forward Needed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1320,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.cw_fwd_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.cw_fwd_body) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "cw_fwd-call",
+      "name": "HTTP - Chatwoot Forward",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1520,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "renovInternalDev20260808_quicklink",
+          "name": "n8n interno DEV - RENOV_INTERNAL_TOKEN_QUICKLINK"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prepared = $('Code - Prepare Chatwoot Forward').item.json;\nconst { cw_fwd_should_call, cw_fwd_skip, cw_fwd_url, cw_fwd_body, ...item } = prepared;\n\nif (!cw_fwd_should_call) {\n  return [{ json: { ...item, ...(cw_fwd_skip || {}) } }];\n}\n\nconst response = $json || {};\nconst status = Number(response.statusCode ?? response.status ?? 0);\n\nreturn [{ json: {\n  ...item,\n  chatwoot_forwarded: status >= 200 && status < 300,\n  chatwoot_forward_status: status,\n} }];"
+      },
+      "id": "cw_fwd-interpret",
+      "name": "Code - Interpret Chatwoot Forward",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1720,
+        60
+      ]
+    },
+    {
+      "id": "respond-handed-off-001",
+      "name": "Respond - 200 Handed Off",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1980,
+        60
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, route: \"handed_off\", forwarded: $json.chatwoot_forwarded || false }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "if-off-hours-001",
+      "name": "IF - Off Hours",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1120,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "off-hours",
+              "leftValue": "={{ $json.automatic_send_allowed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "code-off-hours-reply-001",
+      "name": "Code - Build Off Hours Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        200
+      ],
+      "parameters": {
+        "jsCode": "return [{ json: { ...$json, llm_action: 'reply', response_source: 'off_hours', outbound_message: '¡Hola! 😊 Gracias por escribir a Quicklink. En este momento nuestro equipo se encuentra fuera del horario de atención. Con gusto le atenderemos de lunes a viernes de 08:30 a 17:30. Su seguridad es importante para nosotros.', metadata: {} } }];"
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $json;\nfunction env(name, fallback = '') { try { return $env[name] || fallback; } catch (e) { return fallback; } }\nfunction safeFallback(reason, message) {\n  return [{ json: { ...item, llm_should_call: false, llm_fallback: { llm_action: 'handoff', handoff_reason: 'billing', response_source: 'guardrail', outbound_message: message || 'Con gusto, permítame confirmar la información de su renovación con un asesor para ayudarle correctamente.', metadata: { reason } } } }];\n}\n\nif (!item.customer_id) return safeFallback('customer_not_in_supabase_cache');\nif (item.opportunity_closed === true) return safeFallback('closed_opportunity_guard');\nif (item.routing_status !== 'MATCHED') return safeFallback('routing_' + String(item.routing_status || 'unknown'));\n\nlet priceInfo = 'NO_DISPONIBLE_DERIVAR';\nlet activePromotions = 'NO_DISPONIBLE_DERIVAR';\nlet renewalContextError = null;\nconst renewalContextUrl = env('SALESFORCE_DEV_RENEWAL_CONTEXT_URL');\nif (renewalContextUrl) {\n  try {\n    const salesforceBaseUrl = env('SALESFORCE_DEV_BASE_URL', 'https://quicklink--uat.sandbox.my.salesforce.com').replace(/\\/+$/, '');\n    const tokenUrl = env('SALESFORCE_DEV_TOKEN_URL', salesforceBaseUrl + '/services/oauth2/token');\n    const clientId = env('SALESFORCE_DEV_CLIENT_ID');\n    const clientSecret = env('SALESFORCE_DEV_CLIENT_SECRET');\n    if (!clientId || !clientSecret) throw new Error('missing_salesforce_credentials');\n    const tokenResponse = await fetch(tokenUrl, {\n      method: 'POST',\n      headers: { 'content-type': 'application/x-www-form-urlencoded' },\n      body: new URLSearchParams({ grant_type: 'client_credentials', client_id: clientId, client_secret: clientSecret })\n    });\n    const tokenBody = await tokenResponse.json();\n    if (!tokenResponse.ok || !tokenBody.access_token) throw new Error('salesforce_auth_failed');\n    const url = new URL(renewalContextUrl);\n    if (item.phone_e164) url.searchParams.set('phone', item.phone_e164);\n    if (item.sf_account_id) url.searchParams.set('accountId', item.sf_account_id);\n    if (item.sf_contract_id) url.searchParams.set('contractId', item.sf_contract_id);\n    const contextResponse = await fetch(url, { headers: { authorization: 'Bearer ' + tokenBody.access_token, accept: 'application/json' } });\n    const contextBody = await contextResponse.json();\n    if (!contextResponse.ok) throw new Error('renewal_context_http_' + contextResponse.status);\n    priceInfo = contextBody.price_info || contextBody.priceInfo || contextBody.price || 'NO_DISPONIBLE_DERIVAR';\n    activePromotions = contextBody.active_promotions || contextBody.activePromotions || contextBody.promotions || 'NO_DISPONIBLE_DERIVAR';\n  } catch (error) {\n    renewalContextError = String(error?.message || error);\n  }\n}\nconst systemPrompt = [\n  'Eres Camila, asistente virtual del equipo de Quicklink, empresa ecuatoriana de rastreo satelital vehicular. Tu misión es ayudar a los clientes a renovar su servicio de rastreo de forma cálida, clara y sin presiones.',\n  '',\n  'Identidad y tono:',\n  '- Preséntate siempre como \"Camila, asistente virtual de Quicklink\".',\n  '- Trato de \"usted\", mensajes cortos para WhatsApp y máximo 1 emoji.',\n  '- Nunca digas que eres IA, bot, modelo de lenguaje o similar.',\n  '',\n  'Contexto verificado:',\n  '- Nombre: ' + (item.full_name || '-'),\n  '- Vehículo: ' + (item.vehicle_brand || '-') + ' ' + (item.vehicle_model || ''),\n  '- Servicio: ' + (item.service_name || '-'),\n  '- Fecha de vencimiento: ' + (item.expiration_date || item.sf_contract_end_date || '-'),\n  '- Estado GPS: ' + (item.gps_status || '-'),\n  '- Precio de renovación: ' + priceInfo,\n  '- Promociones vigentes: ' + activePromotions,\n  '- Estado de gestión: ' + (item.opportunity_stage || '-'),\n  '',\n  'Reglas no negociables:',\n  '1. Nunca inventes precios, fechas, promociones ni condiciones. Si precio o promociones dicen NO_DISPONIBLE_DERIVAR, deriva a asesor.',\n  '2. Verifica identidad antes de datos sensibles.',\n  '3. Si GPS está inactive, antes de cobrar debe agendarse chequeo técnico; no cobres sin agendar.',\n  '4. Si pide humano, vendió el vehículo, cancelación, reclamo, soporte técnico, facturación, venta nueva, descuento no vigente o pago a domicilio: deriva.',\n  '5. No interesado: máximo 2 intentos suaves; luego close_not_interested.',\n  '',\n  'Responde SIEMPRE JSON válido:',\n  '{\"action\":\"reply|handoff|close_not_interested|payment\",\"message\":\"texto para el cliente\",\"metadata\":{}}',\n  'Para handoff incluye metadata.handoff_reason con uno de: explicit_request, cancellation, sold_vehicle, complaint, tech_support, billing, new_sale, price_negotiation, home_payment.'\n].join('\\n');\n\nconst userContext = { latest_inbound: item.inbound_text, recent_messages: item.recent_messages || [], persuasion_attempts: item.persuasion_attempts || 0, routing: { account_id: item.sf_account_id, contract_id: item.sf_contract_id, contract_status: item.sf_contract_status, contract_end_date: item.sf_contract_end_date } };\n\n// The LLM key is gone from here: it lives in the LLM credential of the HTTP\n// node downstream. priceInfo/activePromotions travel along because the price\n// guardrail downstream needs them.\nconst apiUrl = env('RENOV_LLM_API_URL', 'https://api.openai.com/v1/chat/completions');\nconst model = env('RENOV_LLM_MODEL', 'gpt-4.1-mini');\n\nreturn [{ json: {\n  ...item,\n  llm_should_call: true,\n  llm_url: apiUrl,\n  llm_price_info: priceInfo,\n  llm_active_promotions: activePromotions,\n  llm_body: {\n    model,\n    temperature: 0.2,\n    response_format: { type: 'json_object' },\n    messages: [\n      { role: 'system', content: systemPrompt },\n      { role: 'user', content: JSON.stringify(userContext) },\n    ],\n  },\n} }];\n"
+      },
+      "id": "llm-prepare",
+      "name": "Code - Prepare Camila LLM",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "llm-cond",
+              "leftValue": "={{ $json.llm_should_call }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "llm-gate",
+      "name": "IF - Camila LLM Needed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2180,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.llm_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.llm_body) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "llm-call",
+      "name": "HTTP - Camila LLM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2380,
+        360
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "renovLlmDev20260808_quicklink",
+          "name": "LLM DEV - OpenAI compatible_QUICKLINK"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prepared = $('Code - Prepare Camila LLM').item.json;\nconst {\n  llm_should_call, llm_fallback, llm_url, llm_body,\n  llm_price_info, llm_active_promotions, ...item\n} = prepared;\n\nfunction safeFallback(reason, message) {\n  return [{ json: { ...item,\n    llm_action: 'handoff',\n    handoff_reason: 'billing',\n    response_source: 'guardrail',\n    outbound_message: message || 'Con gusto, permítame confirmar la información de su renovación con un asesor para ayudarle correctamente.',\n    metadata: { reason },\n  } }];\n}\n\nif (!llm_should_call) {\n  return [{ json: { ...item, ...(llm_fallback || {}) } }];\n}\n\nconst response = $json || {};\nconst status = Number(response.statusCode ?? response.status ?? 0);\nif (!(status >= 200 && status < 300)) return safeFallback('llm_http_' + status);\n\nconst body = response.body ?? {};\nconst content = body.choices?.[0]?.message?.content || '';\nlet parsed;\ntry { parsed = JSON.parse(content); } catch (e) { return safeFallback('llm_output_not_json'); }\n\nconst allowed = ['reply', 'handoff', 'close_not_interested', 'payment'];\nlet action = allowed.includes(parsed.action) ? parsed.action : 'handoff';\nlet message = String(parsed.message || '').trim();\nif (!message) return safeFallback('llm_empty_message');\n\n// Regla dura 5: Camila nunca revela ser IA.\nif (/(inteligencia artificial|modelo de lenguaje|\\bIA\\b|\\bLLM\\b|\\bbot\\b)/i.test(message)) {\n  action = 'handoff';\n  message = 'Con gusto, permítame comunicarle con un asesor de nuestro equipo para ayudarle correctamente.';\n}\n\n// Regla dura 5: nunca hablar de precio o promocion sin dato verificado.\nif ((llm_price_info === 'NO_DISPONIBLE_DERIVAR' || llm_active_promotions === 'NO_DISPONIBLE_DERIVAR')\n    && /(precio|valor|costo|promoci|descuento|\\$|dólar|dolar)/i.test(message)) {\n  action = 'handoff';\n  message = 'Con gusto, permítame confirmar la información de su renovación con un asesor para ayudarle correctamente.';\n}\n\nconst metadata = parsed.metadata && typeof parsed.metadata === 'object' ? parsed.metadata : {};\nconst handoffReason = metadata.handoff_reason || (action === 'handoff' ? 'billing' : null);\n\nreturn [{ json: { ...item, llm_action: action, handoff_reason: handoffReason, response_source: 'camila_llm', outbound_message: message, metadata } }];"
+      },
+      "id": "llm-interpret",
+      "name": "Code - Interpret Camila LLM",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2580,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $json;\nfunction env(name, fallback = '') { try { return $env[name] || fallback; } catch (e) { return fallback; } }\n\nfunction skip(extra) {\n  return [{ json: { ...item, hoff_should_call: false, hoff_skip: extra } }];\n}\n\nif (item.llm_action !== 'handoff') {\n  return skip({ handoff_called: false, handoff_skipped: true });\n}\n\nconst url = env('RENOV_WF04_HANDOFF_URL');\nif (!url) {\n  return skip({ handoff_called: false, handoff_deferred: true, handoff_reason: item.handoff_reason || 'billing' });\n}\n\nconst payload = {\n  full_name: item.full_name || '',\n  phone: item.phone_e164 || '',\n  handoff_reason: item.handoff_reason || 'billing',\n  conversation_summary: item.metadata?.conversation_summary || item.outbound_message || '',\n  opportunity_status: item.metadata?.opportunity_status || 'objecion',\n  promotion_communicated: item.metadata?.promotion_communicated || '',\n  contact_preference: item.metadata?.contact_preference || '',\n  conversation_id: item.conversation_id || null,\n  source: 'REN-DEV-WF-03',\n  source_message_id: item.wa_message_id || item.provider_message_id || item.message_id || null,\n};\n\nreturn [{ json: { ...item, hoff_should_call: true, hoff_url: url, hoff_body: payload } }];"
+      },
+      "id": "hoff-prepare",
+      "name": "Code - Prepare WF-04 Handoff Call",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2840,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "hoff-cond",
+              "leftValue": "={{ $json.hoff_should_call }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "hoff-gate",
+      "name": "IF - WF-04 Handoff Call Needed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3040,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.hoff_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.hoff_body) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "hoff-call",
+      "name": "HTTP - WF-04 Handoff Call",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3240,
+        360
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "renovInternalDev20260808_quicklink",
+          "name": "n8n interno DEV - RENOV_INTERNAL_TOKEN_QUICKLINK"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prepared = $('Code - Prepare WF-04 Handoff Call').item.json;\nconst { hoff_should_call, hoff_skip, hoff_url, hoff_body, ...item } = prepared;\n\nif (!hoff_should_call) {\n  return [{ json: { ...item, ...(hoff_skip || {}) } }];\n}\n\nconst response = $json || {};\nconst status = Number(response.statusCode ?? response.status ?? 0);\n\nreturn [{ json: {\n  ...item,\n  handoff_called: status >= 200 && status < 300,\n  handoff_http_status: status,\n  handoff_payload: hoff_body,\n} }];"
+      },
+      "id": "hoff-interpret",
+      "name": "Code - Interpret WF-04 Handoff Call",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3440,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $json;\nfunction env(name, fallback = '') { try { return $env[name] || fallback; } catch (e) { return fallback; } }\n\nfunction skip(extra) {\n  return [{ json: { ...item, meta_send_should_call: false, meta_send_skip: extra } }];\n}\n\nconst message = String(item.outbound_message || '').trim();\nif (!message) {\n  return skip({ meta_send_success: false, meta_send_error: 'empty_message' });\n}\n\nconst phoneNumberId = item.phone_number_id || env('RENOV_META_PHONE_NUMBER_ID');\nconst to = String(item.phone_e164 || '').replace(/^\\+/, '');\n\n// The token is gone from here: it lives in the Meta Graph credential of the\n// HTTP node downstream. Only the config guards remain.\nif (!phoneNumberId || !to) {\n  return skip({ meta_send_success: false, meta_send_error: 'meta_config_missing', outbound_message: message });\n}\n\nconst apiVersion = env('META_API_VERSION', 'v20.0');\nreturn [{ json: {\n  ...item,\n  meta_send_should_call: true,\n  meta_send_url: 'https://graph.facebook.com/' + apiVersion + '/' + phoneNumberId + '/messages',\n  meta_send_body: { messaging_product: 'whatsapp', to, type: 'text', text: { preview_url: false, body: message } },\n  outbound_message: message,\n} }];"
+      },
+      "id": "meta_send-prepare",
+      "name": "Code - Prepare Meta Send",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3700,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "meta_send-cond",
+              "leftValue": "={{ $json.meta_send_should_call }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "meta_send-gate",
+      "name": "IF - Meta Send Needed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.meta_send_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.meta_send_body) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "meta_send-call",
+      "name": "HTTP - Meta Send",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4100,
+        240
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "renovMetaDev20260808_quicklink",
+          "name": "Meta Graph DEV - WABA token_QUICKLINK"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prepared = $('Code - Prepare Meta Send').item.json;\nconst { meta_send_should_call, meta_send_skip, meta_send_url, meta_send_body, ...item } = prepared;\n\nif (!meta_send_should_call) {\n  return [{ json: { ...item, ...(meta_send_skip || {}) } }];\n}\n\nconst response = $json || {};\nconst status = Number(response.statusCode ?? response.status ?? 0);\nconst body = response.body ?? {};\nconst ok = status >= 200 && status < 300;\n\nreturn [{ json: {\n  ...item,\n  meta_send_success: ok,\n  meta_send_status: status,\n  outbound_wa_message_id: body?.messages?.[0]?.id || null,\n  meta_send_error: ok ? null : JSON.stringify(body).slice(0, 500),\n} }];"
+      },
+      "id": "meta_send-interpret",
+      "name": "Code - Interpret Meta Send",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4300,
+        300
+      ]
+    },
+    {
+      "id": "code-build-outbound-sql-001",
+      "name": "Code - Build Outbound Log SQL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4560,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const item = $json;\nfunction q(value) { return String(value ?? '').replace(/'/g, \"''\"); }\nfunction json(value) { return JSON.stringify(value ?? {}).replace(/'/g, \"''\"); }\nfunction mappedOpportunityStatus(value) {\n  const v = String(value || '').toLowerCase();\n  if (v === 'interesado' || v === 'interested') return 'interested';\n  if (v === 'no_interesado' || v === 'not_interested') return 'not_interested';\n  if (v === 'objecion' || v === 'objection') return 'objection';\n  return null;\n}\nconst metadata = { action: item.llm_action || null, response_source: item.response_source || null, meta_send_success: item.meta_send_success || false, meta_send_status: item.meta_send_status || null, meta_send_error: item.meta_send_error || null, handoff_called: item.handoff_called || false, handoff_deferred: item.handoff_deferred || false, payment_pending_wf05: item.llm_action === 'payment', metadata: item.metadata || {} };\nconst opportunityStatus = mappedOpportunityStatus(item.metadata?.opportunity_status);\nconst statusUpdate = item.llm_action === 'close_not_interested'\n  ? \"status = 'not_interested'::conversation_status, opportunity_status = 'not_interested'::opportunity_status, closed_at = now(),\"\n  : (item.llm_action === 'handoff' && item.handoff_called\n    ? \"status = 'handed_off'::conversation_status, handoff_reason = '\" + q(item.handoff_reason || 'billing') + \"'::handoff_reason, handed_off_at = now(), opportunity_status = COALESCE(\" + (opportunityStatus ? \"'\" + opportunityStatus + \"'::opportunity_status\" : \"NULL::opportunity_status\") + \", opportunity_status),\"\n    : \"opportunity_status = COALESCE(\" + (opportunityStatus ? \"'\" + opportunityStatus + \"'::opportunity_status\" : \"NULL::opportunity_status\") + \", opportunity_status),\");\nconst sql = \"SET search_path TO renovation_dev, public;\\n\" +\n\"WITH input AS (\\n\" +\n\"  SELECT \" + (item.customer_id ? \"'\" + q(item.customer_id) + \"'::uuid\" : \"NULL::uuid\") + \" AS customer_id,\\n\" +\n\"         \" + (item.conversation_id ? \"'\" + q(item.conversation_id) + \"'::uuid\" : \"NULL::uuid\") + \" AS conversation_id,\\n\" +\n\"         '\" + q(item.outbound_message || '') + \"'::text AS message,\\n\" +\n\"         \" + (item.outbound_wa_message_id ? \"'\" + q(item.outbound_wa_message_id) + \"'::text\" : \"NULL::text\") + \" AS wa_message_id,\\n\" +\n\"         '\" + json(metadata) + \"'::jsonb AS payload,\\n\" +\n\"         \" + (item.meta_send_success ? 'true' : 'false') + \" AS success,\\n\" +\n\"         \" + (item.meta_send_error ? \"'\" + q(item.meta_send_error) + \"'::text\" : \"NULL::text\") + \" AS error_message\\n\" +\n\"), inserted_message AS (\\n\" +\n\"  INSERT INTO messages (conversation_id, direction, sender, message_type, content, wa_message_id, delivery_status, metadata)\\n\" +\n\"  SELECT conversation_id, 'outbound'::message_direction, 'bot'::message_sender, 'text', message, wa_message_id, CASE WHEN success THEN 'accepted'::delivery_status ELSE 'failed'::delivery_status END, payload\\n\" +\n\"  FROM input WHERE conversation_id IS NOT NULL AND message <> ''\\n\" +\n\"  ON CONFLICT (wa_message_id) DO NOTHING RETURNING id\\n\" +\n\"), updated_conv AS (\\n\" +\n\"  UPDATE conversations SET \" + statusUpdate + \" promotion_communicated = COALESCE(NULLIF('\" + q(item.metadata?.promotion_communicated || '') + \"', ''), promotion_communicated), contact_preference = COALESCE(NULLIF('\" + q(item.metadata?.contact_preference || '') + \"', ''), contact_preference), updated_at = now()\\n\" +\n\"  WHERE id = (SELECT conversation_id FROM input) RETURNING id\\n\" +\n\"), logged AS (\\n\" +\n\"  INSERT INTO interaction_logs (customer_id, conversation_id, event_type, correlation_id, payload, success, error_message)\\n\" +\n\"  SELECT customer_id, conversation_id, 'wf03_meta_inbound', wa_message_id, payload, success, error_message FROM input RETURNING id\\n\" +\n\") SELECT (SELECT id FROM logged) AS log_id, (SELECT count(*) FROM inserted_message)::integer AS outbound_messages_recorded;\";\nreturn [{ json: { ...item, outbound_sql: sql } }];"
+      }
+    },
+    {
+      "id": "pg-log-outbound-001",
+      "name": "Postgres - Persist Outbound and Log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        4820,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.outbound_sql }}",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "respond-message-001",
+      "name": "Respond - 200 Message",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        5080,
+        300
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, route: \"message_processed\", meta_sent: $json.meta_send_success || false }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "sticky-info-001",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -900,
+        -760
+      ],
+      "parameters": {
+        "content": "## REN - DEV - WF-03 - Meta Inbound Camila\n\nPorta patrones CRIS de Meta middleware:\n- verify token GET\n- POST events\n- status vs message routing\n- button/flow normalization\n\nReglas Renovaciones:\n- schema renovation_dev\n- pausa campañas por inbound\n- ruteo Salesforce DEV\n- off-hours Ecuador\n- Camila JSON guardado\n- handoff/payment preparado para WF-04/WF-05\n\nMantener inactivo hasta configurar Meta/LLM/Chatwoot y probar con WABA de prueba.",
+        "height": 520,
+        "width": 440
+      }
+    },
+    {
+      "id": "code-build-salesforce-callback-intake-001",
+      "name": "Code - Build Salesforce Callback Intake",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        620
+      ],
+      "parameters": {
+        "jsCode": "const item = $json;\nfunction q(value) { return String(value ?? '').replace(/'/g, \"''\"); }\nfunction sqlText(value) { return value === null || value === undefined || value === '' ? 'NULL' : \"'\" + q(value) + \"'\"; }\nconst payload = item.salesforce_inbound_payload && typeof item.salesforce_inbound_payload === 'object' ? item.salesforce_inbound_payload : {};\nconst eligible = item.salesforce_callback_eligible === true;\nconst sql = \"SELECT * FROM renovation_dev.ingest_inbound_message_callback(\"\n  + sqlText(item.phone_e164) + \"::text, \"\n  + sqlText(item.provider_message_id) + \"::text, '\" + q(JSON.stringify(payload)) + \"'::jsonb, \"\n  + sqlText(item.source_channel || 'unknown') + \"::text, \"\n  + (item.source_channel === 'meta_waba' ? '100' : '50') + \"::smallint, \"\n  + (eligible ? 'true' : 'false') + \"::boolean, \"\n  + sqlText(item.salesforce_callback_skip_reason) + \"::text);\";\nreturn [{ json: { ...item, callback_intake_sql: sql } }];"
+      }
+    },
+    {
+      "id": "pg-pause-queue-salesforce-callback-001",
+      "name": "Postgres - Pause and Queue Callback",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        160,
+        620
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.callback_intake_sql }}",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "code-restore-salesforce-callback-intake-001",
+      "name": "Code - Restore After Callback Intake",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        620
+      ],
+      "parameters": {
+        "jsCode": "const original = $('Code - Build Salesforce Callback Intake').item.json;\nreturn [{ json: { ...original, callback_campaigns_paused: $json.campaigns_paused ?? false, callback_event_id: $json.callback_event_id || null, callback_queued: $json.callback_queued ?? false, callback_skip_reason: $json.callback_skip_reason || null } }];"
+      }
+    },
+    {
+      "id": "code-verify-meta-signature-001",
+      "name": "Code - Verify Meta Signature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1140,
+        260
+      ],
+      "parameters": {
+        "jsCode": "const metaSignatureCrypto = require('crypto');\n\nfunction metaSignatureEnv(name) {\n  try { return String($env[name] || ''); } catch (error) { return ''; }\n}\n\nfunction metaSignatureHeader(headers, name) {\n  const target = name.toLowerCase();\n  for (const [key, value] of Object.entries(headers || {})) {\n    if (String(key).toLowerCase() === target) {\n      return String(Array.isArray(value) ? value[0] : value);\n    }\n  }\n  return '';\n}\n\nfunction metaSignatureReject(reason) {\n  return [{ json: { route: 'signature_rejected', signature_ok: false, signature_reason: reason } }];\n}\n\nfunction metaSignatureRawBody(item) {\n  const binary = item && item.binary && item.binary.data;\n  if (!binary || typeof binary.data !== 'string' || binary.data === '') return null;\n  return Buffer.from(binary.data, 'base64');\n}\n\nconst metaSignatureItem = $input.first();\nconst metaSignatureRequest = (metaSignatureItem && metaSignatureItem.json) || {};\n\nconst metaSignatureSecret = metaSignatureEnv('RENOV_META_APP_SECRET');\nif (!metaSignatureSecret) return metaSignatureReject('SIGNATURE_SECRET_NOT_CONFIGURED');\n\nconst metaSignatureRaw = metaSignatureRawBody(metaSignatureItem);\nif (!metaSignatureRaw) return metaSignatureReject('RAW_BODY_UNAVAILABLE');\n\nconst metaSignatureProvided = metaSignatureHeader(metaSignatureRequest.headers, 'x-hub-signature-256').trim();\nif (!metaSignatureProvided) return metaSignatureReject('MISSING_SIGNATURE_HEADER');\n\nconst metaSignatureMatch = /^sha256=([A-Fa-f0-9]{64})$/.exec(metaSignatureProvided);\nif (!metaSignatureMatch) return metaSignatureReject('MALFORMED_SIGNATURE_HEADER');\n\nconst metaSignatureExpected = metaSignatureCrypto\n  .createHmac('sha256', metaSignatureSecret)\n  .update(metaSignatureRaw)\n  .digest();\nconst metaSignatureSupplied = Buffer.from(metaSignatureMatch[1].toLowerCase(), 'hex');\nif (metaSignatureExpected.length !== metaSignatureSupplied.length) return metaSignatureReject('SIGNATURE_MISMATCH');\nif (!metaSignatureCrypto.timingSafeEqual(metaSignatureExpected, metaSignatureSupplied)) {\n  return metaSignatureReject('SIGNATURE_MISMATCH');\n}\n\nlet metaSignatureBody = null;\ntry {\n  metaSignatureBody = JSON.parse(metaSignatureRaw.toString('utf8'));\n} catch (error) {\n  return metaSignatureReject('INVALID_JSON_BODY');\n}\nif (!metaSignatureBody || typeof metaSignatureBody !== 'object' || Array.isArray(metaSignatureBody)) {\n  return metaSignatureReject('INVALID_JSON_BODY');\n}\n\nreturn [{\n  json: {\n    route: 'signature_verified',\n    signature_ok: true,\n    signature_reason: null,\n    headers: metaSignatureRequest.headers || {},\n    params: metaSignatureRequest.params || {},\n    query: metaSignatureRequest.query || {},\n    body: metaSignatureBody,\n  },\n}];"
+      }
+    },
+    {
+      "id": "if-meta-signature-ok-001",
+      "name": "IF - Meta Signature OK",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -900,
+        260
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "meta-signature-ok",
+              "leftValue": "={{ $json.signature_ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "respond-403-invalid-signature-001",
+      "name": "Respond - 403 Invalid Signature",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -900,
+        480
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"error\":\"invalid signature\"}",
+        "options": {
+          "responseCode": 403
+        }
+      }
+    },
+    {
+      "id": "respond-503-direct-meta-disabled-001",
+      "name": "Respond - 503 Direct Meta Disabled",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -660,
+        260
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"error\":\"direct Meta inbound disabled\"}",
+        "options": {
+          "responseCode": 503
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Verify GET": {
+      "main": [
+        [
+          {
+            "node": "Code - Validate Verify Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Validate Verify Token": {
+      "main": [
+        [
+          {
+            "node": "IF - Verify OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Verify OK": {
+      "main": [
+        [
+          {
+            "node": "Respond - 200 Challenge",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond - 403 Verify Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Events POST": {
+      "main": [
+        [
+          {
+            "node": "Code - Verify Meta Signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Normalize Meta Event": {
+      "main": [
+        [
+          {
+            "node": "IF - Route Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Route Status": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Log Meta Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF - Route Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Log Meta Status": {
+      "main": [
+        [
+          {
+            "node": "Respond - 200 Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Route Message": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Salesforce Callback Intake",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond - 200 Ignore",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Resolve Salesforce Routing": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Persist Inbound SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Persist Inbound SQL": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Persist Inbound and Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Persist Inbound and Context": {
+      "main": [
+        [
+          {
+            "node": "IF - Already Handed Off",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Already Handed Off": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Chatwoot Forward",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF - Off Hours",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Off Hours": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Off Hours Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Prepare Camila LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Off Hours Reply": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Meta Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Outbound Log SQL": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Persist Outbound and Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Persist Outbound and Log": {
+      "main": [
+        [
+          {
+            "node": "Respond - 200 Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare Meta Send": {
+      "main": [
+        [
+          {
+            "node": "IF - Meta Send Needed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Meta Send Needed?": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Meta Send",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Interpret Meta Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Meta Send": {
+      "main": [
+        [
+          {
+            "node": "Code - Interpret Meta Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Interpret Meta Send": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Outbound Log SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare Chatwoot Forward": {
+      "main": [
+        [
+          {
+            "node": "IF - Chatwoot Forward Needed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Chatwoot Forward Needed?": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Chatwoot Forward",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Interpret Chatwoot Forward",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Chatwoot Forward": {
+      "main": [
+        [
+          {
+            "node": "Code - Interpret Chatwoot Forward",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Interpret Chatwoot Forward": {
+      "main": [
+        [
+          {
+            "node": "Respond - 200 Handed Off",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare WF-04 Handoff Call": {
+      "main": [
+        [
+          {
+            "node": "IF - WF-04 Handoff Call Needed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - WF-04 Handoff Call Needed?": {
+      "main": [
+        [
+          {
+            "node": "HTTP - WF-04 Handoff Call",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Interpret WF-04 Handoff Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - WF-04 Handoff Call": {
+      "main": [
+        [
+          {
+            "node": "Code - Interpret WF-04 Handoff Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Interpret WF-04 Handoff Call": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Meta Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare Camila LLM": {
+      "main": [
+        [
+          {
+            "node": "IF - Camila LLM Needed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Camila LLM Needed?": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Camila LLM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Interpret Camila LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Camila LLM": {
+      "main": [
+        [
+          {
+            "node": "Code - Interpret Camila LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Interpret Camila LLM": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare WF-04 Handoff Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Salesforce Callback Intake": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Pause and Queue Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Pause and Queue Callback": {
+      "main": [
+        [
+          {
+            "node": "Code - Restore After Callback Intake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Restore After Callback Intake": {
+      "main": [
+        [
+          {
+            "node": "Code - Resolve Salesforce Routing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Verify Meta Signature": {
+      "main": [
+        [
+          {
+            "node": "IF - Meta Signature OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Meta Signature OK": {
+      "main": [
+        [
+          {
+            "node": "Respond - 503 Direct Meta Disabled",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond - 403 Invalid Signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "executionTimeout": 120,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "c3c1dc02-0e7a-5d90-8017-6eb5c44d7980",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

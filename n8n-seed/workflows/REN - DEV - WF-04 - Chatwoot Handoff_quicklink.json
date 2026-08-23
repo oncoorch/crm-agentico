@@ -1,0 +1,317 @@
+{
+  "id": "U57CGXdm4LYMp1D2_quicklink",
+  "name": "REN - DEV - WF-04 - Chatwoot Handoff_quicklink",
+  "nodes": [
+    {
+      "id": "wh-handoff-post-001",
+      "name": "Webhook Handoff POST",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -900,
+        120
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "renov/dev/handoff",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "ren-dev-wf04-handoff"
+    },
+    {
+      "id": "code-validate-request-001",
+      "name": "Code - Validate Handoff Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        120
+      ],
+      "parameters": {
+        "jsCode": "function normalizePilotPhone(value) {\n  const raw = String(value || '').trim();\n  if (!raw) return '';\n  const digits = raw.replace(/[^0-9]/g, '');\n  if (raw.startsWith('+')) return digits ? `+${digits}` : '';\n  if (digits.startsWith('593')) return `+${digits}`;\n  if (digits.startsWith('0') && digits.length === 10) return `+593${digits.slice(1)}`;\n  if (digits.length === 9 && digits.startsWith('9')) return `+593${digits}`;\n  return digits ? `+${digits}` : '';\n}\n\nfunction parseInboundPilotAllowlist(value) {\n  const entries = String(value || '').split(',').map((entry) => entry.trim()).filter(Boolean);\n  if (!entries.length) return { ok: false, reason: 'pilot_allowlist_missing', phones: [] };\n\n  const phones = entries.map(normalizePilotPhone);\n  if (phones.some((phone) => !/^\\+[1-9][0-9]{7,14}$/.test(phone))) {\n    return { ok: false, reason: 'pilot_allowlist_invalid', phones: [] };\n  }\n  return { ok: true, reason: null, phones: [...new Set(phones)] };\n}\n\nfunction evaluateInboundPilot(dryRunValue, allowlistValue, candidatePhone) {\n  if (String(dryRunValue ?? 'true').trim().toLowerCase() !== 'false') {\n    return { allowed: false, reason: 'inbound_dry_run', phone: null };\n  }\n\n  const allowlist = parseInboundPilotAllowlist(allowlistValue);\n  if (!allowlist.ok) return { allowed: false, reason: allowlist.reason, phone: null };\n\n  const phone = normalizePilotPhone(candidatePhone);\n  if (!/^\\+[1-9][0-9]{7,14}$/.test(phone)) {\n    return { allowed: false, reason: 'pilot_phone_invalid', phone: null };\n  }\n  if (!allowlist.phones.includes(phone)) {\n    return { allowed: false, reason: 'phone_not_allowlisted', phone };\n  }\n  return { allowed: true, reason: null, phone };\n}\n\nfunction inboundPilotFailure(result) {\n  if (result.reason === 'phone_not_allowlisted') {\n    return { httpStatus: 403, error: 'PHONE_NOT_ALLOWLISTED', message: 'El telefono no esta habilitado para el piloto inbound.' };\n  }\n  if (result.reason === 'pilot_phone_invalid') {\n    return { httpStatus: 400, error: 'INVALID_PHONE', message: 'No se pudo normalizar el telefono del piloto.' };\n  }\n  return { httpStatus: 503, error: 'INBOUND_PILOT_DISABLED', message: 'El piloto inbound no esta habilitado.' };\n}\n\nconst HANDOFF_REASONS = [\"explicit_request\",\"cancellation\",\"sold_vehicle\",\"complaint\",\"tech_support\",\"billing\",\"new_sale\",\"price_negotiation\",\"home_payment\",\"ownership_change\",\"document_validation\",\"unresolved_query\"];\n\nconst OPPORTUNITY_STATUS_DB = {\"interesado\":\"interested\",\"interested\":\"interested\",\"objecion\":\"objection\",\"objection\":\"objection\",\"no_interesado\":\"not_interested\",\"not_interested\":\"not_interested\"};\n\nconst REQUIRED_HANDOFF_FIELDS = [\"full_name\",\"phone\",\"handoff_reason\",\"conversation_summary\",\"opportunity_status\",\"promotion_communicated\",\"contact_preference\"];\n\nfunction q(value) {\n  return String(value ?? '').replace(/'/g, \"''\");\n}\n\nfunction sqlText(value) {\n  if (value === null || value === undefined || value === '') return 'NULL';\n  return \"'\" + q(value) + \"'\";\n}\n\nfunction readHeader(headers, name) {\n  const target = name.toLowerCase();\n  for (const [key, value] of Object.entries(headers || {})) {\n    if (String(key).toLowerCase() === target) return Array.isArray(value) ? value[0] : value;\n  }\n  return null;\n}\n\nfunction toE164(value) {\n  const raw = String(value || '').trim();\n  if (!raw) return '';\n  if (raw.startsWith('+')) return '+' + raw.replace(/[^0-9]/g, '');\n  const digits = raw.replace(/[^0-9]/g, '');\n  if (digits.startsWith('593')) return '+' + digits;\n  if (digits.startsWith('0') && digits.length === 10) return '+593' + digits.slice(1);\n  if (digits.length === 9 && digits.startsWith('9')) return '+593' + digits;\n  return '+' + digits;\n}\n\nfunction validateHandoffEnvelope(body) {\n  const reject = (error, message, extra = {}) => ({ ok: false, httpStatus: 400, error, message, extra });\n\n  const missing = REQUIRED_HANDOFF_FIELDS.filter((key) => !Object.prototype.hasOwnProperty.call(body, key));\n  if (missing.length) return reject('INVALID_REQUEST', 'Payload de handoff incompleto.', { missing_fields: missing });\n\n  const handoffReason = String(body.handoff_reason || '').trim();\n  if (!HANDOFF_REASONS.includes(handoffReason)) {\n    return reject('INVALID_HANDOFF_REASON', 'handoff_reason no esta permitido.', { handoff_reason: handoffReason });\n  }\n\n  const opportunityStatusDb = OPPORTUNITY_STATUS_DB[String(body.opportunity_status || '').trim().toLowerCase()];\n  if (!opportunityStatusDb) {\n    return reject('INVALID_OPPORTUNITY_STATUS', 'opportunity_status no esta permitido.', { opportunity_status: body.opportunity_status });\n  }\n\n  const phone = toE164(body.phone);\n  if (!/^\\+[1-9][0-9]{7,14}$/.test(phone)) {\n    return reject('INVALID_PHONE', 'phone debe estar en formato E.164.', { phone });\n  }\n\n  const conversationId = String(body.conversation_id || body.conv_id || '').trim();\n  if (conversationId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(conversationId)) {\n    return reject('INVALID_CONVERSATION_ID', 'conversation_id debe ser UUID.', { conversation_id: conversationId });\n  }\n\n  const sourceMessageId = String(\n    body.source_message_id || body.provider_message_id || body.wa_message_id || '',\n  ).trim();\n  if (!sourceMessageId) {\n    return reject('SOURCE_MESSAGE_ID_REQUIRED', 'source_message_id es obligatorio para idempotencia.');\n  }\n  if (sourceMessageId && (sourceMessageId.length > 512 || /[\\u0000-\\u001f\\u007f]/.test(sourceMessageId))) {\n    return reject('INVALID_SOURCE_MESSAGE_ID', 'source_message_id no es valido.');\n  }\n\n  const requestedChatwootConversationId = String(body.chatwoot_conversation_id || '').trim();\n  if (requestedChatwootConversationId && !/^[0-9]+$/.test(requestedChatwootConversationId)) {\n    return reject('INVALID_CHATWOOT_CONVERSATION_ID', 'chatwoot_conversation_id debe ser numerico.');\n  }\n\n  const summary = String(body.conversation_summary || '').trim();\n  if (!summary) return reject('INVALID_SUMMARY', 'conversation_summary no puede estar vacio.');\n\n  return {\n    ok: true,\n    values: {\n      fullName: String(body.full_name || ''),\n      phone,\n      handoffReason,\n      summary,\n      opportunityStatus: String(body.opportunity_status || ''),\n      opportunityStatusDb,\n      promotionCommunicated: String(body.promotion_communicated || ''),\n      contactPreference: String(body.contact_preference || ''),\n      // §9.1: área a la que corresponde el caso. Opcional y solo informativo:\n      // va a la nota privada, nunca a SQL. Se acota y se limpia de controles\n      // porque el endpoint lo puede llamar cualquier cliente autenticado.\n      handoffArea: String(body.handoff_area || '').replace(/[\\u0000-\\u001f\\u007f]/g, ' ').trim().slice(0, 120),\n      conversationId: conversationId || null,\n      sourceMessageId: sourceMessageId || null,\n      requestedChatwootConversationId,\n      source: String(body.source || 'unknown'),\n    },\n  };\n}\n\nfunction buildResolveSql(values, schema) {\n  return \"SET search_path TO \" + schema + \", public;\\n\" +\n\"WITH input AS (\\n\" +\n\"  SELECT \" + (values.conversationId ? \"'\" + q(values.conversationId) + \"'::uuid\" : \"NULL::uuid\") + \" AS requested_conversation_id,\\n\" +\n\"         '\" + q(values.phone) + \"'::text AS phone,\\n\" +\n\"         \" + sqlText(values.sourceMessageId) + \"::text AS source_message_id,\\n\" +\n\"         \" + sqlText(values.requestedChatwootConversationId) + \"::text AS requested_chatwoot_conversation_id,\\n\" +\n\"         \" + sqlText(values.fullName) + \"::text AS full_name,\\n\" +\n\"         '\" + q(values.handoffReason) + \"'::text AS handoff_reason,\\n\" +\n\"         '\" + q(values.summary) + \"'::text AS conversation_summary,\\n\" +\n\"         '\" + q(values.opportunityStatus) + \"'::text AS opportunity_status,\\n\" +\n\"         '\" + q(values.opportunityStatusDb) + \"'::text AS opportunity_status_db,\\n\" +\n\"         \" + sqlText(values.promotionCommunicated) + \"::text AS promotion_communicated,\\n\" +\n\"         \" + sqlText(values.contactPreference) + \"::text AS contact_preference,\\n\" +\n// El nodo Postgres reemplaza $json con la fila del resultado, así que lo que no\n// se proyecte acá no llega al nodo que arma la nota. Un smoke real lo mostró:\n// el área viajaba en el payload y en la auditoría, pero la nota del asesor\n// llegaba con \"Area: -\".\n\"         \" + sqlText(values.handoffArea) + \"::text AS handoff_area,\\n\" +\n\"         \" + sqlText(values.source) + \"::text AS source\\n\" +\n\"), advisor_route AS (\\n\" +\n\"  SELECT * FROM resolve_inbound_advisor((SELECT phone FROM input))\\n\" +\n\"), by_requested AS (\\n\" +\n\"  SELECT c.id, c.customer_id, c.status, c.chatwoot_conversation_id, cu.salesforce_contact_id, cu.salesforce_opportunity_id, cu.salesforce_contract_id, cu.salesforce_vehicle_id, cu.full_name AS customer_full_name, cu.phone AS customer_phone, cu.vehicle_brand, cu.vehicle_model, cu.service_name, cu.gps_status, cu.opportunity_stage, cu.opportunity_closed\\n\" +\n\"  FROM conversations c JOIN quicklink_account_assignments cu ON cu.id = c.customer_id JOIN input i ON i.requested_conversation_id = c.id AND i.phone = cu.phone\\n\" +\n\"  WHERE i.requested_conversation_id IS NOT NULL AND NOT COALESCE((SELECT multi_match FROM advisor_route), false)\\n\" +\n\"  LIMIT 1\\n\" +\n\"), by_phone_existing AS (\\n\" +\n\"  SELECT c.id, c.customer_id, c.status, c.chatwoot_conversation_id, cu.salesforce_contact_id, cu.salesforce_opportunity_id, cu.salesforce_contract_id, cu.salesforce_vehicle_id, cu.full_name AS customer_full_name, cu.phone AS customer_phone, cu.vehicle_brand, cu.vehicle_model, cu.service_name, cu.gps_status, cu.opportunity_stage, cu.opportunity_closed\\n\" +\n\"  FROM conversations c JOIN quicklink_account_assignments cu ON cu.id = c.customer_id JOIN input i ON i.phone = cu.phone\\n\" +\n\"  WHERE i.requested_conversation_id IS NULL AND NOT EXISTS (SELECT 1 FROM by_requested) AND NOT COALESCE((SELECT multi_match FROM advisor_route), false) AND c.status IN ('bot_active','handed_off')\\n\" +\n\"  ORDER BY c.created_at DESC\\n\" +\n\"  LIMIT 1\\n\" +\n\"), by_phone_customer AS (\\n\" +\n\"  SELECT cu.* FROM quicklink_account_assignments cu JOIN input i ON i.phone = cu.phone AND cu.deleted_at IS NULL\\n\" +\n\"  WHERE i.requested_conversation_id IS NULL AND NOT EXISTS (SELECT 1 FROM by_requested) AND NOT EXISTS (SELECT 1 FROM by_phone_existing) AND NOT COALESCE((SELECT multi_match FROM advisor_route), false)\\n\" +\n\"  LIMIT 1\\n\" +\n\"), by_customer_candidate AS (\\n\" +\n\"  SELECT NULL::uuid AS id, cu.id AS customer_id, NULL::conversation_status AS status, NULL::text AS chatwoot_conversation_id,\\n\" +\n\"         cu.salesforce_contact_id, cu.salesforce_opportunity_id, cu.salesforce_contract_id, cu.salesforce_vehicle_id,\\n\" +\n\"         cu.full_name AS customer_full_name, cu.phone AS customer_phone, cu.vehicle_brand, cu.vehicle_model,\\n\" +\n\"         cu.service_name, cu.gps_status, cu.opportunity_stage, cu.opportunity_closed\\n\" +\n\"    FROM by_phone_customer cu\\n\" +\n\"), resolved AS (\\n\" +\n\"  SELECT * FROM by_requested\\n\" +\n\"  UNION ALL SELECT * FROM by_phone_existing\\n\" +\n\"  UNION ALL SELECT * FROM by_customer_candidate\\n\" +\n\"  LIMIT 1\\n\" +\n\"), external_lock AS MATERIALIZED (\\n\" +\n\"  SELECT external_claim.* FROM input i\\n\" +\n\"  CROSS JOIN LATERAL claim_chatwoot_conversation_id(NULL::uuid, i.requested_chatwoot_conversation_id) external_claim\\n\" +\n\"  WHERE i.requested_chatwoot_conversation_id IS NOT NULL\\n\" +\n\"), created_conversation AS MATERIALIZED (\\n\" +\n\"  INSERT INTO conversations AS conversation (customer_id, status, summary)\\n\" +\n\"  SELECT resolved.customer_id, 'bot_active'::conversation_status, 'Handoff iniciado por WF-04 DEV'\\n\" +\n\"    FROM resolved LEFT JOIN external_lock ON true\\n\" +\n\"   WHERE resolved.id IS NULL AND resolved.customer_id IS NOT NULL\\n\" +\n\"  ON CONFLICT (customer_id) WHERE status IN ('bot_active', 'handed_off')\\n\" +\n\"  DO UPDATE SET customer_id = EXCLUDED.customer_id\\n\" +\n\"  RETURNING conversation.id, conversation.customer_id, conversation.status, conversation.chatwoot_conversation_id\\n\" +\n\"), resolved_local AS MATERIALIZED (\\n\" +\n\"  SELECT COALESCE(resolved.id, created.id) AS id, resolved.customer_id,\\n\" +\n\"         COALESCE(resolved.status, created.status) AS status,\\n\" +\n\"         COALESCE(resolved.chatwoot_conversation_id, created.chatwoot_conversation_id) AS chatwoot_conversation_id,\\n\" +\n\"         resolved.salesforce_contact_id, resolved.salesforce_opportunity_id, resolved.salesforce_contract_id, resolved.salesforce_vehicle_id,\\n\" +\n\"         resolved.customer_full_name, resolved.customer_phone, resolved.vehicle_brand, resolved.vehicle_model, resolved.service_name,\\n\" +\n\"         resolved.gps_status, resolved.opportunity_stage, resolved.opportunity_closed\\n\" +\n\"    FROM resolved LEFT JOIN created_conversation created ON true\\n\" +\n\"), correlation_claim AS MATERIALIZED (\\n\" +\n\"  SELECT claim.* FROM input i JOIN resolved_local r ON r.id IS NOT NULL\\n\" +\n\"  CROSS JOIN LATERAL claim_chatwoot_conversation_id(\\n\" +\n\"    r.id, COALESCE(i.requested_chatwoot_conversation_id, r.chatwoot_conversation_id)\\n\" +\n\"  ) claim\\n\" +\n\"  WHERE COALESCE(i.requested_chatwoot_conversation_id, r.chatwoot_conversation_id) IS NOT NULL\\n\" +\n\"    AND (i.requested_chatwoot_conversation_id IS NULL OR r.chatwoot_conversation_id IS NULL OR i.requested_chatwoot_conversation_id = r.chatwoot_conversation_id)\\n\" +\n\"), correlation_state AS MATERIALIZED (\\n\" +\n\"  SELECT\\n\" +\n\"    CASE WHEN r.id IS NULL THEN false\\n\" +\n\"         WHEN COALESCE(i.requested_chatwoot_conversation_id, r.chatwoot_conversation_id) IS NULL THEN false\\n\" +\n\"         WHEN i.requested_chatwoot_conversation_id IS NOT NULL AND r.chatwoot_conversation_id IS NOT NULL AND i.requested_chatwoot_conversation_id <> r.chatwoot_conversation_id THEN true\\n\" +\n\"         ELSE NOT COALESCE((SELECT claimed FROM correlation_claim), false) END AS conflicting,\\n\" +\n\"    CASE WHEN r.id IS NOT NULL AND (\\n\" +\n\"           (i.requested_chatwoot_conversation_id IS NOT NULL AND r.chatwoot_conversation_id IS NOT NULL AND i.requested_chatwoot_conversation_id <> r.chatwoot_conversation_id)\\n\" +\n\"           OR (COALESCE(i.requested_chatwoot_conversation_id, r.chatwoot_conversation_id) IS NOT NULL AND NOT COALESCE((SELECT claimed FROM correlation_claim), false))\\n\" +\n\"         ) THEN NULL ELSE COALESCE(i.requested_chatwoot_conversation_id, r.chatwoot_conversation_id) END AS runtime_chatwoot_conversation_id,\\n\" +\n\"    r.chatwoot_conversation_id AS stored_chatwoot_conversation_id\\n\" +\n\"  FROM input i LEFT JOIN resolved_local r ON true\\n\" +\n\"), handoff_operation AS MATERIALIZED (\\n\" +\n\"  SELECT operation.* FROM input i LEFT JOIN resolved_local r ON true\\n\" +\n\"  CROSS JOIN correlation_state state\\n\" +\n\"  CROSS JOIN LATERAL begin_chatwoot_handoff_operation(\\n\" +\n\"    r.id,\\n\" +\n\"    CASE WHEN r.id IS NOT NULL THEN 'conversation:' || r.id::text\\n\" +\n\"         WHEN state.runtime_chatwoot_conversation_id IS NOT NULL THEN 'chatwoot:' || state.runtime_chatwoot_conversation_id\\n\" +\n\"         ELSE 'multimatch:' || md5(i.phone) END,\\n\" +\n\"    i.source_message_id, state.runtime_chatwoot_conversation_id\\n\" +\n\"  ) operation\\n\" +\n\"  WHERE NOT state.conflicting\\n\" +\n\"    AND (r.id IS NOT NULL OR COALESCE((SELECT multi_match FROM advisor_route), false))\\n\" +\n\")\\n\" +\n\"SELECT i.*, r.id::text AS conversation_id, r.customer_id::text AS customer_id, r.status::text AS current_conversation_status,\\n\" +\n\"       state.runtime_chatwoot_conversation_id AS chatwoot_conversation_id,\\n\" +\n\"       state.stored_chatwoot_conversation_id AS stored_chatwoot_conversation_id,\\n\" +\n\"       state.conflicting AS chatwoot_conversation_conflict,\\n\" +\n\"       COALESCE((SELECT acquired FROM handoff_operation), false) AS handoff_operation_acquired,\\n\" +\n\"       (SELECT operation_status FROM handoff_operation) AS handoff_operation_status,\\n\" +\n\"       (SELECT operation_token::text FROM handoff_operation) AS handoff_operation_token,\\n\" +\n\"       r.salesforce_contact_id, r.salesforce_opportunity_id, r.salesforce_contract_id, r.salesforce_vehicle_id, COALESCE(NULLIF(i.full_name, ''), r.customer_full_name, 'Cliente') AS resolved_full_name, COALESCE(r.customer_phone, i.phone) AS resolved_phone, r.vehicle_brand, r.vehicle_model, r.service_name, r.gps_status::text AS gps_status, r.opportunity_stage, COALESCE(r.opportunity_closed, false) AS opportunity_closed\\n\" +\n\", (SELECT chatwoot_agent_id FROM advisor_route) AS advisor_chatwoot_agent_id\"\n  + \", (SELECT advisor_name FROM advisor_route) AS advisor_name\"\n  + \", (SELECT salesforce_user_id FROM advisor_route) AS advisor_sf_user_id\"\n  + \", (SELECT is_supervisor FROM advisor_route) AS advisor_is_supervisor\"\n  + \", (SELECT routes_to FROM advisor_route) AS advisor_routes_to\"\n  + \", (SELECT multi_match FROM advisor_route) AS advisor_multi_match\"\n  + \"\\nFROM input i LEFT JOIN resolved_local r ON true CROSS JOIN correlation_state state\";\n}\n\nconst startedAt = Date.now();\nconst input = $json ?? {};\n// WF-03 posts through the webhook; a manual execution passes the fields flat.\nconst body = input.body && typeof input.body === 'object' ? input.body : input;\nconst headers = input.headers || {};\nconst SCHEMA = \"renovation_dev\";\n\nfunction env(name, fallback = '') {\n  try { return $env[name] || fallback; } catch (e) { return fallback; }\n}\nfunction done(extra) {\n  return [{ json: { duration_ms: Date.now() - startedAt, ...extra } }];\n}\nfunction fail(httpStatus, error, message, extra = {}) {\n  return done({ success: false, request_valid: false, persist_required: false, http_status: httpStatus, error, message, ...extra });\n}\n\nconst expectedToken = env('RENOV_INTERNAL_TOKEN');\nif (!expectedToken) return fail(500, 'CONFIG_ERROR', 'RENOV_INTERNAL_TOKEN no esta configurado en n8n.');\nconst auth = String(readHeader(headers, 'authorization') || '');\nconst bearer = auth.match(/^Bearer\\s+(.+)$/i)?.[1] || null;\nconst providedToken = readHeader(headers, 'x-internal-token') || bearer;\nif (providedToken !== expectedToken) return fail(401, 'UNAUTHORIZED', 'Token interno invalido.');\n\nconst validated = validateHandoffEnvelope(body);\nif (!validated.ok) return fail(validated.httpStatus, validated.error, validated.message, validated.extra);\n\nconst values = validated.values;\nconst pilot = evaluateInboundPilot(\n  env('RENOV_DEV_INBOUND_DRY_RUN_SENDS', 'true'),\n  env('RENOV_DEV_INBOUND_PILOT_ALLOWED_PHONES', ''),\n  values.phone,\n);\nif (!pilot.allowed) {\n  const blocked = inboundPilotFailure(pilot);\n  return fail(blocked.httpStatus, blocked.error, blocked.message, { pilot_block_reason: pilot.reason });\n}\nreturn done({\n  success: true,\n  request_valid: true,\n  persist_required: false,\n  http_status: 200,\n  full_name: values.fullName,\n  phone: values.phone,\n  handoff_reason: values.handoffReason,\n  conversation_summary: values.summary,\n  opportunity_status: values.opportunityStatus,\n  opportunity_status_db: values.opportunityStatusDb,\n  promotion_communicated: values.promotionCommunicated,\n  contact_preference: values.contactPreference,\n  handoff_area: values.handoffArea,\n  conversation_id: values.conversationId,\n  source_message_id: values.sourceMessageId,\n  source: values.source,\n  resolve_sql: buildResolveSql(values, SCHEMA),\n});"
+      }
+    },
+    {
+      "id": "if-request-valid-001",
+      "name": "IF - Request Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -420,
+        120
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "request-valid",
+              "leftValue": "={{ $json.request_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "pg-resolve-context-001",
+      "name": "Postgres - Resolve Handoff Context",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -160,
+        20
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.resolve_sql }}",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "code-execute-handoff-001",
+      "name": "Code - Execute Chatwoot Handoff",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        100,
+        20
+      ],
+      "parameters": {
+        "jsCode": "function normalizePilotPhone(value) {\n  const raw = String(value || '').trim();\n  if (!raw) return '';\n  const digits = raw.replace(/[^0-9]/g, '');\n  if (raw.startsWith('+')) return digits ? `+${digits}` : '';\n  if (digits.startsWith('593')) return `+${digits}`;\n  if (digits.startsWith('0') && digits.length === 10) return `+593${digits.slice(1)}`;\n  if (digits.length === 9 && digits.startsWith('9')) return `+593${digits}`;\n  return digits ? `+${digits}` : '';\n}\n\nfunction parseInboundPilotAllowlist(value) {\n  const entries = String(value || '').split(',').map((entry) => entry.trim()).filter(Boolean);\n  if (!entries.length) return { ok: false, reason: 'pilot_allowlist_missing', phones: [] };\n\n  const phones = entries.map(normalizePilotPhone);\n  if (phones.some((phone) => !/^\\+[1-9][0-9]{7,14}$/.test(phone))) {\n    return { ok: false, reason: 'pilot_allowlist_invalid', phones: [] };\n  }\n  return { ok: true, reason: null, phones: [...new Set(phones)] };\n}\n\nfunction evaluateInboundPilot(dryRunValue, allowlistValue, candidatePhone) {\n  if (String(dryRunValue ?? 'true').trim().toLowerCase() !== 'false') {\n    return { allowed: false, reason: 'inbound_dry_run', phone: null };\n  }\n\n  const allowlist = parseInboundPilotAllowlist(allowlistValue);\n  if (!allowlist.ok) return { allowed: false, reason: allowlist.reason, phone: null };\n\n  const phone = normalizePilotPhone(candidatePhone);\n  if (!/^\\+[1-9][0-9]{7,14}$/.test(phone)) {\n    return { allowed: false, reason: 'pilot_phone_invalid', phone: null };\n  }\n  if (!allowlist.phones.includes(phone)) {\n    return { allowed: false, reason: 'phone_not_allowlisted', phone };\n  }\n  return { allowed: true, reason: null, phone };\n}\n\nfunction inboundPilotFailure(result) {\n  if (result.reason === 'phone_not_allowlisted') {\n    return { httpStatus: 403, error: 'PHONE_NOT_ALLOWLISTED', message: 'El telefono no esta habilitado para el piloto inbound.' };\n  }\n  if (result.reason === 'pilot_phone_invalid') {\n    return { httpStatus: 400, error: 'INVALID_PHONE', message: 'No se pudo normalizar el telefono del piloto.' };\n  }\n  return { httpStatus: 503, error: 'INBOUND_PILOT_DISABLED', message: 'El piloto inbound no esta habilitado.' };\n}\n\nfunction q(value) {\n  return String(value ?? '').replace(/'/g, \"''\");\n}\n\nfunction sqlText(value) {\n  if (value === null || value === undefined || value === '') return 'NULL';\n  return \"'\" + q(value) + \"'\";\n}\n\nfunction sqlJson(value) {\n  return \"'\" + q(JSON.stringify(value || {})) + \"'::jsonb\";\n}\n\nfunction asInt(value) {\n  const n = Number(value);\n  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;\n}\n\nfunction safeError(error) {\n  if (!error) return 'unknown_error';\n  if (error.message) return String(error.message).slice(0, 500);\n  try { return JSON.stringify(error).slice(0, 500); } catch (e) { return String(error).slice(0, 500); }\n}\n\nfunction extractContactId(body) {\n  return asInt(body?.payload?.contact?.id || body?.payload?.id || body?.contact?.id || body?.id || body?.data?.id || body?.contact_id);\n}\n\nfunction extractConversationId(body) {\n  return asInt(body?.payload?.id || body?.conversation?.id || body?.id || body?.data?.id || body?.conversation_id);\n}\n\nfunction firstContact(body) {\n  const payload = body?.payload || body?.data?.payload || body?.contacts || body?.data || [];\n  const list = Array.isArray(payload) ? payload : (Array.isArray(payload?.contacts) ? payload.contacts : []);\n  return list[0] || null;\n}\n\nfunction isSupervisorOnlyHandoff(item) {\n  return !item.conversation_id\n    && (item.advisor_multi_match === true || item.advisor_multi_match === 't');\n}\n\nfunction assignmentSucceeded(assignmentStatus) {\n  return assignmentStatus === 'success:advisor' || String(assignmentStatus).startsWith('success:team');\n}\n\nfunction buildHandoffLabels(item) {\n  const reason = String(item.handoff_reason || 'unknown').replace(/[^a-z0-9_]+/g, '_');\n  const labels = ['renovaciones_handoff', 'renovaciones_' + reason];\n  return labels;\n}\n\nfunction buildAdvisorMention(item) {\n  const agentId = asInt(item.advisor_chatwoot_agent_id);\n  // `advisor_name` es el nombre que proyecta `buildResolveSql`. No inventar otro:\n  // un campo inexistente deja la mencion en null para siempre y en silencio.\n  const name = String(item.advisor_name || '').replace(/[\\u0000-\\u001f\\u007f[\\]()]/g, ' ').trim();\n  if (!agentId || !name) return null;\n  return '[@' + name + '](mention://user/' + agentId + '/' + encodeURIComponent(name) + ')';\n}\n\nfunction buildHandoffNote(item) {\n  const vehicle = [item.vehicle_brand, item.vehicle_model].filter(Boolean).join(' ') || '-';\n  const mention = buildAdvisorMention(item);\n  const lines = [\n    'Handoff Renovaciones - Camila',\n    ...(mention ? ['', mention + ' este caso queda asignado a usted.'] : []),\n    '',\n    '*Cliente:* ' + (item.resolved_full_name || item.full_name || 'Cliente'),\n    '*Telefono:* ' + (item.resolved_phone || item.phone || ''),\n    '*Vehiculo:* ' + vehicle,\n    '*Servicio:* ' + (item.service_name || '-'),\n    '*Motivo:* ' + item.handoff_reason,\n    '*Area:* ' + (item.handoff_area || '-'),\n    '*Estado oportunidad:* ' + item.opportunity_status,\n    '*Preferencia de contacto:* ' + (item.contact_preference || '-'),\n    '*Promocion comunicada:* ' + (item.promotion_communicated || '-'),\n    '',\n    '*Resumen conversacion:*',\n    item.conversation_summary || '-',\n    '',\n    'Accion: continuar la atencion humana. Camila no debe responder mientras esta conversacion permanezca en handoff.',\n  ];\n  return lines.join('\\n');\n}\n\nfunction buildContactPayload(item) {\n  return {\n    name: item.resolved_full_name || item.full_name || 'Cliente',\n    phone_number: item.resolved_phone || item.phone,\n    custom_attributes: {\n      source: 'renovaciones_dev',\n      salesforce_contact_id: item.salesforce_contact_id || null,\n      salesforce_opportunity_id: item.salesforce_opportunity_id || null,\n      service_name: item.service_name || null,\n    },\n  };\n}\n\nfunction buildSalesforcePatchBody(item, chatwootConversationId) {\n  return {\n    phone: item.resolved_phone || item.phone,\n    salesforceContactId: item.salesforce_contact_id || null,\n    salesforceOpportunityId: item.salesforce_opportunity_id || null,\n    salesforceContractId: item.salesforce_contract_id || null,\n    handoffReason: item.handoff_reason,\n    opportunityStatus: item.opportunity_status,\n    conversationSummary: item.conversation_summary,\n    promotionCommunicated: item.promotion_communicated || '',\n    contactPreference: item.contact_preference || '',\n    chatwootConversationId: String(chatwootConversationId),\n    source: item.source || 'REN-DEV-WF-04',\n  };\n}\n\nfunction buildLogPayload(item, outcome) {\n  return {\n    workflow: 'REN-DEV-WF-04',\n    source: item.source || null,\n    handoff_reason: item.handoff_reason,\n    opportunity_status: item.opportunity_status,\n    chatwoot_conversation_id: String(outcome.chatwootConversationId),\n    chatwoot_contact_id: outcome.chatwootContactId ? String(outcome.chatwootContactId) : null,\n    label_status: outcome.labelStatus,\n    assignment_status: outcome.assignmentStatus,\n    salesforce_status: outcome.salesforceStatus,\n    salesforce_http_status: outcome.salesforceHttpStatus,\n  };\n}\n\nfunction buildSalesforceLogPayload(item, outcome) {\n  return {\n    workflow: 'REN-DEV-WF-04',\n    source: item.source || null,\n    salesforce_status: outcome.salesforceStatus,\n    salesforce_http_status: outcome.salesforceHttpStatus,\n    error: outcome.salesforceError,\n  };\n}\n\nfunction buildPersistSql(item, outcome, schema) {\n  return \"SET search_path TO \" + schema + \", public;\\n\" +\n\"WITH input AS (\\n\" +\n\"  SELECT '\" + q(item.conversation_id) + \"'::uuid AS conversation_id,\\n\" +\n\"         '\" + q(item.source_message_id) + \"'::text AS request_id,\\n\" +\n\"         '\" + q(item.handoff_operation_token) + \"'::uuid AS operation_token,\\n\" +\n\"         '\" + q(item.handoff_reason) + \"'::handoff_reason AS handoff_reason,\\n\" +\n\"         '\" + q(item.opportunity_status_db) + \"'::opportunity_status AS opportunity_status,\\n\" +\n\"         \" + sqlText(item.conversation_summary) + \"::text AS conversation_summary,\\n\" +\n\"         \" + sqlText(item.promotion_communicated) + \"::text AS promotion_communicated,\\n\" +\n\"         \" + sqlText(item.contact_preference) + \"::text AS contact_preference,\\n\" +\n\"         '\" + q(String(outcome.chatwootConversationId)) + \"'::text AS chatwoot_conversation_id,\\n\" +\n\"         '\" + q(outcome.clientMessage) + \"'::text AS client_message,\\n\" +\n\"         \" + outcome.responseCode + \"::integer AS response_code,\\n\" +\n\"         '\" + q(outcome.salesforceStatus) + \"'::text AS salesforce_status,\\n\" +\n\"         \" + (outcome.salesforceHttpStatus ? Number(outcome.salesforceHttpStatus) : 'NULL') + \"::integer AS salesforce_http_status,\\n\" +\n\"         \" + sqlText(outcome.salesforceError) + \"::text AS salesforce_error,\\n\" +\n\"         \" + sqlJson(buildLogPayload(item, outcome)) + \" AS log_payload,\\n\" +\n\"         \" + sqlJson(buildSalesforceLogPayload(item, outcome)) + \" AS salesforce_log_payload\\n\" +\n\"), target AS MATERIALIZED (\\n\" +\n\"  SELECT c.id, c.customer_id, c.status, c.chatwoot_conversation_id FROM conversations c, input WHERE c.id = input.conversation_id\\n\" +\n\"), correlation_claim AS MATERIALIZED (\\n\" +\n\"  SELECT claim.* FROM input JOIN target ON true\\n\" +\n\"  CROSS JOIN LATERAL claim_chatwoot_conversation_id(target.id, input.chatwoot_conversation_id) claim\\n\" +\n\"), locked_target AS MATERIALIZED (\\n\" +\n\"  SELECT c.id, c.customer_id, c.status, c.chatwoot_conversation_id\\n\" +\n\"    FROM conversations c, input LEFT JOIN correlation_claim ON true\\n\" +\n\"   WHERE c.id = input.conversation_id\\n\" +\n\"   FOR UPDATE\\n\" +\n\"), operation_current AS MATERIALIZED (\\n\" +\n\"  SELECT is_chatwoot_handoff_operation_current(input.request_id, input.operation_token) AS current\\n\" +\n\"    FROM input LEFT JOIN locked_target ON true\\n\" +\n\"), conflict AS (\\n\" +\n\"  SELECT NOT EXISTS (SELECT 1 FROM locked_target)\\n\" +\n\"      OR NOT COALESCE((SELECT claimed FROM correlation_claim), false)\\n\" +\n\"      OR NOT COALESCE((SELECT current FROM operation_current), false)\\n\" +\n\"      OR EXISTS (SELECT 1 FROM locked_target, input WHERE locked_target.chatwoot_conversation_id IS NOT NULL AND locked_target.chatwoot_conversation_id <> input.chatwoot_conversation_id) AS conflicting\\n\" +\n\"), updated AS (\\n\" +\n\"  UPDATE conversations c\\n\" +\n\"     SET status = 'handed_off'::conversation_status,\\n\" +\n\"         handoff_reason = input.handoff_reason,\\n\" +\n\"         chatwoot_conversation_id = input.chatwoot_conversation_id,\\n\" +\n\"         opportunity_status = input.opportunity_status,\\n\" +\n\"         promotion_communicated = input.promotion_communicated,\\n\" +\n\"         contact_preference = input.contact_preference,\\n\" +\n\"         summary = input.conversation_summary,\\n\" +\n\"         handed_off_at = now(),\\n\" +\n\"         closed_at = NULL\\n\" +\n\"    FROM input\\n\" +\n\"   WHERE c.id = input.conversation_id\\n\" +\n\"     AND c.status = 'bot_active'::conversation_status\\n\" +\n\"     AND NOT COALESCE((SELECT conflicting FROM conflict), false)\\n\" +\n\"     AND (c.chatwoot_conversation_id IS NULL OR c.chatwoot_conversation_id = input.chatwoot_conversation_id)\\n\" +\n\"  RETURNING c.id, c.customer_id, c.status, c.chatwoot_conversation_id\\n\" +\n\"), operation_finished AS MATERIALIZED (\\n\" +\n\"  SELECT finish_chatwoot_handoff_operation(\\n\" +\n\"    input.request_id, input.operation_token,\\n\" +\n\"    CASE WHEN EXISTS (SELECT 1 FROM updated) THEN 'completed' ELSE 'uncertain' END,\\n\" +\n\"    input.chatwoot_conversation_id\\n\" +\n\"  ) AS finished FROM input\\n\" +\n\"), paused AS (\\n\" +\n\"  SELECT pause_customer_campaigns(customer_id, 'handoff') AS paused FROM updated\\n\" +\n\"), handoff_log AS (\\n\" +\n\"  INSERT INTO interaction_logs (customer_id, conversation_id, event_type, correlation_id, payload, success)\\n\" +\n\"  SELECT updated.customer_id, updated.id, 'chatwoot_handoff', input.chatwoot_conversation_id, input.log_payload, true FROM updated, input\\n\" +\n\"), salesforce_log AS (\\n\" +\n\"  INSERT INTO interaction_logs (customer_id, conversation_id, event_type, correlation_id, payload, success, error_message)\\n\" +\n\"  SELECT updated.customer_id, updated.id, 'salesforce_handoff_patch', input.chatwoot_conversation_id, input.salesforce_log_payload, input.salesforce_status = 'success', CASE WHEN input.salesforce_status = 'success' THEN NULL ELSE COALESCE(input.salesforce_error, 'SALESFORCE_DEV_HANDOFF_URL not configured') END FROM updated, input\\n\" +\n\"), conflict_log AS (\\n\" +\n\"  INSERT INTO interaction_logs (customer_id, conversation_id, event_type, correlation_id, payload, success, error_message)\\n\" +\n\"  SELECT locked_target.customer_id, locked_target.id, 'chatwoot_handoff_conflict', input.chatwoot_conversation_id,\\n\" +\n\"         jsonb_build_object('workflow', 'REN-DEV-WF-04', 'reason', 'handoff_fence_rejected'), false, 'CHATWOOT_HANDOFF_CONFLICT'\\n\" +\n\"    FROM locked_target, input WHERE COALESCE((SELECT conflicting FROM conflict), false)\\n\" +\n\")\\n\" +\n\"SELECT (updated.id IS NOT NULL AND operation_finished.finished) AS success, COALESCE(updated.id, locked_target.id)::text AS conversation_id, input.chatwoot_conversation_id,\\n\" +\n\"       COALESCE(updated.chatwoot_conversation_id, locked_target.chatwoot_conversation_id) AS stored_chatwoot_conversation_id,\\n\" +\n\"       COALESCE(updated.chatwoot_conversation_id = input.chatwoot_conversation_id, false) AS chatwoot_conversation_reconciled,\\n\" +\n\"       COALESCE(updated.status, locked_target.status)::text AS conversation_status,\\n\" +\n\"       CASE WHEN updated.id IS NOT NULL THEN input.client_message ELSE '' END AS client_message,\\n\" +\n\"       CASE WHEN updated.id IS NOT NULL AND operation_finished.finished THEN input.response_code WHEN locked_target.id IS NULL THEN 404 ELSE 409 END AS response_code,\\n\" +\n\"       input.salesforce_status, input.salesforce_http_status,\\n\" +\n\"       CASE WHEN updated.id IS NOT NULL AND operation_finished.finished THEN NULL WHEN locked_target.id IS NULL THEN 'CONVERSATION_NOT_FOUND' ELSE 'CHATWOOT_HANDOFF_CONFLICT' END AS error,\\n\" +\n\"       COALESCE((SELECT bool_or(paused) FROM paused), false) AS campaign_paused\\n\" +\n\"  FROM input LEFT JOIN locked_target ON true LEFT JOIN updated ON true CROSS JOIN operation_finished\";\n}\n\nfunction buildFailurePersistSql(\n  item,\n  chatwootConversationId,\n  operationStatus,\n  responseCode,\n  errorCode,\n  schema,\n) {\n  const conversationIdSql = item.conversation_id\n    ? \"'\" + q(item.conversation_id) + \"'::uuid\"\n    : 'NULL::uuid';\n  return \"SET search_path TO \" + schema + \", public;\\n\" +\n\"WITH input AS (\\n\" +\n\"  SELECT \" + conversationIdSql + \" AS conversation_id,\\n\" +\n\"         '\" + q(item.source_message_id) + \"'::text AS request_id,\\n\" +\n\"         '\" + q(item.handoff_operation_token) + \"'::uuid AS operation_token,\\n\" +\n\"         \" + sqlText(chatwootConversationId ? String(chatwootConversationId) : null) + \"::text AS chatwoot_conversation_id,\\n\" +\n\"         '\" + q(operationStatus) + \"'::text AS operation_status\\n\" +\n\"), target AS MATERIALIZED (\\n\" +\n\"  SELECT conversation.id, conversation.customer_id, conversation.status, conversation.chatwoot_conversation_id\\n\" +\n\"    FROM conversations conversation, input WHERE conversation.id = input.conversation_id\\n\" +\n\"), correlation_claim AS MATERIALIZED (\\n\" +\n\"  SELECT claim.* FROM input JOIN target ON true\\n\" +\n\"  CROSS JOIN LATERAL claim_chatwoot_conversation_id(target.id, input.chatwoot_conversation_id) claim\\n\" +\n\"), locked_target AS MATERIALIZED (\\n\" +\n\"  SELECT conversation.id, conversation.customer_id, conversation.status, conversation.chatwoot_conversation_id\\n\" +\n\"    FROM conversations conversation, input LEFT JOIN correlation_claim ON true\\n\" +\n\"   WHERE conversation.id = input.conversation_id\\n\" +\n\"   FOR UPDATE\\n\" +\n\"), operation_current AS MATERIALIZED (\\n\" +\n\"  SELECT is_chatwoot_handoff_operation_current(input.request_id, input.operation_token) AS current\\n\" +\n\"    FROM input LEFT JOIN locked_target ON true\\n\" +\n\"), correlated AS (\\n\" +\n\"  UPDATE conversations conversation\\n\" +\n\"     SET chatwoot_conversation_id = input.chatwoot_conversation_id\\n\" +\n\"    FROM input\\n\" +\n\"   WHERE conversation.id = input.conversation_id\\n\" +\n\"     AND input.chatwoot_conversation_id IS NOT NULL\\n\" +\n\"     AND COALESCE((SELECT current FROM operation_current), false)\\n\" +\n\"     AND COALESCE((SELECT claimed FROM correlation_claim), false)\\n\" +\n\"     AND (conversation.chatwoot_conversation_id IS NULL OR conversation.chatwoot_conversation_id = input.chatwoot_conversation_id)\\n\" +\n\"  RETURNING conversation.id\\n\" +\n\"), operation_finished AS MATERIALIZED (\\n\" +\n\"  SELECT finish_chatwoot_handoff_operation(\\n\" +\n\"    input.request_id, input.operation_token,\\n\" +\n\"    input.operation_status, input.chatwoot_conversation_id\\n\" +\n\"  ) AS finished FROM input\\n\" +\n\"), failure_log AS (\\n\" +\n\"  INSERT INTO interaction_logs (customer_id, conversation_id, event_type, correlation_id, payload, success, error_message)\\n\" +\n\"  SELECT locked_target.customer_id, locked_target.id, 'chatwoot_handoff_failed', input.request_id,\\n\" +\n\"         jsonb_build_object('workflow', 'REN-DEV-WF-04', 'operation_status', input.operation_status, 'chatwoot_id_known', input.chatwoot_conversation_id IS NOT NULL),\\n\" +\n\"         false, '\" + q(errorCode) + \"'\\n\" +\n\"    FROM input LEFT JOIN locked_target ON true\\n\" +\n\")\\n\" +\n\"SELECT false AS success, locked_target.id::text AS conversation_id, input.chatwoot_conversation_id,\\n\" +\n\"       locked_target.chatwoot_conversation_id AS stored_chatwoot_conversation_id,\\n\" +\n\"       false AS chatwoot_conversation_reconciled, locked_target.status::text AS conversation_status,\\n\" +\n\"       ''::text AS client_message, \" + Number(responseCode) + \"::integer AS response_code, 'skipped'::text AS salesforce_status,\\n\" +\n\"       NULL::integer AS salesforce_http_status, '\" + q(errorCode) + \"'::text AS error, false AS campaign_paused\\n\" +\n\"  FROM input LEFT JOIN locked_target ON true CROSS JOIN operation_finished\";\n}\n\nfunction buildExternalPersistSql(item, outcome, schema) {\n  return \"SET search_path TO \" + schema + \", public;\\n\" +\n\"WITH input AS (\\n\" +\n\"  SELECT '\" + q(item.source_message_id) + \"'::text AS request_id,\\n\" +\n\"         '\" + q(item.handoff_operation_token) + \"'::uuid AS operation_token,\\n\" +\n\"         '\" + q(String(outcome.chatwootConversationId)) + \"'::text AS chatwoot_conversation_id\\n\" +\n\"), operation_current AS MATERIALIZED (\\n\" +\n\"  SELECT is_chatwoot_handoff_operation_current(input.request_id, input.operation_token) AS current FROM input\\n\" +\n\"), operation_finished AS MATERIALIZED (\\n\" +\n\"  SELECT finish_chatwoot_handoff_operation(input.request_id, input.operation_token, 'completed', input.chatwoot_conversation_id) AS finished\\n\" +\n\"    FROM input WHERE COALESCE((SELECT current FROM operation_current), false)\\n\" +\n\"), logged AS (\\n\" +\n\"  INSERT INTO interaction_logs (customer_id, conversation_id, event_type, correlation_id, payload, success)\\n\" +\n\"  SELECT NULL, NULL, 'chatwoot_handoff_ambiguous', input.request_id, \" + sqlJson(buildLogPayload(item, outcome)) + \", true\\n\" +\n\"    FROM input, operation_finished WHERE operation_finished.finished\\n\" +\n\"  RETURNING id\\n\" +\n\") SELECT COALESCE(operation_finished.finished, false) AS success, NULL::text AS conversation_id, input.chatwoot_conversation_id,\\n\" +\n\"         CASE WHEN operation_finished.finished THEN 'handed_off_external' ELSE 'handoff_conflict' END::text AS conversation_status,\\n\" +\n\"         CASE WHEN operation_finished.finished THEN '\" + q(outcome.clientMessage) + \"' ELSE '' END::text AS client_message,\\n\" +\n\"         CASE WHEN operation_finished.finished THEN \" + outcome.responseCode + \" ELSE 409 END::integer AS response_code,\\n\" +\n\"         'skipped'::text AS salesforce_status, NULL::integer AS salesforce_http_status,\\n\" +\n\"         CASE WHEN operation_finished.finished THEN NULL ELSE 'CHATWOOT_HANDOFF_CONFLICT' END::text AS error\\n\" +\n\"    FROM input LEFT JOIN operation_finished ON true;\";\n}\n\nconst startedAt = Date.now();\nconst item = $json;\nconst SCHEMA = \"renovation_dev\";\nconst CLIENT_MESSAGE = \"Listo, le derivé con un asesor de Quicklink. Enseguida continuará la atención por este medio.\";\n\nfunction env(name, fallback = '') {\n  try { return $env[name] || fallback; } catch (e) { return fallback; }\n}\nfunction done(extra) {\n  return [{ json: { ...item, duration_ms: Date.now() - startedAt, ...extra } }];\n}\nfunction fail(httpStatus, error, message, extra = {}) {\n  return done({ success: false, persist_required: false, http_status: httpStatus, error, message, ...extra });\n}\nfunction failReserved(httpStatus, error, message, extra = {}, operationStatus = 'failed', chatwootConversationId = null) {\n  if (!item.handoff_operation_token) return fail(httpStatus, error, message, extra);\n  return done({\n    success: false,\n    persist_required: true,\n    http_status: httpStatus,\n    error,\n    message,\n    ...extra,\n    persist_sql: buildFailurePersistSql(\n      item,\n      chatwootConversationId,\n      operationStatus,\n      httpStatus,\n      error,\n      SCHEMA,\n    ),\n  });\n}\n\nconst pilot = evaluateInboundPilot(\n  env('RENOV_DEV_INBOUND_DRY_RUN_SENDS', 'true'),\n  env('RENOV_DEV_INBOUND_PILOT_ALLOWED_PHONES', ''),\n  item.resolved_phone || item.phone || '',\n);\nif (!pilot.allowed) {\n  const blocked = inboundPilotFailure(pilot);\n  return failReserved(blocked.httpStatus, blocked.error, blocked.message, { pilot_block_reason: pilot.reason });\n}\n\nconst chatwootConversationConflict = item.chatwoot_conversation_conflict === true\n  || item.chatwoot_conversation_conflict === 't'\n  || item.chatwoot_conversation_conflict === 'true';\nif (chatwootConversationConflict) {\n  return fail(409, 'CHATWOOT_CONVERSATION_CONFLICT', 'La conversación de Chatwoot ya está correlacionada con otro cliente.');\n}\n\nconst supervisorOnlyHandoff = isSupervisorOnlyHandoff(item);\nif (!item.conversation_id && !supervisorOnlyHandoff) {\n  return fail(404, 'CONVERSATION_NOT_FOUND', 'No existe conversacion local ni un MULTI_MATCH enrutable al supervisor.');\n}\n\nconst operationAcquired = item.handoff_operation_acquired === true\n  || item.handoff_operation_acquired === 't'\n  || item.handoff_operation_acquired === 'true';\nif (!operationAcquired) {\n  const status = String(item.handoff_operation_status || 'unknown');\n  const code = status === 'completed' ? 'HANDOFF_ALREADY_PROCESSED'\n    : status === 'uncertain' ? 'HANDOFF_REQUIRES_RECONCILIATION'\n      : status === 'conversation_not_active' ? 'CONVERSATION_NOT_ACTIVE'\n        : 'HANDOFF_IN_PROGRESS';\n  return fail(409, code, 'Ya existe una operación de handoff para esta conversación.');\n}\nif (!/^[0-9a-f-]{36}$/i.test(String(item.handoff_operation_token || ''))) {\n  return fail(500, 'HANDOFF_OPERATION_ERROR', 'No se pudo reservar la operación de handoff.');\n}\n\nconst chatwootBaseUrl = env('RENOV_CHATWOOT_BASE_URL', env('CHATWOOT_BASE_URL')).replace(/\\/+$/, '');\nconst accountId = env('RENOV_CHATWOOT_ACCOUNT_ID', env('CHATWOOT_ACCOUNT_ID'));\nconst apiToken = env('RENOV_CHATWOOT_API_TOKEN', env('CHATWOOT_API_TOKEN'));\nconst inboxId = asInt(env('RENOV_CHATWOOT_INBOX_ID', env('CHATWOOT_INBOX_ID')));\nif (!chatwootBaseUrl || !accountId || !apiToken) {\n  return failReserved(500, 'CHATWOOT_CONFIG_ERROR', 'Variables Chatwoot incompletas: RENOV_CHATWOOT_BASE_URL, RENOV_CHATWOOT_ACCOUNT_ID y RENOV_CHATWOOT_API_TOKEN.');\n}\nif (!item.chatwoot_conversation_id && !inboxId) {\n  return failReserved(500, 'CHATWOOT_CONFIG_ERROR', 'RENOV_CHATWOOT_INBOX_ID es requerido para crear conversaciones nuevas.');\n}\n\nconst nodeHelpers = this.helpers;\nasync function httpRequestJson(options) {\n  try {\n    const response = await nodeHelpers.httpRequest({\n      method: options.method,\n      url: options.uri,\n      headers: options.headers || {},\n      body: options.body,\n      form: options.form,\n      json: true,\n      resolveWithFullResponse: true,\n      simple: false,\n    });\n    let status = Number(response.statusCode);\n    if (!Number.isFinite(status) && typeof response.status === 'number') status = response.status;\n    if (!Number.isFinite(status)) status = 200;\n    const body = response.body === undefined ? response : response.body;\n    return { ok: status >= 200 && status < 300, status, body: body ?? {} };\n  } catch (error) {\n    const status = Number(error.statusCode || error.response?.statusCode || error.response?.status || 0);\n    const body = error.response?.body || error.error || error;\n    return { ok: false, status, body };\n  }\n}\nasync function chatwoot(method, path, body) {\n  const response = await httpRequestJson({\n    method,\n    uri: chatwootBaseUrl + '/api/v1/accounts/' + accountId + path,\n    headers: { api_access_token: apiToken, 'content-type': 'application/json' },\n    body,\n  });\n  if (!response.ok) {\n    throw new Error('Chatwoot ' + method + ' ' + path + ' failed with ' + response.status + ': ' + JSON.stringify(response.body || {}).slice(0, 300));\n  }\n  return response.body || {};\n}\n\nlet chatwootConversationId = asInt(item.chatwoot_conversation_id);\nlet chatwootContactId = null;\nlet labelStatus = 'skipped';\nlet assignmentStatus = 'skipped';\nlet externalEffectStarted = false;\n\ntry {\n  if (chatwootConversationId) {\n    externalEffectStarted = true;\n    await chatwoot('POST', '/conversations/' + chatwootConversationId + '/toggle_status', { status: 'open' });\n  } else {\n    const phoneDigits = String(item.resolved_phone || item.phone || '').replace(/^\\+/, '');\n    const searchBody = await chatwoot('GET', '/contacts/search?q=' + encodeURIComponent(phoneDigits) + '&include_contacts=true');\n    chatwootContactId = extractContactId(firstContact(searchBody) || {});\n    if (!chatwootContactId) {\n      externalEffectStarted = true;\n      chatwootContactId = extractContactId(await chatwoot('POST', '/contacts', buildContactPayload(item)));\n    }\n    if (!chatwootContactId) throw new Error('No se pudo resolver o crear contacto Chatwoot.');\n    externalEffectStarted = true;\n    const createdConversation = await chatwoot('POST', '/conversations', { inbox_id: inboxId, contact_id: chatwootContactId, status: 'open' });\n    chatwootConversationId = extractConversationId(createdConversation);\n    if (!chatwootConversationId) throw new Error('No se pudo crear conversacion Chatwoot.');\n  }\n\n  externalEffectStarted = true;\n  await chatwoot('POST', '/conversations/' + chatwootConversationId + '/messages', {\n    content: buildHandoffNote(item),\n    message_type: 'outgoing',\n    private: true,\n  });\n\n  try {\n    await chatwoot('POST', '/conversations/' + chatwootConversationId + '/labels', { labels: buildHandoffLabels(item) });\n    labelStatus = 'success';\n  } catch (error) {\n    labelStatus = 'failed: ' + safeError(error);\n  }\n\n  // T-1.16 / functional document 7.2: the conversation goes to the advisor who\n  // owns the account. Unassigned, unknown or ambiguous numbers already resolved\n  // to the supervision lead upstream. The team is only a fallback for an\n  // advisor with no Chatwoot agent mapped yet.\n  const assigneeId = asInt(item.advisor_chatwoot_agent_id);\n  const teamId = asInt(env('RENOV_CHATWOOT_TEAM_ID'));\n\n  if (assigneeId) {\n    try {\n      await chatwoot('POST', '/conversations/' + chatwootConversationId + '/assignments', { assignee_id: assigneeId });\n      assignmentStatus = 'success:advisor';\n    } catch (error) {\n      assignmentStatus = 'failed_advisor: ' + safeError(error);\n    }\n  }\n\n  if (assignmentStatus !== 'success:advisor' && teamId) {\n    try {\n      await chatwoot('POST', '/conversations/' + chatwootConversationId + '/assignments', { team_id: teamId });\n      assignmentStatus = assigneeId ? 'success:team_fallback' : 'success:team';\n    } catch (error) {\n      assignmentStatus = 'failed: ' + safeError(error);\n    }\n  }\n  if (!assignmentSucceeded(assignmentStatus)) throw new Error('No se pudo asignar la conversacion al asesor o supervisor.');\n} catch (error) {\n  return failReserved(\n    502,\n    'CHATWOOT_REQUEST_ERROR',\n    'No se pudo completar el handoff en Chatwoot.',\n    { chatwoot_error: safeError(error) },\n    externalEffectStarted ? 'uncertain' : 'failed',\n    chatwootConversationId,\n  );\n}\n\nlet salesforceStatus = 'skipped';\nlet salesforceHttpStatus = null;\nlet salesforceError = null;\nconst salesforceHandoffUrl = env('SALESFORCE_DEV_HANDOFF_URL', env('RENOV_SALESFORCE_HANDOFF_URL'));\nif (salesforceHandoffUrl && item.conversation_id) {\n  try {\n    const baseUrl = env('SALESFORCE_DEV_BASE_URL', 'https://quicklink--uat.sandbox.my.salesforce.com').replace(/\\/+$/, '');\n    const tokenUrl = env('SALESFORCE_DEV_TOKEN_URL', baseUrl + '/services/oauth2/token');\n    const clientId = env('SALESFORCE_DEV_CLIENT_ID');\n    const clientSecret = env('SALESFORCE_DEV_CLIENT_SECRET');\n    if (!clientId || !clientSecret) throw new Error('missing_salesforce_credentials');\n    const tokenResponse = await httpRequestJson({\n      method: 'POST',\n      uri: tokenUrl,\n      headers: { 'content-type': 'application/json' },\n      body: { grant_type: 'client_credentials', client_id: clientId, client_secret: clientSecret },\n    });\n    const tokenBody = tokenResponse.body || {};\n    if (!tokenResponse.ok || !tokenBody.access_token) throw new Error('salesforce_auth_failed_' + tokenResponse.status);\n    const patchResponse = await httpRequestJson({\n      method: env('SALESFORCE_DEV_HANDOFF_METHOD', 'PATCH'),\n      uri: salesforceHandoffUrl,\n      headers: { authorization: 'Bearer ' + tokenBody.access_token, 'content-type': 'application/json' },\n      body: buildSalesforcePatchBody(item, chatwootConversationId),\n    });\n    salesforceHttpStatus = patchResponse.status;\n    if (!patchResponse.ok) {\n      throw new Error('salesforce_handoff_patch_failed_' + patchResponse.status + ': ' + JSON.stringify(patchResponse.body || {}).slice(0, 300));\n    }\n    salesforceStatus = 'success';\n  } catch (error) {\n    salesforceStatus = 'failed';\n    salesforceError = safeError(error);\n  }\n}\n\nconst outcome = {\n  chatwootConversationId,\n  chatwootContactId,\n  labelStatus,\n  assignmentStatus,\n  salesforceStatus,\n  salesforceHttpStatus,\n  salesforceError,\n  clientMessage: CLIENT_MESSAGE,\n  responseCode: salesforceStatus === 'success' ? 200 : 202,\n};\n\nreturn done({\n  success: true,\n  persist_required: true,\n  http_status: outcome.responseCode,\n  chatwoot_conversation_id: String(chatwootConversationId),\n  chatwoot_contact_id: chatwootContactId ? String(chatwootContactId) : null,\n  chatwoot_label_status: labelStatus,\n  chatwoot_assignment_status: assignmentStatus,\n  salesforce_status: salesforceStatus,\n  salesforce_http_status: salesforceHttpStatus,\n  salesforce_error: salesforceError,\n  client_message: CLIENT_MESSAGE,\n  persist_sql: item.conversation_id\n    ? buildPersistSql(item, outcome, SCHEMA)\n    : buildExternalPersistSql(item, outcome, SCHEMA),\n});"
+      }
+    },
+    {
+      "id": "if-persist-required-001",
+      "name": "IF - Persist Required",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        360,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "persist-required",
+              "leftValue": "={{ $json.persist_required }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "pg-mark-handed-off-001",
+      "name": "Postgres - Mark Handed Off",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        620,
+        -80
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.persist_sql }}",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "respond-success-001",
+      "name": "Respond - Handoff Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        880,
+        -80
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: $json.success === true, error: $json.success === true ? undefined : ($json.error || 'handoff_persist_failed'), conversation_id: $json.conversation_id, chatwoot_conversation_id: $json.chatwoot_conversation_id, conversation_status: $json.conversation_status, salesforce_status: $json.salesforce_status, salesforce_http_status: $json.salesforce_http_status || null, client_message: $json.client_message }) }}",
+        "options": {
+          "responseCode": "={{ $json.response_code || 200 }}"
+        }
+      }
+    },
+    {
+      "id": "respond-controlled-error-001",
+      "name": "Respond - Controlled Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        620,
+        220
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: $json.error || 'handoff_failed', message: $json.message || 'Handoff request could not be completed.', missing_fields: $json.missing_fields || undefined, phone: $json.phone || undefined, conversation_id: $json.conversation_id || undefined, chatwoot_error: $json.chatwoot_error || undefined }) }}",
+        "options": {
+          "responseCode": "={{ $json.http_status || 400 }}"
+        }
+      }
+    },
+    {
+      "id": "sticky-info-001",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -900,
+        -420
+      ],
+      "parameters": {
+        "content": "## REN - DEV - WF-04 - Chatwoot Handoff\n\nWebhook interno protegido: POST /webhook/renov/dev/handoff\n\nContrato:\n- full_name\n- phone E.164\n- handoff_reason\n- conversation_summary\n- opportunity_status\n- promotion_communicated\n- contact_preference\n- conversation_id opcional\n\nAcciones:\n- busca/crea contacto y conversacion Chatwoot\n- agrega nota privada y etiquetas\n- PATCH Salesforce si SALESFORCE_DEV_HANDOFF_URL existe\n- marca conversations.status = handed_off\n- pausa campanas del cliente\n\nMantener inactivo hasta configurar Chatwoot/Salesforce DEV y pruebas WABA.",
+        "height": 560,
+        "width": 420
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Handoff POST": {
+      "main": [
+        [
+          {
+            "node": "Code - Validate Handoff Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Validate Handoff Request": {
+      "main": [
+        [
+          {
+            "node": "IF - Request Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Request Valid": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Resolve Handoff Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond - Controlled Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Resolve Handoff Context": {
+      "main": [
+        [
+          {
+            "node": "Code - Execute Chatwoot Handoff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Execute Chatwoot Handoff": {
+      "main": [
+        [
+          {
+            "node": "IF - Persist Required",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Persist Required": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Mark Handed Off",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond - Controlled Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Mark Handed Off": {
+      "main": [
+        [
+          {
+            "node": "Respond - Handoff Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Guayaquil",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "executionTimeout": 120,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "saveExecutionProgress": false,
+    "errorWorkflow": "kD0eQVA4xbuhJTAb"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "a9ac0453-7664-56cd-a9b0-adfac122e05e",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

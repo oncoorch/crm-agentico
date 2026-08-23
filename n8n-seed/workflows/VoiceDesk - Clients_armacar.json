@@ -1,0 +1,123 @@
+{
+  "id": "1jh8FcTVa9420DnZ_armacar",
+  "name": "VoiceDesk - Clients_armacar",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "vd-clients",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "9bb57383-4b68-47e7-9168-97d0ec8f40ec",
+      "name": "Webhook Clients",
+      "webhookId": "6e67fcf2-ffc1-4deb-a27d-118caf5dbb1c"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1YgWSysAfZogPVeJhO-GUl_nwbURA7DmVPPKZYRGL1-w/edit?usp=sharing",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "clientes"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        224,
+        0
+      ],
+      "id": "1576dc24-7208-40cb-8ea1-5920a63d1286",
+      "name": "Leer Clientes",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "jy6FVFN0kR9W8L6h_armacar",
+          "name": "Google Sheets account_ARMACAR"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all();\nconst clientes = rows.map(r => ({\n  id: r.json.id || '',\n  nombre: r.json.nombre || '',\n  email: r.json.email || '',\n  asistente_id: r.json.asistente_id || '',\n  numero: r.json.numero || '',\n  activo: r.json.activo || 'false'\n}));\n\nreturn [{ json: { success: true, total: clientes.length, clientes } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "144f0c00-9d12-4f6a-99f3-99b4d122b8c9",
+      "name": "Procesar Clientes"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        672,
+        0
+      ],
+      "id": "e757b9ce-7b78-44e1-a909-8399e2b1c436",
+      "name": "Responder Clients"
+    }
+  ],
+  "connections": {
+    "Webhook Clients": {
+      "main": [
+        [
+          {
+            "node": "Leer Clientes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Clientes": {
+      "main": [
+        [
+          {
+            "node": "Procesar Clientes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Procesar Clientes": {
+      "main": [
+        [
+          {
+            "node": "Responder Clients",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "31283602-653b-5fc1-8ca9-09edbaf1ddd8",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

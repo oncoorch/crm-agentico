@@ -1,0 +1,362 @@
+{
+  "id": "2ypxRfeVbbnR4psz_hyundai",
+  "name": "MCP VPS TOOL_hyundai",
+  "nodes": [
+    {
+      "parameters": {
+        "description": "Extrae direcciones IP IPv4 del texto de entrada y devuelve la IP pública (WAN) y privada (LAN).\nParses stdout para identificar IPs IPv4; filtra privadas y retorna última IP pública (WAN) y privadas (LAN).",
+        "jsCode": "// Extrae dominio base y subdominio de una URL MCP\nconst input = items[0].json.url || items[0].json.server_url || items[0].json.text || '';\nconst urlPattern = /https?:\\/\\/([^/]+)/i;\nconst match = input.match(urlPattern);\n\nlet server_url = null;\nlet vps_name = null;\n\nif (match) {\n  server_url = `https://${match[1]}`;\n  const parts = match[1].split('.');\n  if (parts.length >= 3) vps_name = parts[0];\n  else vps_name = 'unknown';\n}\n\nreturn [\n  {\n    json: {\n      input,\n      server_url,\n      vps_name,\n      success: !!match,\n      timestamp: new Date().toISOString(),\n    }\n  }\n];\n"
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        192,
+        256
+      ],
+      "id": "cb54b032-c7b4-400e-81db-7a62298534f5",
+      "name": "Code Tool"
+    },
+    {
+      "parameters": {
+        "text": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Prompt__User_Message_', ``, 'string') }}",
+        "hasOutputParser": true,
+        "needsFallback": true,
+        "options": {
+          "systemMessage": "# System Prompt\n\n\"Eres **Inspector Gadget**, un asistente MCP que identifica y reporta información del servidor. Evalúa si el VPS está `healthy`, `degraded` o `critical` basado en CPU load, RAM usada, uptime, y procesos activos. Explica brevemente el estado.\n\n  - Tu tarea es usar las tools para obtener la URL o entorno del servidor actual y devolver:\n  1. Nombre del VPS (subdominio)\n  2. URL base hasta el dominio\n  \n  - Devuelve los datos en JSON limpio y claro.\n\n\n\n## ✅ Resultado esperado (ejemplo)\n\n- Enrada:\n\n{\n  \"url\": \"https://1001.bkn.aigentss.cloud/workflow/2ypxRfeVbbnR4psz\"\n}\n\n- Salida:\n\n{\n  \"server_url\": \"https://1001.bkn.aigentss.cloud\",\n  \"vps_name\": \"1001\",\n  \"success\": true,\n  \"timestamp\": \"2025-11-08T04:59:30.410Z\"\n}\n\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agentTool",
+      "typeVersion": 2.2,
+      "position": [
+        272,
+        -224
+      ],
+      "id": "b8666878-6e59-428e-846c-6a2273c35dd0",
+      "name": "AI Agent Tool",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1uGHOhTF__UpTI1O7tLtHB6Pe_YW9zZLp1-HKMShl-x4",
+          "mode": "list",
+          "cachedResultName": "Querys_Chat",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1uGHOhTF__UpTI1O7tLtHB6Pe_YW9zZLp1-HKMShl-x4/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "CLOUDE",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1uGHOhTF__UpTI1O7tLtHB6Pe_YW9zZLp1-HKMShl-x4/edit#gid=0"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "VPS Cliente",
+              "lookupValue": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values0_Value', ``, 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        336,
+        256
+      ],
+      "id": "c5988301-b8e6-43ea-8974-1f4850754245",
+      "name": "Get row(s) in sheet in Google Sheets",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "5TEVs0kJMi0Y35F8_hyundai",
+          "name": "Google Sheets account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "path": "562f594a-f74f-4497-a1e4-cdc459f356eb"
+      },
+      "type": "@n8n/n8n-nodes-langchain.mcpTrigger",
+      "typeVersion": 2,
+      "position": [
+        240,
+        -480
+      ],
+      "id": "df7227b7-31cd-42e4-9dee-770b9a83f895",
+      "name": "MCP Server Trigger",
+      "webhookId": "562f594a-f74f-4497-a1e4-cdc459f356eb",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "command": "echo '{\n  \"hostname\": \"'$(hostname)'\",\n  \"os\": \"'$(grep PRETTY_NAME /etc/os-release | cut -d= -f2 | tr -d '\"')'\",\n  \"kernel\": \"'$(uname -r)'\",\n  \"cpu_model\": \"'$(grep \"model name\" /proc/cpuinfo | head -n1 | cut -d: -f2 | xargs)'\",\n  \"cpu_cores\": \"'$(grep -c \"^processor\" /proc/cpuinfo)'\",\n  \"uptime_hours\": \"'$(awk \"{print int(\\$1/3600)}\" /proc/uptime)'\",\n  \"ram_total\": \"'$(free -h | awk \"/Mem:/ {print \\$2}\")'\",\n  \"ram_used\": \"'$(free -h | awk \"/Mem:/ {print \\$3}\")'\",\n  \"disk_total\": \"'$(df -h / | awk \"NR==2 {print \\$2}\")'\",\n  \"disk_used\": \"'$(df -h / | awk \"NR==2 {print \\$3}\")'\",\n  \"disk_usage\": \"'$(df -h / | awk \"NR==2 {print \\$5}\")'\",\n  \"load_avg\": \"'$(awk \"{print \\$1\\\", \\\"\\$2\\\", \\\"\\$3}\" /proc/loadavg)'\",\n  \"ipv4_addrs\": \"'$(ip -4 addr show | awk \"/inet / {print \\$2}\" | cut -d/ -f1 | paste -sd \",\" -)'\",\n  \"uptime_readable\": \"'$(awk \"{d=int(\\$1/86400);h=int((\\$1%86400)/3600);m=int((\\$1%3600)/60);printf \\\"%dd %dh %dm\\\",d,h,m}\" /proc/uptime)'\",\n  \"timestamp\": \"'$(date -u +\"%Y-%m-%dT%H:%M:%SZ\")'\"\n}' | jq .\n"
+      },
+      "type": "n8n-nodes-base.executeCommandTool",
+      "typeVersion": 1,
+      "position": [
+        32,
+        256
+      ],
+      "id": "6f34c1fe-f9d3-4be3-9171-de86bcdd8900",
+      "name": "Execute Command1"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "claude-sonnet-4-20250514",
+          "cachedResultName": "Claude 4 Sonnet"
+        },
+        "options": {
+          "thinking": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        -336,
+        256
+      ],
+      "id": "9d901bf5-e3ee-46e3-b54f-7f8b996d59bb",
+      "name": "Anthropic Chat Model",
+      "credentials": {
+        "anthropicApi": {
+          "id": "Q5wT9cq15oR5sGZI_hyundai",
+          "name": "Anthropic account_HYUNDAI"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        -160,
+        256
+      ],
+      "id": "71ad68c9-c5db-43ec-b788-0d15db3d6032",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"vps_name\": \"1001\",\n  \"server_url\": \"https://1001.bkn.aigentss.cloud\",\n  \"os\": \"Alpine Linux v3.22\",\n  \"kernel\": \"6.8.0-86-generic\",\n  \"cpu_model\": \"AMD EPYC Processor\",\n  \"cpu_cores\": 8,\n  \"ram_total\": \"23.5G\",\n  \"ram_used\": \"6.5G\",\n  \"disk_total\": \"100G\",\n  \"disk_used\": \"45G\",\n  \"uptime_hours\": 97,\n  \"load_avg\": \"0.12 0.18 0.25\",\n  \"connections_active\": 38,\n  \"docker_containers\": 4,\n  \"processes\": 163,\n  \"status\": \"healthy\",\n  \"timestamp\": \"2025-11-08T10:34:00Z\"\n}\n"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        496,
+        256
+      ],
+      "id": "59853602-71aa-48c8-9f49-c089e25675de",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "hasOutputParser": true,
+        "needsFallback": true,
+        "options": {
+          "systemMessage": "# System Prompt\n\n\"Eres **Inspector Gadget**, un asistente MCP que identifica y reporta información del servidor. Evalúa si el VPS está `healthy`, `degraded` o `critical` basado en CPU load, RAM usada, uptime, y procesos activos. Explica brevemente el estado.\n\n  - Tu tarea es usar las tools para obtener la URL o entorno del servidor actual y devolver:\n  1. Nombre del VPS (subdominio)\n  2. URL base hasta el dominio\n  \n  - Devuelve los datos en JSON limpio y claro.\n\n\n\n## ✅ Resultado esperado (ejemplo)\n\n- Enrada:\n\n{\n  \"url\": \"https://1001.bkn.aigentss.cloud/workflow/2ypxRfeVbbnR4psz\"\n}\n\n- Salida:\n\n{\n  \"server_url\": \"https://1001.bkn.aigentss.cloud\",\n  \"vps_name\": \"1001\",\n  \"success\": true,\n  \"timestamp\": \"2025-11-08T04:59:30.410Z\"\n}\n\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        -272,
+        -224
+      ],
+      "id": "4df9b188-c2c6-449e-8b4e-44812ac0ad1b",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -544,
+        -224
+      ],
+      "id": "b48ab72d-0fa6-4b96-87e5-6431a69ba28c",
+      "name": "When chat message received",
+      "webhookId": "4aca9d71-ce99-4ebf-9680-9b890939c65c"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-5.4-mini"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -512,
+        256
+      ],
+      "id": "bb95088a-542a-43ad-9e01-8ac5c7719f0b",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "owHroLazOkirAFA8_hyundai",
+          "name": "OpenAi account_HYUNDAI"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "AI Agent Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet in Google Sheets": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Tool",
+            "type": "ai_tool",
+            "index": 0
+          },
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Tool",
+            "type": "ai_tool",
+            "index": 0
+          },
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Command1": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Tool",
+            "type": "ai_tool",
+            "index": 0
+          },
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent Tool",
+            "type": "ai_languageModel",
+            "index": 1
+          },
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent Tool",
+            "type": "ai_memory",
+            "index": 0
+          },
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent Tool",
+            "type": "ai_outputParser",
+            "index": 0
+          },
+          {
+            "node": "AI Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "AI Agent Tool",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "1e987450-5131-518a-862d-ee449bfa9f44",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

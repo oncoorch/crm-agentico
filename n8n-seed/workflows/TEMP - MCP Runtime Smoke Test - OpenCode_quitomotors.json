@@ -1,0 +1,77 @@
+{
+  "id": "z8yuwh2EzQgr1kW4_quitomotors",
+  "name": "TEMP - MCP Runtime Smoke Test - OpenCode_quitomotors",
+  "nodes": [
+    {
+      "id": "smoke-webhook",
+      "name": "Smoke Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mcp-runtime-smoke-opencode-20260708",
+        "responseMode": "lastNode",
+        "responseData": "firstEntryJson"
+      },
+      "webhookId": "2e43eecb-f892-4997-b0a6-ca160cf25c9f"
+    },
+    {
+      "id": "mcp-comprehensive-readonly-smoke",
+      "name": "MCP Comprehensive Read-Only Smoke",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        320,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://mcp_server:8000/api/qa/conversation-smoke",
+        "authentication": "none",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "{\"include_appointments\":true,\"include_known_gaps\":true}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Smoke Webhook": {
+      "main": [
+        [
+          {
+            "node": "MCP Comprehensive Read-Only Smoke",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "169d1bbc-e241-5202-9dbd-c3e0e6e47f48",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

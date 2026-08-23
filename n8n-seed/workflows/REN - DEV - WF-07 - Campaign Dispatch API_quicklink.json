@@ -1,0 +1,277 @@
+{
+  "id": "pQ4IYEcofqCBbMkd_quicklink",
+  "name": "REN - DEV - WF-07 - Campaign Dispatch API_quicklink",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "renov/dev/v1/campaigns/dispatch",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -240,
+        0
+      ],
+      "id": "wf07-webhook",
+      "name": "POST Campaign Dispatch",
+      "webhookId": "d4719ae8-0137-4b6c-96a8-7edc7d5fef07"
+    },
+    {
+      "parameters": {
+        "jsCode": "const providerOAuthCrypto = require('crypto');\nconst PROVIDER_OAUTH_REQUIRED_SCOPE = 'salesforce.integration';\nconst PROVIDER_OAUTH_TOKEN_TTL_SECONDS = 900;\n\nfunction providerOAuthEnv(name) {\n  try { return String($env[name] || ''); } catch (error) { return ''; }\n}\n\nfunction providerOAuthHeader(headers, name) {\n  const target = name.toLowerCase();\n  for (const [key, value] of Object.entries(headers || {})) {\n    if (String(key).toLowerCase() === target) return Array.isArray(value) ? value[0] : value;\n  }\n  return '';\n}\n\nfunction providerOAuthScopes(value) {\n  return [...new Set(String(value || '').trim().split(/\\s+/).filter(Boolean))];\n}\n\nfunction providerOAuthBase64Url(value) {\n  return Buffer.from(value).toString('base64').replace(/=/g, '').replace(/\\+/g, '-').replace(/\\//g, '_');\n}\n\nfunction providerOAuthDecodeSegment(segment) {\n  if (!/^[A-Za-z0-9_-]+$/.test(String(segment || ''))) throw new Error('invalid base64url');\n  const padding = (4 - (segment.length % 4)) % 4;\n  const decoded = Buffer.from(segment + '='.repeat(padding), 'base64');\n  if (providerOAuthBase64Url(decoded) !== segment) throw new Error('non-canonical base64url');\n  return decoded;\n}\n\nfunction providerOAuthFailure(statusCode, error, description) {\n  return { ok: false, statusCode, body: { error, error_description: description } };\n}\n\nfunction providerOAuthInvalidToken() {\n  return providerOAuthFailure(401, 'invalid_token', 'The access token is invalid or expired.');\n}\n\nfunction validateProviderBearerJwt(request) {\n  const jwtSecret = providerOAuthEnv('RENOV_OAUTH_JWT_SECRET');\n  const issuer = providerOAuthEnv('RENOV_OAUTH_ISSUER');\n  const audience = providerOAuthEnv('RENOV_OAUTH_AUDIENCE');\n  const configuredClientId = providerOAuthEnv('RENOV_OAUTH_CLIENT_ID');\n  const configuredScopes = providerOAuthScopes(providerOAuthEnv('RENOV_OAUTH_SCOPE'));\n  const allowedClientIds = providerOAuthEnv('RENOV_PROVIDER_CLIENT_IDS')\n    .split(',')\n    .map((value) => value.trim().toLowerCase())\n    .filter(Boolean);\n\n  if (!jwtSecret || !issuer || !audience || !configuredClientId\n      || !configuredScopes.includes(PROVIDER_OAUTH_REQUIRED_SCOPE)\n      || allowedClientIds.length === 0) {\n    return providerOAuthFailure(503, 'server_error', 'OAuth server configuration is unavailable.');\n  }\n\n  const headers = request && request.headers && typeof request.headers === 'object' ? request.headers : {};\n  const authorization = String(providerOAuthHeader(headers, 'authorization') || '');\n  const bearerMatch = authorization.match(/^Bearer[ \\t]+([^ \\t]+)[ \\t]*$/i);\n  const xClientId = String(providerOAuthHeader(headers, 'x-client-id') || '').trim().toLowerCase();\n  if (!bearerMatch || !xClientId || !allowedClientIds.includes(xClientId)) return providerOAuthInvalidToken();\n\n  const token = bearerMatch[1];\n  const parts = token.split('.');\n  if (parts.length !== 3) return providerOAuthInvalidToken();\n\n  let header;\n  let payload;\n  let signature;\n  try {\n    header = JSON.parse(providerOAuthDecodeSegment(parts[0]).toString('utf8'));\n    payload = JSON.parse(providerOAuthDecodeSegment(parts[1]).toString('utf8'));\n    signature = providerOAuthDecodeSegment(parts[2]);\n  } catch (error) {\n    return providerOAuthInvalidToken();\n  }\n  if (!header || typeof header !== 'object' || Array.isArray(header) || header.alg !== 'HS256') {\n    return providerOAuthInvalidToken();\n  }\n  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return providerOAuthInvalidToken();\n\n  const expectedSignature = providerOAuthCrypto\n    .createHmac('sha256', jwtSecret)\n    .update(parts[0] + '.' + parts[1], 'utf8')\n    .digest();\n  if (signature.length !== expectedSignature.length\n      || !providerOAuthCrypto.timingSafeEqual(signature, expectedSignature)) {\n    return providerOAuthInvalidToken();\n  }\n\n  if (payload.iss !== issuer || payload.aud !== audience\n      || typeof payload.sub !== 'string' || typeof payload.client_id !== 'string'\n      || payload.sub !== configuredClientId || payload.client_id !== configuredClientId\n      || payload.sub !== payload.client_id) {\n    return providerOAuthInvalidToken();\n  }\n\n  const tokenScopes = providerOAuthScopes(payload.scope);\n  if (!tokenScopes.includes(PROVIDER_OAUTH_REQUIRED_SCOPE)\n      || !tokenScopes.every((scope) => configuredScopes.includes(scope))) {\n    return providerOAuthFailure(403, 'insufficient_scope', 'The access token lacks the required scope.');\n  }\n\n  const numericDatesAreValid = Number.isSafeInteger(payload.iat)\n    && Number.isSafeInteger(payload.nbf)\n    && Number.isSafeInteger(payload.exp);\n  const now = Math.floor(Date.now() / 1000);\n  if (!numericDatesAreValid\n      || payload.nbf !== payload.iat\n      || payload.exp - payload.iat !== PROVIDER_OAUTH_TOKEN_TTL_SECONDS\n      || payload.iat > now\n      || payload.nbf > now\n      || payload.exp <= now) {\n    return providerOAuthInvalidToken();\n  }\n\n  return {\n    ok: true,\n    clientId: payload.client_id,\n    providerClientId: xClientId,\n    scope: tokenScopes.join(' '),\n    claims: payload,\n  };\n}\n\nconst providerOAuthRequest = $input.first().json || {};\nconst providerOAuthAuth = validateProviderBearerJwt(providerOAuthRequest);\nif (!providerOAuthAuth.ok) {\n  return [{ json: { statusCode: providerOAuthAuth.statusCode, body: providerOAuthAuth.body, authorized: false } }];\n}\n\nconst INTAKE_SQL = \"WITH payload AS (\\n  SELECT\\n    $1::jsonb AS data,\\n    lower(btrim($2::text)) AS client_id,\\n    btrim($3::text) AS endpoint\\n), normalized AS (\\n  SELECT\\n    data->>'sf_dispatch_id' AS sf_dispatch_id,\\n    nullif(data->>'sf_campaign_id', '') AS sf_campaign_id,\\n    data->>'sf_brand' AS sf_brand,\\n    (data->>'campaign_base')::renovation_dev.campaign_base AS campaign_base,\\n    data->>'template_name' AS template_name,\\n    data->>'sf_owner_id' AS sf_owner_id,\\n    coalesce((data->>'dev_defer_sender')::boolean, false) AS dev_defer_sender,\\n    coalesce((data->>'requested_count')::integer, 0) AS requested_count,\\n    coalesce(data->'rejected_items', '[]'::jsonb) AS validator_rejections,\\n    coalesce(data->'items', '[]'::jsonb) AS items\\n  FROM payload\\n), existing_dispatch AS (\\n  SELECT dispatch.*\\n    FROM renovation_dev.quicklink_campaign_dispatches dispatch\\n    JOIN normalized n ON n.sf_dispatch_id = dispatch.sf_dispatch_id\\n), owner_row AS (\\n  INSERT INTO renovation_dev.advisors (salesforce_user_id, full_name, active)\\n  SELECT n.sf_owner_id, n.sf_owner_id, true\\n    FROM normalized n\\n   WHERE NOT EXISTS (SELECT 1 FROM existing_dispatch)\\n  ON CONFLICT (salesforce_user_id) DO UPDATE\\n    SET active = true,\\n        synced_at = now()\\n  RETURNING id, salesforce_user_id\\n), campaign_row AS (\\n  INSERT INTO renovation_dev.campaigns AS campaign (\\n    name, base, month, vehicle_brand, template_pool, advisor_id, active\\n  )\\n  SELECT\\n    'SF ' || n.sf_owner_id || ' ' || n.sf_brand || ' ' || n.campaign_base,\\n    n.campaign_base,\\n    date_trunc('month', now() AT TIME ZONE 'America/Guayaquil')::date,\\n    n.sf_brand,\\n    ARRAY[n.template_name]::text[],\\n    owner_row.id,\\n    true\\n  FROM normalized n\\n  JOIN owner_row ON owner_row.salesforce_user_id = n.sf_owner_id\\n  ON CONFLICT (advisor_id, vehicle_brand, base, month)\\n    WHERE advisor_id IS NOT NULL AND vehicle_brand IS NOT NULL\\n  DO UPDATE\\n    SET template_pool = CASE\\n          WHEN campaign.template_pool @> ARRAY[EXCLUDED.template_pool[1]]::text[]\\n            THEN campaign.template_pool\\n          ELSE campaign.template_pool || EXCLUDED.template_pool[1]\\n        END,\\n        active = true,\\n        updated_at = now()\\n  RETURNING id, advisor_id\\n), incoming_items AS (\\n  SELECT\\n    item_index,\\n    sf_account_id,\\n    sf_vehicle_id,\\n    nullif(sf_contract_id, '') AS sf_contract_id,\\n    phone,\\n    coalesce(merge_fields, '{}'::jsonb) AS merge_fields\\n  FROM normalized n,\\n       jsonb_to_recordset(n.items) AS item(\\n         item_index integer,\\n         sf_account_id text,\\n         sf_vehicle_id text,\\n         sf_contract_id text,\\n         phone text,\\n         merge_fields jsonb\\n       )\\n), item_decisions AS (\\n  SELECT\\n    item.*,\\n    account.id AS account_id,\\n    vehicle.id AS vehicle_id,\\n    contract.id AS contract_id,\\n    CASE\\n      WHEN account.id IS NULL OR vehicle.id IS NULL THEN 'UNKNOWN_ACCOUNT'\\n      WHEN account.campaign_paused THEN 'CAMPAIGN_PAUSED'\\n      WHEN account.opportunity_closed OR vehicle.opportunity_closed THEN 'OPPORTUNITY_CLOSED'\\n      ELSE NULL\\n    END AS reject_reason\\n  FROM incoming_items item\\n  LEFT JOIN renovation_dev.quicklink_account_assignments account\\n    ON account.salesforce_contact_id = item.sf_account_id\\n   AND account.deleted_at IS NULL\\n  LEFT JOIN renovation_dev.quicklink_vehicle_assignments vehicle\\n    ON vehicle.salesforce_vehicle_id = item.sf_vehicle_id\\n   AND vehicle.customer_id = account.id\\n   AND vehicle.deleted_at IS NULL\\n  LEFT JOIN renovation_dev.quicklink_contract_assignments contract\\n    ON contract.sf_contract_id = item.sf_contract_id\\n   AND contract.account_id = account.id\\n   AND contract.deleted_at IS NULL\\n), db_rejections AS (\\n  SELECT coalesce(jsonb_agg(\\n    jsonb_build_object(\\n      'sf_accountId', sf_account_id,\\n      'sf_vehicleId', sf_vehicle_id,\\n      'reason', reject_reason\\n    ) ORDER BY item_index\\n  ), '[]'::jsonb) AS value\\n  FROM item_decisions\\n  WHERE reject_reason IS NOT NULL\\n), counts AS (\\n  SELECT\\n    count(*) FILTER (WHERE reject_reason IS NULL)::integer AS accepted_count,\\n    count(*) FILTER (WHERE reject_reason IS NOT NULL)::integer AS db_rejected_count\\n  FROM item_decisions\\n), dispatch_row AS (\\n  INSERT INTO renovation_dev.quicklink_campaign_dispatches (\\n    sf_dispatch_id,\\n    client_id,\\n    campaign_id,\\n    advisor_id,\\n    salesforce_campaign_id,\\n    campaign_name,\\n    segment_month,\\n    template_name,\\n    status,\\n    requested_count,\\n    accepted_count,\\n    rejected_count,\\n    rejections,\\n    process_after,\\n    last_error\\n  )\\n  SELECT\\n    n.sf_dispatch_id,\\n    p.client_id,\\n    campaign_row.id,\\n    campaign_row.advisor_id,\\n    n.sf_campaign_id,\\n    n.sf_brand,\\n    n.campaign_base,\\n    n.template_name,\\n    CASE\\n      WHEN counts.accepted_count > 0 THEN 'queued'::renovation_dev.dispatch_status\\n      ELSE 'completed'::renovation_dev.dispatch_status\\n    END,\\n    n.requested_count,\\n    counts.accepted_count,\\n    jsonb_array_length(n.validator_rejections) + counts.db_rejected_count,\\n    n.validator_rejections || db_rejections.value,\\n    now(),\\n    CASE WHEN n.dev_defer_sender THEN 'dev_deferred_pending' ELSE NULL END\\n  FROM normalized n, payload p, counts, db_rejections, campaign_row\\n  WHERE NOT EXISTS (SELECT 1 FROM existing_dispatch)\\n  RETURNING *\\n), target_insert AS (\\n  INSERT INTO renovation_dev.campaign_targets (campaign_id, customer_id, vehicle_id)\\n  SELECT dispatch_row.campaign_id, decision.account_id, decision.vehicle_id\\n    FROM item_decisions decision, dispatch_row\\n   WHERE decision.reject_reason IS NULL\\n  ON CONFLICT (campaign_id, customer_id, vehicle_id) DO NOTHING\\n  RETURNING id, campaign_id, customer_id, vehicle_id\\n), target_rows AS (\\n  SELECT id, customer_id, vehicle_id\\n    FROM target_insert\\n  UNION ALL\\n  SELECT target.id, target.customer_id, target.vehicle_id\\n    FROM renovation_dev.campaign_targets target\\n    JOIN dispatch_row ON dispatch_row.campaign_id = target.campaign_id\\n    JOIN item_decisions decision\\n      ON decision.account_id = target.customer_id\\n     AND decision.vehicle_id = target.vehicle_id\\n   WHERE decision.reject_reason IS NULL\\n     AND NOT EXISTS (\\n       SELECT 1\\n         FROM target_insert inserted\\n        WHERE inserted.campaign_id = target.campaign_id\\n          AND inserted.customer_id = target.customer_id\\n          AND inserted.vehicle_id = target.vehicle_id\\n     )\\n), item_insert AS (\\n  INSERT INTO renovation_dev.quicklink_campaign_dispatch_items (\\n    dispatch_id,\\n    campaign_target_id,\\n    template_name,\\n    status,\\n    salesforce_customer_id,\\n    metadata\\n  )\\n  SELECT\\n    dispatch_row.id,\\n    target_rows.id,\\n    dispatch_row.template_name,\\n    'pending'::renovation_dev.delivery_status,\\n    decision.sf_account_id,\\n    jsonb_build_object(\\n      'sf_dispatchId', dispatch_row.sf_dispatch_id,\\n      'sf_vehicleId', decision.sf_vehicle_id,\\n      'sf_contractId', decision.sf_contract_id,\\n      'phone', decision.phone,\\n      'mergeFields', decision.merge_fields,\\n      'itemIndex', decision.item_index\\n    )\\n  FROM item_decisions decision\\n  JOIN target_rows\\n    ON target_rows.customer_id = decision.account_id\\n   AND target_rows.vehicle_id = decision.vehicle_id\\n  JOIN dispatch_row ON true\\n  WHERE decision.reject_reason IS NULL\\n  ON CONFLICT (dispatch_id, campaign_target_id, template_name) DO NOTHING\\n  RETURNING id\\n), selected_dispatch AS (\\n  SELECT * FROM dispatch_row\\n  UNION ALL\\n  SELECT * FROM existing_dispatch\\n  LIMIT 1\\n)\\nSELECT\\n  CASE\\n    WHEN EXISTS (SELECT 1 FROM existing_dispatch WHERE status IN ('queued', 'running')) THEN 409\\n    WHEN EXISTS (SELECT 1 FROM existing_dispatch) THEN 200\\n    ELSE 202\\n  END AS status_code,\\n  CASE\\n    WHEN EXISTS (SELECT 1 FROM existing_dispatch WHERE status IN ('queued', 'running')) THEN 'DISPATCH_IN_PROGRESS'\\n    WHEN EXISTS (SELECT 1 FROM existing_dispatch) THEN 'ALREADY_PROCESSED'\\n    ELSE 'ACCEPTED'\\n  END AS code,\\n  CASE\\n    WHEN EXISTS (SELECT 1 FROM existing_dispatch WHERE status IN ('queued', 'running')) THEN 'El dispatch ya esta en procesamiento.'\\n    WHEN EXISTS (SELECT 1 FROM existing_dispatch) THEN 'El dispatch ya fue procesado anteriormente.'\\n    ELSE 'Lote recibido y encolado.'\\n  END AS message,\\n  selected_dispatch.id::text AS job_id,\\n  selected_dispatch.sf_dispatch_id,\\n  selected_dispatch.status AS dispatch_status,\\n  selected_dispatch.requested_count AS received,\\n  selected_dispatch.accepted_count AS accepted,\\n  selected_dispatch.rejected_count AS rejected,\\n  selected_dispatch.rejections AS rejected_items,\\n  coalesce((SELECT dev_defer_sender FROM normalized), false) AS dev_defer_sender,\\n  coalesce((SELECT count(*)::integer FROM item_insert), 0) AS inserted_items\\nFROM payload\\nLEFT JOIN selected_dispatch ON true;\\n\";\n// Intake deliberately does not call renovation_dev.check_provider_rate_limit;\n// WF-02B throttles committed worker claims instead of rejecting valid requests.\nconst ENDPOINT = '/v1/campaigns/dispatch';\nconst MAX_ITEMS = 1500;\nconst MONTH_SEGMENTS = { previous: 'past_winback', current: 'current', next: 'future' };\nconst SENDER_SUPPORTED_TEMPLATES = Object.freeze([\"renovacion_vencimiento_2026_v1\",\"renovacion_vencimiento_2026_v2\",\"renovacion_vencimiento_2026_v3\"]);\n\nfunction env(name, fallback = '') {\n  try { return $env[name] || fallback; } catch (e) { return fallback; }\n}\n\nconst request = $input.first().json;\nconst headers = request.headers ?? {};\nconst body = request.body ?? {};\n\nfunction response(statusCode, responseBody) {\n  return [{ json: { statusCode, body: responseBody } }];\n}\n\nfunction apiError(statusCode, code, message, details = []) {\n  return response(statusCode, { code, message, details });\n}\n\nfunction isBlank(value) {\n  return value === undefined || value === null || String(value).trim() === '';\n}\n\nfunction normalizePhone(value) {\n  const raw = String(value || '').trim();\n  if (!raw) return '';\n  if (raw.startsWith('+')) return '+' + raw.replace(/[^0-9]/g, '');\n  let digits = raw.replace(/[^0-9]/g, '');\n  if (digits.startsWith('00')) digits = digits.slice(2);\n  if (digits.startsWith('593')) return '+' + digits;\n  if (digits.startsWith('0') && digits.length === 10) return '+593' + digits.slice(1);\n  if (digits.length === 9 && digits.startsWith('9')) return '+593' + digits;\n  return '+' + digits;\n}\n\nfunction isE164(value) {\n  return /^\\+[1-9][0-9]{7,14}$/.test(String(value || ''));\n}\n\nfunction cleanString(value) {\n  return String(value ?? '').trim();\n}\n\nfunction allowedTemplates() {\n  const configured = env('RENOV_ALLOWED_HSM_TEMPLATES')\n    .split(',')\n    .map((value) => value.trim())\n    .filter(Boolean);\n  const requested = configured.length ? configured : SENDER_SUPPORTED_TEMPLATES;\n  return SENDER_SUPPORTED_TEMPLATES.filter((template) => requested.includes(template));\n}\n\nfunction rejectItem(item, reason) {\n  return {\n    sf_accountId: cleanString(item?.sf_accountId) || null,\n    sf_vehicleId: cleanString(item?.sf_vehicleId) || null,\n    reason,\n  };\n}\n\nif (!body || typeof body !== 'object' || Array.isArray(body)) {\n  return apiError(400, 'INVALID_PAYLOAD', 'Body JSON requerido.');\n}\n\nconst sfDispatchId = cleanString(body.sf_dispatchId);\nconst sfBrand = cleanString(body.sf_brand);\nconst monthSegment = cleanString(body.sf_monthSegment);\nconst templateName = cleanString(body.sf_templateId);\nconst sfOwnerId = cleanString(body.sf_ownerId);\nconst devDeferSender = body.dev_defer_sender === true;\n\nif (devDeferSender) {\n  const internalToken = env('RENOV_INTERNAL_TOKEN');\n  const providedInternalToken = String(providerOAuthHeader(headers, 'x-internal-token') || '');\n  if (env('RENOV_ENV', 'dev').toLowerCase() !== 'dev'\n      || env('RENOV_DEV_DRY_RUN_SENDS', '').toLowerCase() !== 'true') {\n    return apiError(422, 'SCHEDULING_NOT_SUPPORTED', 'dev_defer_sender solo existe en DEV dry-run.');\n  }\n  if (!internalToken) {\n    return apiError(503, 'INTERNAL_ERROR', 'Falta RENOV_INTERNAL_TOKEN para la simulacion DEV.');\n  }\n  if (providedInternalToken !== internalToken) {\n    return apiError(401, 'UNAUTHORIZED', 'X-Internal-Token invalido para la simulacion DEV.');\n  }\n}\n\nconst missingTopLevel = [];\nif (!sfDispatchId) missingTopLevel.push('sf_dispatchId');\nif (!sfBrand) missingTopLevel.push('sf_brand');\nif (!monthSegment) missingTopLevel.push('sf_monthSegment');\nif (!templateName) missingTopLevel.push('sf_templateId');\nif (!sfOwnerId) missingTopLevel.push('sf_ownerId');\nif (missingTopLevel.length) {\n  return apiError(400, 'INVALID_PAYLOAD', 'Faltan campos obligatorios del dispatch.', missingTopLevel);\n}\n\nif (!Object.prototype.hasOwnProperty.call(MONTH_SEGMENTS, monthSegment)) {\n  return apiError(400, 'INVALID_PAYLOAD', 'sf_monthSegment debe ser previous, current o next.', ['sf_monthSegment']);\n}\n\nif (!allowedTemplates().includes(templateName)) {\n  return apiError(422, 'INVALID_TEMPLATE', 'La plantilla HSM no esta permitida para este ambiente.', [templateName]);\n}\n\nconst items = Array.isArray(body.items) ? body.items : null;\nif (!items || items.length === 0) {\n  return apiError(400, 'INVALID_PAYLOAD', 'items debe contener al menos un destinatario.');\n}\nif (items.length > MAX_ITEMS) {\n  return apiError(400, 'INVALID_PAYLOAD', 'El dispatch no puede exceder 1500 destinatarios.', [{ max: MAX_ITEMS, received: items.length }]);\n}\n\nconst acceptedItems = [];\nconst rejectedItems = [];\nconst seen = new Set();\n\nfor (let index = 0; index < items.length; index += 1) {\n  const item = items[index] || {};\n  const sfAccountId = cleanString(item.sf_accountId);\n  const sfVehicleId = cleanString(item.sf_vehicleId);\n  const sfContractId = cleanString(item.sf_contractId);\n  const rawPhone = item.sf_phone;\n\n  if (!sfAccountId || !sfVehicleId || isBlank(rawPhone)) {\n    rejectedItems.push(rejectItem(item, 'MISSING_REQUIRED_FIELD'));\n    continue;\n  }\n\n  const phone = normalizePhone(rawPhone);\n  if (!isE164(phone)) {\n    rejectedItems.push(rejectItem(item, 'INVALID_PHONE'));\n    continue;\n  }\n\n  const duplicateKey = sfAccountId + '|' + sfVehicleId;\n  if (seen.has(duplicateKey)) {\n    rejectedItems.push(rejectItem(item, 'DUPLICATE_KEY_IN_BATCH'));\n    continue;\n  }\n  seen.add(duplicateKey);\n\n  acceptedItems.push({\n    item_index: index,\n    sf_account_id: sfAccountId,\n    sf_vehicle_id: sfVehicleId,\n    sf_contract_id: sfContractId || null,\n    phone,\n    merge_fields: item.mergeFields && typeof item.mergeFields === 'object' && !Array.isArray(item.mergeFields)\n      ? item.mergeFields\n      : {},\n  });\n}\n\nconst normalizedPayload = {\n  sf_dispatch_id: sfDispatchId,\n  sf_campaign_id: cleanString(body.sf_campaignId) || null,\n  sf_brand: sfBrand,\n  campaign_base: MONTH_SEGMENTS[monthSegment],\n  template_name: templateName,\n  sf_owner_id: sfOwnerId,\n  dev_defer_sender: devDeferSender,\n  requested_count: items.length,\n  rejected_items: rejectedItems,\n  items: acceptedItems,\n};\n\nreturn [{\n  json: {\n    ok: true,\n    client_id: providerOAuthAuth.providerClientId,\n    sql: INTAKE_SQL,\n    query_params: [JSON.stringify(normalizedPayload), providerOAuthAuth.providerClientId, ENDPOINT],\n    received: items.length,\n    accepted_candidates: acceptedItems.length,\n    rejected_candidates: rejectedItems.length,\n    normalized_payload: normalizedPayload,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        40,
+        0
+      ],
+      "id": "wf07-validate",
+      "name": "Validate Dispatch Request"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ok",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        280,
+        0
+      ],
+      "id": "wf07-if",
+      "name": "IF Dispatch Valid"
+    },
+    {
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": {
+          "queryReplacement": "={{ $json.query_params }}",
+          "queryBatching": "single"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        520,
+        -100
+      ],
+      "id": "wf07-postgres",
+      "name": "Postgres - Intake Dispatch",
+      "credentials": {
+        "postgres": {
+          "id": "pw4ZONTbn9lDg3tY_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst result = $input.first().json ?? {};\n\nfunction numberValue(value, fallback = 0) {\n  const parsed = Number(value);\n  return Number.isFinite(parsed) ? parsed : fallback;\n}\n\nfunction parseArray(value) {\n  if (Array.isArray(value)) return value;\n  if (!value) return [];\n  if (typeof value === 'string') {\n    try {\n      const parsed = JSON.parse(value);\n      return Array.isArray(parsed) ? parsed : [];\n    } catch (e) {\n      return [];\n    }\n  }\n  return [];\n}\n\nconst statusCode = numberValue(result.status_code, 500);\nconst code = String(result.code || 'INTERNAL_ERROR');\nconst sfDispatchId = result.sf_dispatch_id || null;\nconst jobId = result.job_id || null;\nconst rejectedItems = parseArray(result.rejected_items);\nconst devDeferSender = result.dev_defer_sender === true || result.dev_defer_sender === 't' || result.dev_defer_sender === 'true';\n\nlet body;\nif (statusCode === 202 || statusCode === 200) {\n  body = {\n    job_id: jobId,\n    sf_dispatchId: sfDispatchId,\n    status: code,\n    received: numberValue(result.received),\n    accepted: numberValue(result.accepted),\n    rejected: numberValue(result.rejected),\n    rejectedItems,\n    ...(devDeferSender ? { dev_deferred: true } : {}),\n  };\n} else {\n  const details = [];\n  if (jobId || sfDispatchId) details.push({ job_id: jobId, sf_dispatchId: sfDispatchId, dispatch_status: result.dispatch_status || null });\n  body = {\n    code,\n    message: result.message || 'Error controlado del dispatch.',\n    details,\n  };\n}\n\nreturn [{\n  json: {\n    statusCode,\n    body,\n    should_trigger_sender: statusCode === 202 && numberValue(result.accepted) > 0 && !devDeferSender,\n    sender_payload: { job_id: jobId, sf_dispatchId: sfDispatchId },\n  },\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        -100
+      ],
+      "id": "wf07-shape",
+      "name": "Shape Dispatch Response"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.statusCode }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1000,
+        -100
+      ],
+      "id": "wf07-respond",
+      "name": "Respond Dispatch"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst item = $json;\nfunction env(name, fallback = '') { try { return $env[name] || fallback; } catch (e) { return fallback; } }\nif (!item.should_trigger_sender) return [{ json: { ...item, sender_triggered: false, sender_skipped: true } }];\n\nconst url = env('RENOV_WF02B_SENDER_URL');\nif (!url) return [{ json: { ...item, sender_triggered: false, sender_skipped: true, sender_reason: 'RENOV_WF02B_SENDER_URL not configured' } }];\n\ntry {\n  const token = env('RENOV_INTERNAL_TOKEN');\n  const response = await this.helpers.httpRequest({\n    method: 'POST',\n    url,\n    headers: {\n      'content-type': 'application/json',\n      ...(token ? { authorization: 'Bearer ' + token } : {}),\n    },\n    body: item.sender_payload,\n    json: true,\n    simple: false,\n    resolveWithFullResponse: true,\n    timeout: 3000,\n  });\n  return [{ json: { ...item, sender_triggered: true, sender_status: response.statusCode || response.status || 0 } }];\n} catch (error) {\n  return [{ json: { ...item, sender_triggered: false, sender_error: String(error?.message || error) } }];\n}\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1240,
+        -100
+      ],
+      "id": "wf07-trigger-sender",
+      "name": "Code - Trigger WF-02B Sender"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.statusCode }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        520,
+        140
+      ],
+      "id": "wf07-reject",
+      "name": "Respond Dispatch Rejected"
+    },
+    {
+      "parameters": {
+        "content": "## WF-07 - Campaign Dispatch API\n\nImplements `POST /webhook/renov/dev/v1/campaigns/dispatch` from T-1.18/T-1.21.\n\nAuth: OAuth 2.0 Bearer JWT from AUTH-01 + `X-Client-Id`.\n\nThe SQL lives in `renovaciones-db/dispatch/intake.sql`; `make db-verify` executes the same statement against PostgreSQL.\n\nAccepted dispatches are always queued quickly. WF-02B applies the 10/minute per-client processing limit and durable retries. Real sends remain blocked until Meta/WABA and Salesforce callback auth are ready.",
+        "height": 420,
+        "width": 480
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        -220
+      ],
+      "id": "wf07-sticky",
+      "name": "Sticky Note"
+    }
+  ],
+  "connections": {
+    "POST Campaign Dispatch": {
+      "main": [
+        [
+          {
+            "node": "Validate Dispatch Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Dispatch Request": {
+      "main": [
+        [
+          {
+            "node": "IF Dispatch Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Dispatch Valid": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Intake Dispatch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Dispatch Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Intake Dispatch": {
+      "main": [
+        [
+          {
+            "node": "Shape Dispatch Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Dispatch Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Dispatch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond Dispatch": {
+      "main": [
+        [
+          {
+            "node": "Code - Trigger WF-02B Sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "3b75ff16-b84b-57b5-817e-1ed689dec34e",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

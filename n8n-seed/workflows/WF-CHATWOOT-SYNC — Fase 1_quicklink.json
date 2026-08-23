@@ -1,0 +1,524 @@
+{
+  "id": "RNOX3wUqYrokUsMz_quicklink",
+  "name": "WF-CHATWOOT-SYNC — Fase 1_quicklink",
+  "nodes": [
+    {
+      "id": "cron-c1-001",
+      "name": "CRON - Cada 5 Min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        280
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "pg-c1-001",
+      "name": "PG - Get Pending Sync",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        260,
+        280
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT c.id AS conv_id, c.nombre, c.telefono, c.marca, c.modelo, c.quicklink_id, COALESCE(cm.chatwoot_inbox_id, 2) AS inbox_id FROM conversaciones c LEFT JOIN configuracion_marcas cm ON cm.marca = c.marca WHERE c.chatwoot_contact_id IS NULL AND c.chatwoot_conv_id IS NULL AND c.estado NOT IN ('PENDIENTE','GANADO','OPORTUNIDAD_PERDIDA','NO_CONTACTABLE','DESCARTADO') ORDER BY c.created_at ASC LIMIT 50",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "loop-c1-001",
+      "name": "Loop - Each Conv",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        500,
+        280
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "set-c1-done",
+      "name": "Set - Sync Done",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        720,
+        480
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "status",
+              "value": "sync_done",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "finished_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "code-c1-norm",
+      "name": "Code - Normalize Phone",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        280
+      ],
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nlet phone = (item.telefono || '').replace(/[\\s\\-\\(\\)]/g, '');\nif (!phone.startsWith('+')) {\n  phone = '+593' + phone.replace(/^0+/, '');\n}\nconst phoneLocal = phone.replace(/^\\+593/, '');\nreturn [{\n  json: {\n    conv_id: item.conv_id,\n    nombre: item.nombre || 'Prospecto',\n    marca: item.marca || '',\n    modelo: item.modelo || '',\n    quicklink_id: item.quicklink_id || '',\n    inbox_id: item.inbox_id || 2,\n    phone_e164: phone,\n    phone_local: phoneLocal\n  }\n}];"
+      }
+    },
+    {
+      "id": "http-c1-search",
+      "name": "HTTP - Search Chatwoot Contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        980,
+        280
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "GET",
+        "url": "http://172.18.0.24:3000/api/v1/accounts/2/contacts/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $json.phone_local }}"
+            },
+            {
+              "name": "include_contacts",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "code-c1-after-search",
+      "name": "Code - After Search",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1240,
+        280
+      ],
+      "parameters": {
+        "jsCode": "const searchResult = $input.first().json;\nconst prev = $('Code - Normalize Phone').first().json;\nconst contacts = (searchResult.payload || []);\nconst found = contacts.length > 0;\nconst contactId = found ? contacts[0].id : null;\nreturn [{\n  json: {\n    ...prev,\n    contact_found: found,\n    contact_id: contactId\n  }\n}];"
+      }
+    },
+    {
+      "id": "if-c1-found",
+      "name": "IF - Contact Found",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1500,
+        280
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-cf",
+              "leftValue": "={{ $json.contact_found }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "http-c1-create-ct",
+      "name": "HTTP - Create Chatwoot Contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        460
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "http://172.18.0.24:3000/api/v1/accounts/2/contacts",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "name",
+              "value": "={{ $json.nombre }}"
+            },
+            {
+              "name": "phone_number",
+              "value": "={{ $json.phone_e164 }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "code-c1-after-create",
+      "name": "Code - After Create Contact",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2020,
+        460
+      ],
+      "parameters": {
+        "jsCode": "const createResult = $input.first().json;\nconst prev = $('Code - After Search').first().json;\nconst newContactId = createResult.id || null;\nreturn [{\n  json: {\n    ...prev,\n    contact_id: newContactId\n  }\n}];"
+      }
+    },
+    {
+      "id": "http-c1-create-conv",
+      "name": "HTTP - Create Conversation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2280,
+        280
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "http://172.18.0.24:3000/api/v1/accounts/2/conversations",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "inbox_id",
+              "value": "={{ $json.inbox_id }}"
+            },
+            {
+              "name": "contact_id",
+              "value": "={{ $json.contact_id }}"
+            },
+            {
+              "name": "status",
+              "value": "pending"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "code-c1-extract",
+      "name": "Code - Extract Conv IDs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2540,
+        280
+      ],
+      "parameters": {
+        "jsCode": "const convResult = $input.first().json;\nconst orig = $('Code - After Search').first().json;\n\nconst chatwootConvId = convResult.id || 0;\nconst chatwootContactId = orig.contact_id ||\n  (convResult.meta && convResult.meta.sender ? convResult.meta.sender.id : 0) || 0;\n\nconst syncOk = chatwootConvId > 0;\nconst eventoTipo = syncOk ? 'chatwoot_sync_completado' : 'chatwoot_sync_fallido';\nconst payload = JSON.stringify({\n  chatwoot_conv_id: syncOk ? chatwootConvId : null,\n  chatwoot_contact_id: chatwootContactId > 0 ? chatwootContactId : null,\n  error: syncOk ? null : (convResult.error || convResult.message || 'create_conv_failed')\n}).replace(/'/g, \"''\");\n\nreturn [{\n  json: {\n    conv_id: orig.conv_id,\n    chatwoot_contact_id: chatwootContactId,\n    chatwoot_conv_id: chatwootConvId,\n    sync_ok: syncOk,\n    evento_tipo: eventoTipo,\n    evento_payload: payload\n  }\n}];"
+      }
+    },
+    {
+      "id": "pg-c1-update",
+      "name": "PG - Update Chatwoot IDs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2800,
+        280
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT upsert_chatwoot_ids('{{ $json.conv_id }}'::uuid, {{ $json.chatwoot_contact_id }}::integer, {{ $json.chatwoot_conv_id }}::integer)",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "pg-c1-log",
+      "name": "PG - Log Sync Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3060,
+        280
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO eventos_conversacion (conversation_id, tipo_evento, actor, payload) VALUES ('{{ $json.conv_id }}'::uuid, '{{ $json.evento_tipo }}', 'sistema', '{{ $json.evento_payload }}')",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "sticky-c1-001",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -220,
+        80
+      ],
+      "parameters": {
+        "content": "## WF-CHATWOOT-SYNC — Fase 1\n\n**Objetivo:** Crear contacto + conversación en Chatwoot\npara leads que CRIS ya contactó pero no tienen\nchatwoot_conv_id en Supabase.\n\n**Trigger:** CRON cada 5 minutos\n**Cred PG:** Supabase VPS\n**Cred HTTP:** Chatwoot API (id: i5ezyRiVmSifQ3el)\n**Chatwoot:** account_id=2, inbox desde configuracion_marcas\n\n**Idempotente:** WHERE chatwoot_conv_id IS NULL\n**Pre-req:** Migración V21 aplicada ✓",
+        "height": 300,
+        "width": 380,
+        "color": 4
+      }
+    }
+  ],
+  "connections": {
+    "CRON - Cada 5 Min": {
+      "main": [
+        [
+          {
+            "node": "PG - Get Pending Sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Get Pending Sync": {
+      "main": [
+        [
+          {
+            "node": "Loop - Each Conv",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop - Each Conv": {
+      "main": [
+        [
+          {
+            "node": "Set - Sync Done",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Normalize Phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Normalize Phone": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Search Chatwoot Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Search Chatwoot Contact": {
+      "main": [
+        [
+          {
+            "node": "Code - After Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - After Search": {
+      "main": [
+        [
+          {
+            "node": "IF - Contact Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Contact Found": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Create Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP - Create Chatwoot Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Create Chatwoot Contact": {
+      "main": [
+        [
+          {
+            "node": "Code - After Create Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - After Create Contact": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Create Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Create Conversation": {
+      "main": [
+        [
+          {
+            "node": "Code - Extract Conv IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Extract Conv IDs": {
+      "main": [
+        [
+          {
+            "node": "PG - Update Chatwoot IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Update Chatwoot IDs": {
+      "main": [
+        [
+          {
+            "node": "PG - Log Sync Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Log Sync Event": {
+      "main": [
+        [
+          {
+            "node": "Loop - Each Conv",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Bogota",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "433b0761-14d6-5e07-9dcd-14e8bde3b962",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

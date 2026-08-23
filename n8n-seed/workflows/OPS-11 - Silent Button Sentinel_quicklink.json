@@ -1,0 +1,901 @@
+{
+  "id": "3n1ZPqTTyiBY95Xx_quicklink",
+  "name": "OPS-11 - Silent Button Sentinel_quicklink",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ops-silent-button-sentinel-now",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "id": "ops11-webhook-run-now",
+      "name": "Webhook - Run Sentinel Now",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        224,
+        432
+      ],
+      "webhookId": "ops-silent-button-sentinel-now",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "0hYeKlozui5dMRDE_quicklink",
+          "name": "QL Sync Manual Webhook Token_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH candidates AS (\n  SELECT\n    e.id::text AS event_id,\n    e.created_at::text AS created_at,\n    e.wa_message_id,\n    e.phone,\n    e.conversation_id::text AS conversation_id,\n    e.button_key,\n    e.status,\n    COALESCE(e.reason, '') AS reason,\n    COALESCE(e.processing_status, '') AS processing_status,\n    e.processed_at::text AS processed_at,\n    e.interaction_id,\n    e.interaction_type,\n    e.action_id,\n    e.processed_state,\n    c.chatwoot_conv_id,\n    c.estado::text AS conversation_state,\n    c.active_interaction_id,\n    c.active_interaction_type,\n    c.interaction_consumed,\n    c.automation_enabled,\n    c.human_handoff\n  FROM whatsapp_interaction_events e\n  LEFT JOIN conversaciones c ON c.id = e.conversation_id\n  WHERE e.created_at >= now() - interval '15 minutes'\n    AND e.status IN ('DUPLICATE', 'STALE', 'FAILED')\n    AND COALESCE(e.processing_status, '') NOT IN ('RESCUED', 'RESCUE_PROCESSING', 'RESCUE_SKIPPED_PUBLIC_REPLY', 'RESCUE_SKIPPED_EXISTING_PROPOSAL', 'RESCUE_SKIPPED_CHATWOOT_UNVERIFIED')\n    AND COALESCE(e.reason, '') NOT IN ('duplicate_message_id', 'duplicate_race')\n    AND NOT (\n      (\n        e.status = 'STALE'\n          AND COALESCE(e.reason, '') = 'stale_interaction_type'\n          AND e.interaction_type = 'TOPIC_SELECTION'\n          AND e.button_key ~ '^gancho_q2_(seguridad|control|planes)(?:_gancho_v[0-9]+)?$'\n          AND (\n            c.active_interaction_type = 'PLAN_SELECTION'\n            OR c.estado::text IN ('QUOTED', 'PLAN_SELECTED', 'PROPOSAL_SENT')\n            OR EXISTS (\n              SELECT 1\n              FROM conversation_interactions ci\n              WHERE ci.conversation_id = c.id\n                AND ci.interaction_type = 'PLAN_SELECTION'\n                AND ci.status = 'ACTIVE'\n                AND COALESCE(ci.consumed, false) = false\n            )\n          )\n      )\n      OR (\n        e.status = 'STALE'\n          AND COALESCE(e.reason, '') = 'stale_interaction_type'\n          AND e.interaction_type = 'INTRO_CTA'\n          AND e.action_id = 'INTRO_ACCEPT'\n          AND (\n            c.active_interaction_type IN ('TOPIC_SELECTION', 'PLAN_SELECTION')\n            OR c.estado::text IN ('ENGAGED', 'VALUE_PRESENTED', 'QUOTED', 'PLAN_SELECTED', 'PROPOSAL_SENT')\n          )\n          AND (\n            COALESCE(c.gancho_step, '') IN ('Q2_SENT', 'TOPIC_SELECTED', 'Q2_ANSWERED', 'COMPLETED')\n            OR COALESCE(c.gancho_result, '') IN ('ACCEPTED', 'FREE_TEXT')\n            OR COALESCE(c.gancho_answers, '{}'::jsonb) ? 'Q1_ACCEPTED'\n            OR EXISTS (\n              SELECT 1\n              FROM whatsapp_interaction_events p\n              WHERE p.conversation_id = e.conversation_id\n                AND p.interaction_type = 'INTRO_CTA'\n                AND p.status = 'PROCESSED'\n                AND p.created_at < e.created_at\n            )\n          )\n      )\n      OR (\n        e.status = 'DUPLICATE'\n          AND COALESCE(e.reason, '') IN ('interaction_already_consumed', 'button_already_consumed')\n          AND e.interaction_type = 'INTRO_CTA'\n          AND EXISTS (\n            SELECT 1\n            FROM whatsapp_interaction_events p\n            WHERE p.conversation_id = e.conversation_id\n              AND p.interaction_type = 'INTRO_CTA'\n              AND p.status = 'PROCESSED'\n              AND p.button_key = e.button_key\n              AND p.created_at >= e.created_at - interval '3 minutes'\n              AND p.created_at < e.created_at\n          )\n      )\n    )\n    AND (\n      e.interaction_type IN ('PLAN_SELECTION', 'PROPOSAL_CONFIRMATION', 'TOPIC_SELECTION')\n      OR e.button_key ~ '^plan_[a-z0-9_]+_(12|24|36)m$'\n      OR e.button_key ~ '^gancho_q2_(seguridad|control|planes)(?:_gancho_v[0-9]+)?$'\n      OR e.button_key ~ '^gancho_(si|no)_(?:gancho_v[0-9]+|gancho_q1_neutral)$'\n      OR e.button_key IN (\n        'enviar_propuesta', 'send_proposal',\n        'si_quiero_contratar', 'quiero_contratar', 'contract_now',\n        'contactar_a_un_asesor', 'hablar_con_asesor',\n        'revisar_otro_plan', 'tengo_una_duda',\n        'si_quiero_saber_mas', 'si_enviarme_informacion', 'si_enviar_informacion',\n        'si_quiero_conocerlas', 'si_quiero_conocer', 'si_enviarlo',\n        'si_muestrame_las_opciones', 'si_muestreme_las_opciones',\n        'si_compartir_guia', 'si_cuentame_mas', 'cuentame_mas',\n        'quiero_descubrirlas', 'deseo_mas_info', 'deseo_mas_informacion',\n        'no_por_el_momento', 'no_es_de_mi_interes', 'no_gracias', 'no_por_ahora'\n      )\n    )\n  ORDER BY e.created_at DESC, e.id DESC\n  LIMIT 20\n)\nSELECT now()::text AS checked_at,\n       COALESCE(jsonb_agg(to_jsonb(candidates) ORDER BY created_at DESC), '[]'::jsonb) AS rows\nFROM candidates;",
+        "options": {}
+      },
+      "id": "ops11-pg-fetch",
+      "name": "PG - Fetch Silent Button Claims",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        528,
+        320
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $input.first().json || {};\nconst rows = Array.isArray(row.rows) ? row.rows : [];\nfunction rescueCandidate(event) {\n  const key = String(event.button_key || '').toLowerCase();\n  return String(event.status || '').toUpperCase() === 'STALE'\n    && String(event.reason || '').toLowerCase() === 'stale_state'\n    && /^plan_[a-z0-9_]+_(12|24|36)m$/.test(key)\n    && String(event.conversation_state || '').toUpperCase() === 'PLAN_SELECTED'\n    && String(event.active_interaction_type || '').toUpperCase() === 'PLAN_SELECTION'\n    && event.active_interaction_id\n    && event.interaction_id\n    && event.active_interaction_id === event.interaction_id\n    && event.interaction_consumed !== true\n    && event.automation_enabled !== false\n    && event.human_handoff !== true\n    && event.conversation_id\n    && event.chatwoot_conv_id;\n}\nconst claimToken = new Date().toISOString();\nreturn rows.filter(rescueCandidate).map(event => ({ json: { ...event, rescue_source: 'OPS-11', rescue_candidate: true, rescue_claim_token: claimToken } }));"
+      },
+      "id": "ops11-prepare-plan-rescue",
+      "name": "Code - Prepare Plan Rescue Candidates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH target AS (\n  SELECT\n    e.id AS event_uuid,\n    e.id::text AS event_id,\n    e.created_at::text AS created_at,\n    e.wa_message_id,\n    e.phone,\n    e.conversation_id,\n    e.button_key,\n    e.status,\n    COALESCE(e.reason, '') AS reason,\n    e.interaction_id,\n    e.interaction_type,\n    e.action_id,\n    c.chatwoot_conv_id,\n    c.estado::text AS conversation_state,\n    c.active_interaction_id,\n    c.active_interaction_type,\n    c.interaction_consumed,\n    c.automation_enabled,\n    c.human_handoff,\n    EXISTS (\n      SELECT 1\n      FROM conversation_interactions ci\n      WHERE ci.conversation_id = c.id\n        AND ci.interaction_type = 'PROPOSAL_CONFIRMATION'\n        AND ci.status = 'ACTIVE'\n        AND COALESCE(ci.consumed, false) = false\n    ) AS has_active_proposal_confirmation,\n    lm.selected_plan,\n    lm.selected_plan_name,\n    lm.selected_plan_price::text AS selected_plan_price,\n    lm.selected_plan_duration::text AS selected_plan_duration\n  FROM whatsapp_interaction_events e\n  JOIN conversaciones c ON c.id = e.conversation_id\n  LEFT JOIN lead_memory lm ON lm.conversation_id = c.id\n  WHERE e.id = $1::uuid\n  FOR UPDATE OF e, c\n), eligible AS (\n  SELECT *\n  FROM target\n  WHERE status = 'STALE'\n    AND reason = 'stale_state'\n    AND button_key ~ '^plan_[a-z0-9_]+_(12|24|36)m$'\n    AND conversation_state = 'PLAN_SELECTED'\n    AND active_interaction_type = 'PLAN_SELECTION'\n    AND active_interaction_id IS NOT NULL\n    AND active_interaction_id = interaction_id\n    AND COALESCE(interaction_consumed, false) = false\n    AND COALESCE(automation_enabled, true) = true\n    AND COALESCE(human_handoff, false) = false\n    AND conversation_state NOT IN ('HANDOFF_HUMAN', 'WON', 'LOST', 'NOT_CONTACTABLE', 'CONTACTAR', 'DISCARDED')\n), claimed AS (\n  UPDATE whatsapp_interaction_events e\n  SET processing_status = 'RESCUE_PROCESSING',\n      processed_at = $2::timestamptz\n  FROM eligible\n  WHERE e.id = eligible.event_uuid\n    AND COALESCE(e.processing_status, '') NOT LIKE 'RESCUE_%'\n    AND COALESCE(e.processing_status, '') <> 'RESCUED'\n  RETURNING e.id\n)\nSELECT eligible.*, true AS rescue_claimed\nFROM eligible\nJOIN claimed ON claimed.id = eligible.event_uuid;",
+        "options": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [ $json.event_id || \"\", $json.rescue_claim_token || \"\" ] }}"
+        }
+      },
+      "id": "ops11-pg-claim-plan-rescue",
+      "name": "PG - Claim Plan Rescue",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1072,
+        624
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const candidates = $('Code - Prepare Plan Rescue Candidates').all().map(item => item.json || {});\nreturn candidates.map(candidate => ({ json: { ...candidate, rescue_claim_attempted: true } }));"
+      },
+      "id": "ops11-rehydrate-plan-rescue-claim",
+      "name": "Code - Rehydrate Plan Rescue Claim",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1328,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nSELECT\n  e.id::text AS event_id,\n  e.created_at::text AS created_at,\n  e.wa_message_id,\n  e.phone,\n  e.conversation_id::text AS conversation_id,\n  e.button_key,\n  e.status,\n  COALESCE(e.reason, '') AS reason,\n  e.processing_status,\n  e.processed_at::text AS processed_at,\n  e.interaction_id,\n  e.interaction_type,\n  e.action_id,\n  c.chatwoot_conv_id,\n  c.estado::text AS conversation_state,\n  c.active_interaction_id,\n  c.active_interaction_type,\n  c.interaction_consumed,\n  c.automation_enabled,\n  c.human_handoff,\n  EXISTS (\n    SELECT 1\n    FROM conversation_interactions ci\n    WHERE ci.conversation_id = c.id\n      AND ci.interaction_type = 'PROPOSAL_CONFIRMATION'\n      AND ci.status = 'ACTIVE'\n      AND COALESCE(ci.consumed, false) = false\n  ) AS has_active_proposal_confirmation,\n  lm.selected_plan,\n  lm.selected_plan_name,\n  lm.selected_plan_price::text AS selected_plan_price,\n  lm.selected_plan_duration::text AS selected_plan_duration,\n  $2::text AS rescue_claim_token,\n  true AS rescue_claimed\nFROM whatsapp_interaction_events e\nJOIN conversaciones c ON c.id = e.conversation_id\nLEFT JOIN lead_memory lm ON lm.conversation_id = c.id\nWHERE e.id = $1::uuid\n  AND e.processing_status = 'RESCUE_PROCESSING'\n  AND e.processed_at = $2::timestamptz;",
+        "options": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [ $json.event_id || \"\", $json.rescue_claim_token || \"\" ] }}"
+        }
+      },
+      "id": "ops11-pg-verify-plan-rescue-claim",
+      "name": "PG - Verify Plan Rescue Claim",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1584,
+        624
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ 'http://chatwoot:3000/api/v1/accounts/2/conversations/' + $json.chatwoot_conv_id + '/messages' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "ops11-http-chatwoot-rescue-messages",
+      "name": "HTTP - Get Chatwoot Messages For Rescue",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1328,
+        624
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const claimed = $('PG - Verify Plan Rescue Claim').all().map(item => item.json || {});\nfunction responsePayload(resp) {\n  if (Array.isArray(resp?.body?.payload)) return resp.body.payload;\n  if (Array.isArray(resp?.body?.data?.payload)) return resp.body.data.payload;\n  if (Array.isArray(resp?.payload)) return resp.payload;\n  if (Array.isArray(resp?.data?.payload)) return resp.data.payload;\n  if (Array.isArray(resp?.body)) return resp.body;\n  if (Array.isArray(resp)) return resp;\n  return [];\n}\nfunction messageTimeMs(message) {\n  const raw = message.created_at || message.createdAt || message.timestamp;\n  if (!raw) return NaN;\n  if (typeof raw === 'number') return raw > 100000000000 ? raw : raw * 1000;\n  const parsed = Date.parse(raw);\n  return Number.isFinite(parsed) ? parsed : NaN;\n}\nfunction isPublicOutgoing(message) {\n  const type = String(message.message_type ?? message.messageType ?? '').toLowerCase();\n  const senderType = String(message.sender_type || message.sender?.type || '').toLowerCase();\n  return message.private !== true\n    && (message.message_type === 1 || type === '1' || type === 'outgoing' || senderType === 'agent' || senderType === 'user');\n}\nfunction planParts(buttonKey) {\n  const m = /^plan_([a-z0-9_]+)_(12|24|36)m$/.exec(String(buttonKey || '').toLowerCase());\n  if (!m) return { code: '', duration: '' };\n  return { code: m[1].toUpperCase(), duration: m[2] };\n}\nfunction titleFromPlanCode(code) {\n  return String(code || 'plan seleccionado')\n    .split('_')\n    .filter(Boolean)\n    .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())\n    .join(' ');\n}\nfunction cleanPhone(value) {\n  const raw = String(value || '').trim();\n  return raw.startsWith('+') ? raw.slice(1) : raw;\n}\nfunction buildPayload(candidate) {\n  const parts = planParts(candidate.button_key);\n  const duration = candidate.selected_plan_duration || parts.duration || '';\n  const planName = candidate.selected_plan_name || candidate.selected_plan || titleFromPlanCode(parts.code);\n  const price = candidate.selected_plan_price;\n  const durationText = duration ? ' a ' + duration + ' meses' : '';\n  const priceText = price !== undefined && price !== null && price !== '' && Number.isFinite(Number(price)) ? ' por $' + Number(price).toFixed(2) : '';\n  const bodyText = 'Perfecto, dejé registrada la opción ' + planName + durationText + priceText + '. ¿Desea que un asesor lo contacte para continuar?';\n  return {\n    messaging_product: 'whatsapp',\n    to: cleanPhone(candidate.phone),\n    type: 'interactive',\n    interactive: {\n      type: 'list',\n      body: { text: bodyText.slice(0, 1024) },\n      action: {\n        button: 'Elegir opción',\n        sections: [{\n          title: 'Siguiente paso',\n          rows: [\n            { id: 'si_quiero_contratar', title: 'Sí, quiero contratar', description: 'Coordinar contratación e instalación' },\n            { id: 'contactar_a_un_asesor', title: 'Hablar con asesor', description: 'Resolver dudas con un especialista' },\n            { id: 'revisar_otro_plan', title: 'Revisar otro plan', description: 'Volver a comparar opciones' }\n          ]\n        }]\n      }\n    }\n  };\n}\nfunction skipped(candidate, status, failure, extra = {}) {\n  return { json: { ...candidate, rescue_should_send: false, rescue_status: status, rescue_failure: failure, ...extra } };\n}\nconst output = [];\nfor (const [index, item] of $input.all().entries()) {\n  const candidate = claimed[index] || {};\n  const resp = item.json || {};\n  const statusCode = Number(resp.statusCode || resp.status || 0);\n  const httpOk = statusCode >= 200 && statusCode < 300;\n  const eventMs = Date.parse(candidate.created_at || '');\n  const messages = responsePayload(resp);\n  const publicAfter = messages.find(message => isPublicOutgoing(message) && Number.isFinite(messageTimeMs(message)) && Number.isFinite(eventMs) && messageTimeMs(message) > eventMs);\n  if (candidate.has_active_proposal_confirmation === true) {\n    output.push(skipped(candidate, 'RESCUE_SKIPPED_EXISTING_PROPOSAL', 'active_proposal_confirmation_exists', { chatwoot_http_status: statusCode || null }));\n    continue;\n  }\n  if (!httpOk) {\n    output.push(skipped(candidate, 'RESCUE_SKIPPED_CHATWOOT_UNVERIFIED', 'chatwoot_http_' + (statusCode || 'unknown'), { chatwoot_http_status: statusCode || null }));\n    continue;\n  }\n  if (publicAfter) {\n    output.push(skipped(candidate, 'RESCUE_SKIPPED_PUBLIC_REPLY', 'public_reply_after_event', { public_reply_message_id: publicAfter.id || null, chatwoot_http_status: statusCode || null }));\n    continue;\n  }\n  output.push({ json: { ...candidate, rescue_should_send: true, rescue_status: 'RESCUE_READY_TO_SEND', chatwoot_http_status: statusCode || null, meta_payload: buildPayload(candidate) } });\n}\nreturn output;"
+      },
+      "id": "ops11-decide-plan-rescue",
+      "name": "Code - Decide Plan Rescue",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1584,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ops11-rescue-should-send",
+              "leftValue": "={{ $json.rescue_should_send === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ops11-if-plan-rescue-send",
+      "name": "IF - Plan Rescue Should Send",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1840,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all();"
+      },
+      "id": "ops11-prepare-plan-rescue-send",
+      "name": "Code - Prepare Plan Rescue Send",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2112,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v23.0/1114673978398967/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer ${REDACTED_TOKEN}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.meta_payload) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "ops11-http-send-plan-rescue",
+      "name": "HTTP - Send Plan Rescue WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2368,
+        528
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const source = $('Code - Prepare Plan Rescue Send').all().map(item => item.json || {});\nconst results = [];\nfor (const [index, item] of $input.all().entries()) {\n  const candidate = source[index] || {};\n  const response = item.json || {};\n  const statusCode = Number(response.statusCode || response.status || 0);\n  const body = response.body || response;\n  const metaMessageId = body?.messages?.[0]?.id || response?.messages?.[0]?.id || null;\n  const sent = statusCode >= 200 && statusCode < 300 && Boolean(metaMessageId);\n  results.push({ json: {\n    ...candidate,\n    meta_sent: sent,\n    meta_http_status: statusCode || null,\n    meta_message_id: metaMessageId,\n    rescue_status: sent ? 'RESCUED' : 'RESCUE_FAILED_META_SEND',\n    rescue_failure: sent ? null : (body?.error?.message || response?.error?.message || 'meta_send_failed')\n  } });\n}\nreturn results;"
+      },
+      "id": "ops11-build-plan-rescue-result",
+      "name": "Code - Build Plan Rescue Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2624,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET search_path TO sales_prod, public, extensions;\nWITH input AS (\n  SELECT\n    $1::uuid AS event_id,\n    $2::uuid AS conversation_id,\n    $3::boolean AS meta_sent,\n    NULLIF($4::text, '') AS meta_message_id,\n    NULLIF($5::text, '') AS rescue_status,\n    NULLIF($6::text, '') AS rescue_failure,\n    NULLIF($7::text, '') AS selected_plan_name,\n    NULLIF($8::text, '') AS selected_plan_duration,\n    NULLIF($9::text, '') AS selected_plan_price,\n    COALESCE($10::jsonb, '{}'::jsonb) AS details\n), target AS (\n  SELECT e.id, e.conversation_id\n  FROM whatsapp_interaction_events e\n  JOIN input i ON i.event_id = e.id\n  WHERE e.processing_status = 'RESCUE_PROCESSING'\n), activated AS (\n  SELECT a.interaction_id_out AS interaction_id, a.conversation_version_out AS conversation_version\n  FROM input i\n  JOIN target t ON t.conversation_id = i.conversation_id\n    AND i.meta_sent = true\n  CROSS JOIN LATERAL set_active_conversation_interaction(\n    i.conversation_id,\n    'PROPOSAL_CONFIRMATION',\n    ARRAY['CONTRACT_NOW', 'SEND_PROPOSAL', 'TALK_TO_ADVISOR', 'REVIEW_OTHER_PLAN']::text[],\n    'PLAN_SELECTED',\n    jsonb_build_object(\n      'source', 'OPS-11 Silent Button Sentinel auto-rescue',\n      'rescued_event_id', i.event_id::text,\n      'meta_message_id', i.meta_message_id,\n      'selected_plan_name', i.selected_plan_name,\n      'selected_plan_duration', i.selected_plan_duration,\n      'selected_plan_price', i.selected_plan_price\n    ) || i.details\n  ) a\n), updated AS (\n  UPDATE whatsapp_interaction_events e\n  SET processing_status = CASE\n        WHEN i.meta_sent = true AND EXISTS (SELECT 1 FROM activated) THEN 'RESCUED'\n        WHEN i.meta_sent = true THEN 'RESCUE_FAILED_ACTIVATION'\n        WHEN COALESCE(i.rescue_status, '') LIKE 'RESCUE_%' THEN i.rescue_status\n        ELSE 'RESCUE_FAILED'\n      END,\n      processed_at = now()\n  FROM input i, target t\n  WHERE e.id = i.event_id\n    AND t.id = e.id\n  RETURNING e.id::text AS event_id, e.processing_status, e.conversation_id\n), logged AS (\n  INSERT INTO eventos_conversacion (conversation_id, tipo_evento, actor, datos_evento)\n  SELECT\n    i.conversation_id,\n    CASE WHEN u.processing_status = 'RESCUED' THEN 'OPS11_PLAN_RESCUE_SENT' ELSE 'OPS11_PLAN_RESCUE_SKIPPED' END,\n    'OPS-11',\n    jsonb_build_object(\n      'event_id', i.event_id::text,\n      'processing_status', u.processing_status,\n      'rescue_failure', i.rescue_failure,\n      'meta_message_id', i.meta_message_id,\n      'meta_sent', i.meta_sent,\n      'proposal_interaction_id', (SELECT interaction_id FROM activated LIMIT 1)\n    ) || i.details\n  FROM input i\n  JOIN updated u ON true\n  RETURNING id\n)\nSELECT\n  COALESCE((SELECT processing_status FROM updated LIMIT 1), 'not_marked') AS rescue_mark_status,\n  (SELECT interaction_id FROM activated LIMIT 1) AS proposal_interaction_id,\n  (SELECT count(*) FROM logged) AS log_count;",
+        "options": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [ $json.event_id || \"\", $json.conversation_id || \"\", $json.meta_sent === true, $json.meta_message_id || \"\", $json.rescue_status || \"\", $json.rescue_failure || \"\", $json.selected_plan_name || $json.selected_plan || \"\", $json.selected_plan_duration || \"\", $json.selected_plan_price || \"\", JSON.stringify({ chatwoot_http_status: $json.chatwoot_http_status || null, meta_http_status: $json.meta_http_status || null, public_reply_message_id: $json.public_reply_message_id || null, button_key: $json.button_key || null, interaction_id: $json.interaction_id || null }) ] }}"
+        }
+      },
+      "id": "ops11-pg-mark-plan-rescue",
+      "name": "PG - Mark Plan Rescue Result",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2880,
+        624
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $input.first().json || {};\nconst rows = Array.isArray(row.rows) ? row.rows : [];\nconst staticData = $getWorkflowStaticData('global');\nstaticData.alerted = staticData.alerted || {};\nconst now = new Date();\nconst cutoffMs = now.getTime() - 24 * 60 * 60 * 1000;\nfor (const [key, value] of Object.entries(staticData.alerted)) {\n  if (!value || new Date(value).getTime() < cutoffMs) delete staticData.alerted[key];\n}\nfunction keyFor(event) {\n  return 'silent-button:' + (event.event_id || event.wa_message_id || [event.conversation_id, event.button_key, event.reason, event.created_at].join(':'));\n}\nfunction clip(value, max = 80) {\n  const text = String(value == null ? '' : value).trim();\n  return text.length > max ? text.slice(0, max - 3) + '...' : (text || '-');\n}\nfunction phoneTail(value) {\n  const digits = String(value || '').replace(/\\D/g, '');\n  return digits ? '***' + digits.slice(-4) : '-';\n}\nconst fresh = [];\nfor (const event of rows) {\n  const dedupeKey = keyFor(event);\n  if (staticData.alerted[dedupeKey]) continue;\n  fresh.push({ ...event, dedupe_key: dedupeKey });\n}\nif (!fresh.length) {\n  return [{ json: {\n    send_alert: false,\n    status: 'no_new_silent_button_claims',\n    checked_at: row.checked_at || now.toISOString(),\n    candidate_count: rows.length,\n  } }];\n}\nconst lines = [\n  'CRIS OPS-11 - Silent button sentinel',\n  'Nuevos bloqueos comerciales: ' + fresh.length,\n  'Ventana: ultimos 15 minutos',\n  '',\n];\nfor (const event of fresh.slice(0, 10)) {\n  lines.push([\n    '- cw=' + clip(event.chatwoot_conv_id),\n    'phone=' + phoneTail(event.phone),\n    'state=' + clip(event.conversation_state, 24),\n    'button=' + clip(event.button_key, 48),\n    'status=' + clip(event.status, 16),\n    'reason=' + clip(event.reason, 48),\n    'interaction=' + clip(event.interaction_id, 44),\n  ].join(' | '));\n}\nif (fresh.length > 10) lines.push('... +' + (fresh.length - 10) + ' mas');\nlines.push('');\nlines.push('Accion: revisar si hubo respuesta publica o rescate manual. Duplicado fisico wa_message_id esta excluido.');\nreturn [{ json: {\n  send_alert: true,\n  status: 'silent_button_alert_pending',\n  checked_at: row.checked_at || now.toISOString(),\n  candidate_count: rows.length,\n  alert_count: fresh.length,\n  dedupe_keys: fresh.map(event => event.dedupe_key),\n  rows: fresh,\n  meta_payload: {\n    messaging_product: 'whatsapp',\n    recipient_type: 'individual',\n    to: '5521999910781',\n    type: 'text',\n    text: { preview_url: false, body: lines.join('\\n').slice(0, 3900) },\n  },\n} }];"
+      },
+      "id": "ops11-build-alert",
+      "name": "Code - Build Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ops11-should-alert",
+              "leftValue": "={{ $json.send_alert === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ops11-if-alert",
+      "name": "IF - Should Alert",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1072,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v23.0/1114673978398967/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer ${REDACTED_TOKEN}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Code - Build Alert').first().json.meta_payload) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "ops11-http-alert",
+      "name": "HTTP - Send WhatsApp Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1328,
+        224
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const build = $('Code - Build Alert').first().json || {};\nconst staticData = $getWorkflowStaticData('global');\nstaticData.alerted = staticData.alerted || {};\nconst response = $json || {};\nconst statusCode = Number(response.statusCode || response.status || 0);\nconst ok = statusCode >= 200 && statusCode < 300;\nif (ok) {\n  for (const key of build.dedupe_keys || []) staticData.alerted[key] = new Date().toISOString();\n}\nreturn [{ json: {\n  status: ok ? 'alert_sent' : 'alert_failed',\n  http_status: statusCode || null,\n  alert_count: build.alert_count || 0,\n  candidate_count: build.candidate_count || 0,\n  marked_count: ok ? (build.dedupe_keys || []).length : 0,\n} }];"
+      },
+      "id": "ops11-mark-alerted",
+      "name": "Code - Mark Alerted",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1584,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: $input.first().json }];"
+      },
+      "id": "ops11-no-alert",
+      "name": "Code - No Alert Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1328,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes"
+            }
+          ]
+        }
+      },
+      "id": "ops11-schedule-every-2-min",
+      "name": "Schedule - Every 5 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        224,
+        224
+      ]
+    },
+    {
+      "id": "ops11-pg-processed-reply-watch",
+      "name": "PG - Fetch Processed Reply Watch",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        520,
+        900
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH candidates AS (\n  SELECT\n    e.id::text AS event_id,\n    e.created_at::text AS created_at,\n    e.wa_message_id,\n    e.phone,\n    e.conversation_id::text AS conversation_id,\n    e.button_key,\n    e.status,\n    COALESCE(e.reason, '') AS reason,\n    COALESCE(e.processing_status, '') AS processing_status,\n    e.processed_at::text AS processed_at,\n    e.interaction_id,\n    e.interaction_type,\n    e.action_id,\n    e.processed_state,\n    c.chatwoot_conv_id,\n    c.estado::text AS conversation_state,\n    c.active_interaction_type,\n    c.interaction_consumed,\n    c.automation_enabled,\n    c.human_handoff\n  FROM whatsapp_interaction_events e\n  LEFT JOIN conversaciones c ON c.id = e.conversation_id\n  WHERE e.created_at >= now() - interval '20 minutes'\n    AND e.status = 'PROCESSED'\n    AND c.chatwoot_conv_id IS NOT NULL\n    AND COALESCE(e.reason, '') NOT IN ('duplicate_message_id', 'duplicate_race')\n    AND (\n      e.button_key ~ '^gancho_no_(?:gancho_v[0-9]+|gancho_q1_neutral)$'\n      OR e.button_key IN ('no_por_el_momento', 'no_es_de_mi_interes', 'no_gracias', 'no_por_ahora')\n    )\n  ORDER BY e.created_at DESC, e.id DESC\n  LIMIT 30\n)\nSELECT now()::text AS checked_at,\n       COALESCE(jsonb_agg(to_jsonb(candidates) ORDER BY created_at DESC), '[]'::jsonb) AS rows\nFROM candidates;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "bpXsDuBulR5Lk1Yf_quicklink",
+          "name": "Supabase VPS_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "ops11-code-split-processed-reply-watch",
+      "name": "Code - Split Processed Reply Watch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        900
+      ],
+      "parameters": {
+        "jsCode": "const row = $input.first().json || {};\nconst rows = Array.isArray(row.rows) ? row.rows : [];\nreturn rows.map(event => ({ json: { ...event, checked_at: row.checked_at || new Date().toISOString() } }));"
+      }
+    },
+    {
+      "id": "ops11-http-chatwoot-processed-reply-watch",
+      "name": "HTTP - Get Chatwoot Messages For Processed Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1160,
+        900
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'http://chatwoot:3000/api/v1/accounts/2/conversations/' + $json.chatwoot_conv_id + '/messages' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "i5ezyRiVmSifQ3el_quicklink",
+          "name": "Chatwoot API_QUICKLINK"
+        }
+      }
+    },
+    {
+      "id": "ops11-code-build-processed-reply-alert",
+      "name": "Code - Build Processed Reply Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1480,
+        900
+      ],
+      "parameters": {
+        "jsCode": "const source = $('Code - Split Processed Reply Watch').all().map(item => item.json || {});\nconst input = $input.all();\nconst staticData = $getWorkflowStaticData('global');\nstaticData.processedReplyWatchAlerted = staticData.processedReplyWatchAlerted || {};\nconst now = new Date();\nconst cutoffMs = now.getTime() - 24 * 60 * 60 * 1000;\nfor (const [key, value] of Object.entries(staticData.processedReplyWatchAlerted)) {\n  if (!value || new Date(value).getTime() < cutoffMs) delete staticData.processedReplyWatchAlerted[key];\n}\nfunction eventTs(event) {\n  const parsed = Date.parse(event.created_at || '');\n  return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : 0;\n}\nfunction msgTs(message) {\n  const raw = message?.created_at || 0;\n  if (typeof raw === 'number') return raw > 100000000000 ? Math.floor(raw / 1000) : raw;\n  const parsed = Date.parse(raw);\n  return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : 0;\n}\nfunction responsePayload(resp) {\n  if (Array.isArray(resp?.body?.payload)) return resp.body.payload;\n  if (Array.isArray(resp?.payload)) return resp.payload;\n  if (Array.isArray(resp?.data?.payload)) return resp.data.payload;\n  if (Array.isArray(resp?.data)) return resp.data;\n  if (Array.isArray(resp)) return resp;\n  return [];\n}\nfunction isPublicOutgoing(message) {\n  if (!message || message.private === true || message.content_attributes?.deleted === true) return false;\n  const type = String(message.message_type ?? '').toLowerCase();\n  if (type === '2' || type === 'activity') return false;\n  return type === '1' || type === 'outgoing' || ['user', 'agent', 'agent_bot', 'bot'].includes(String(message.sender_type || message.sender?.type || '').toLowerCase());\n}\nfunction keyFor(event) {\n  return 'processed-reply-watch:' + (event.event_id || event.wa_message_id || [event.conversation_id, event.button_key, event.created_at].join(':'));\n}\nfunction clip(value, max = 80) {\n  const text = String(value == null ? '' : value).trim();\n  return text.length > max ? text.slice(0, max - 3) + '...' : (text || '-');\n}\nfunction phoneTail(value) {\n  const digits = String(value || '').replace(/[^0-9]/g, '');\n  return digits ? '***' + digits.slice(-4) : '-';\n}\nconst silent = [];\nfor (const [index, item] of input.entries()) {\n  const event = source[index] || {};\n  const messages = responsePayload(item.json || {});\n  const since = eventTs(event);\n  const hasReply = messages.some(message => isPublicOutgoing(message) && msgTs(message) >= since);\n  const dedupeKey = keyFor(event);\n  if (!hasReply && !staticData.processedReplyWatchAlerted[dedupeKey]) silent.push({ ...event, dedupe_key: dedupeKey });\n}\nif (!silent.length) {\n  return [{ json: {\n    send_alert: false,\n    status: 'no_processed_buttons_without_reply',\n    checked_at: source[0]?.checked_at || now.toISOString(),\n    candidate_count: source.length,\n  } }];\n}\nconst lines = [\n  'CRIS OPS-11 - Processed button without public reply',\n  'Nuevos silencios confirmados: ' + silent.length,\n  'Ventana: ultimos 20 minutos',\n  '',\n];\nfor (const event of silent.slice(0, 10)) {\n  lines.push([\n    '- cw=' + clip(event.chatwoot_conv_id),\n    'phone=' + phoneTail(event.phone),\n    'state=' + clip(event.conversation_state, 24),\n    'button=' + clip(event.button_key, 48),\n    'processed_state=' + clip(event.processed_state, 24),\n    'event=' + clip(event.event_id, 44),\n  ].join(' | '));\n}\nif (silent.length > 10) lines.push('... +' + (silent.length - 10) + ' mas');\nlines.push('');\nlines.push('Accion: revisar envio publico o rescatar via OPS-07.');\nreturn [{ json: {\n  send_alert: true,\n  status: 'processed_button_without_public_reply_alert_pending',\n  checked_at: source[0]?.checked_at || now.toISOString(),\n  candidate_count: source.length,\n  alert_count: silent.length,\n  dedupe_keys: silent.map(event => event.dedupe_key),\n  rows: silent,\n  meta_payload: {\n    messaging_product: 'whatsapp',\n    recipient_type: 'individual',\n    to: '5521999910781',\n    type: 'text',\n    text: { preview_url: false, body: lines.join(String.fromCharCode(10)).slice(0, 3900) },\n  },\n} }];"
+      }
+    },
+    {
+      "id": "ops11-if-processed-reply-alert",
+      "name": "IF - Processed Reply Should Alert",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1800,
+        900
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ops11-processed-reply-should-alert",
+              "leftValue": "={{ $json.send_alert === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ops11-http-processed-reply-alert",
+      "name": "HTTP - Send Processed Reply Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2120,
+        820
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v23.0/1114673978398967/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer ${REDACTED_TOKEN}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Code - Build Processed Reply Alert').first().json.meta_payload) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "ops11-code-mark-processed-reply-alerted",
+      "name": "Code - Mark Processed Reply Alerted",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2440,
+        820
+      ],
+      "parameters": {
+        "jsCode": "const build = $('Code - Build Processed Reply Alert').first().json || {};\nconst staticData = $getWorkflowStaticData('global');\nstaticData.processedReplyWatchAlerted = staticData.processedReplyWatchAlerted || {};\nconst response = $json || {};\nconst statusCode = Number(response.statusCode || response.status || 0);\nconst ok = statusCode >= 200 && statusCode < 300;\nif (ok) {\n  for (const key of build.dedupe_keys || []) staticData.processedReplyWatchAlerted[key] = new Date().toISOString();\n}\nreturn [{ json: {\n  status: ok ? 'processed_reply_alert_sent' : 'processed_reply_alert_failed',\n  http_status: statusCode || null,\n  alert_count: build.alert_count || 0,\n  candidate_count: build.candidate_count || 0,\n  marked_count: ok ? (build.dedupe_keys || []).length : 0,\n} }];"
+      }
+    },
+    {
+      "id": "ops11-code-no-processed-reply-alert",
+      "name": "Code - No Processed Reply Alert Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2120,
+        980
+      ],
+      "parameters": {
+        "jsCode": "return [{ json: $input.first().json }];"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Run Sentinel Now": {
+      "main": [
+        [
+          {
+            "node": "PG - Fetch Silent Button Claims",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "PG - Fetch Processed Reply Watch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Fetch Silent Button Claims": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Alert",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Code - Prepare Plan Rescue Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare Plan Rescue Candidates": {
+      "main": [
+        [
+          {
+            "node": "PG - Claim Plan Rescue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Claim Plan Rescue": {
+      "main": [
+        [
+          {
+            "node": "Code - Rehydrate Plan Rescue Claim",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Rehydrate Plan Rescue Claim": {
+      "main": [
+        [
+          {
+            "node": "PG - Verify Plan Rescue Claim",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Verify Plan Rescue Claim": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Get Chatwoot Messages For Rescue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Get Chatwoot Messages For Rescue": {
+      "main": [
+        [
+          {
+            "node": "Code - Decide Plan Rescue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Decide Plan Rescue": {
+      "main": [
+        [
+          {
+            "node": "IF - Plan Rescue Should Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Plan Rescue Should Send": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Plan Rescue Send",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PG - Mark Plan Rescue Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare Plan Rescue Send": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Send Plan Rescue WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Send Plan Rescue WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Plan Rescue Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Plan Rescue Result": {
+      "main": [
+        [
+          {
+            "node": "PG - Mark Plan Rescue Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Alert": {
+      "main": [
+        [
+          {
+            "node": "IF - Should Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Should Alert": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Send WhatsApp Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - No Alert Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Send WhatsApp Alert": {
+      "main": [
+        [
+          {
+            "node": "Code - Mark Alerted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule - Every 5 Minutes": {
+      "main": [
+        [
+          {
+            "node": "PG - Fetch Silent Button Claims",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "PG - Fetch Processed Reply Watch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Fetch Processed Reply Watch": {
+      "main": [
+        [
+          {
+            "node": "Code - Split Processed Reply Watch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Split Processed Reply Watch": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Get Chatwoot Messages For Processed Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Get Chatwoot Messages For Processed Reply": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Processed Reply Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Processed Reply Alert": {
+      "main": [
+        [
+          {
+            "node": "IF - Processed Reply Should Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Processed Reply Should Alert": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Send Processed Reply Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - No Processed Reply Alert Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Send Processed Reply Alert": {
+      "main": [
+        [
+          {
+            "node": "Code - Mark Processed Reply Alerted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "16621015-49b0-5b78-bd01-1f8e666ab51a",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}

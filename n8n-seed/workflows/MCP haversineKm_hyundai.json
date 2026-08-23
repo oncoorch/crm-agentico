@@ -1,0 +1,634 @@
+{
+  "id": "VI6tHmmgQ7CvKgms_hyundai",
+  "name": "MCP haversineKm_hyundai",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Ejemplo directo en nodo \"Function\" o \"Code\"\n\n// Input simulado (puedes reemplazarlo por datos reales)\nconst input = {\n  cliente_url: \"https://www.google.com/maps?q=-2.145927,-79.964529\",\n  agencias: [\n    { nombre: \"Hyundai Norte\", url: \"https://www.google.com/maps?q=-2.120310,-79.909841\" },\n    { nombre: \"Hyundai Sur\", url: \"https://www.google.com/maps?q=-2.195321,-79.888903\" }\n  ]\n};\n\nfunction getLatLngFromUrl(url) {\n  const match = url.match(/@?(-?\\d+\\.\\d+),\\s*(-?\\d+\\.\\d+)/);\n  if (!match) throw new Error(\"No se pudo obtener lat/lon del link de Google Maps\");\n  return { lat: parseFloat(match[1]), lon: parseFloat(match[2]) };\n}\n\nfunction haversineDistance(coord1, coord2) {\n  const R = 6371;\n  const dLat = (coord2.lat - coord1.lat) * Math.PI / 180;\n  const dLon = (coord2.lon - coord1.lon) * Math.PI / 180;\n  const a = Math.sin(dLat / 2) ** 2 +\n            Math.cos(coord1.lat * Math.PI / 180) *\n            Math.cos(coord2.lat * Math.PI / 180) *\n            Math.sin(dLon / 2) ** 2;\n  return R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 2;\n}\n\nconst cliente = getLatLngFromUrl(input.cliente_url);\n\nlet resultados = input.agencias.map(a => {\n  const agenciaCoord = getLatLngFromUrl(a.url);\n  const distancia = haversineDistance(cliente, agenciaCoord);\n  return { ...a, distancia_km: distancia };\n});\n\nresultados.sort((a, b) => a.distancia_km - b.distancia_km);\nconst masCercanas = resultados.filter(a => a.distancia_km - resultados[0].distancia_km < 1);\n\nreturn [\n  {\n    json: {\n      cliente,\n      resultado: masCercanas,\n      mensaje:\n        masCercanas.length === 1\n          ? `El concesionario más cercano es ${masCercanas[0].nombre}, a ${masCercanas[0].distancia_km.toFixed(2)} km.`\n          : `Los concesionarios más cercanos son:\\n${masCercanas.map(a => `- ${a.nombre} (${a.distancia_km.toFixed(2)} km)`).join(\"\\n\")}`\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        16,
+        16
+      ],
+      "id": "44b74bae-6b41-4e81-85ad-756c70878f42",
+      "name": "Distancia a concecionario1"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "14zPhv60O8ZmkB0yXB9bv2rytMAfhGZYlLrLMWeDBwW4",
+          "mode": "list",
+          "cachedResultName": "Agencias Hyundai",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/14zPhv60O8ZmkB0yXB9bv2rytMAfhGZYlLrLMWeDBwW4/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Hoja 1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/14zPhv60O8ZmkB0yXB9bv2rytMAfhGZYlLrLMWeDBwW4/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -304,
+        16
+      ],
+      "id": "b828e4b3-f749-4fdc-b653-672a4616fa28",
+      "name": "Agencias Hyundai",
+      "notesInFlow": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "5TEVs0kJMi0Y35F8_hyundai",
+          "name": "Google Sheets account_HYUNDAI"
+        }
+      },
+      "notes": "Listado de agencias"
+    },
+    {
+      "parameters": {
+        "jsCode": "// --- Función para extraer link de Google Maps ---\nfunction extraerUrlGoogleMaps(texto) {\n  const regex = /(https?:\\/\\/(?:www\\.)?(?:goo\\.gl|maps\\.app\\.goo\\.gl|google\\.com\\/maps)[^\\s]*)/i;\n  const match = texto?.match(regex);\n  return match ? match[1].trim() : null;\n}\n\n// --- Función para limpiar y normalizar URLs ---\nfunction normalizarUrl(url) {\n  if (!url) return null;\n  return url.replace(/\\s+/g, '').trim();\n}\n\n// --- Obtener mensaje y datos del cliente ---\nconst mensajeCliente = items[0]?.json?.user_message || \"\";\nconst ciudadCliente = items[0]?.json?.city || items[0]?.json?.Ciudad || \"\";\n\n// --- Detectar si hay datos de agencias ---\nlet agenciasSheet = [];\nif (Array.isArray(items) && items.length > 1) {\n  agenciasSheet = items.slice(1).map(i => i.json);\n} else if (Array.isArray(items[0]?.json?.data)) {\n  agenciasSheet = items[0].json.data;\n} else if (Array.isArray(items[1]?.json?.data)) {\n  agenciasSheet = items[1].json.data;\n} else if (Array.isArray(items[1]?.json)) {\n  agenciasSheet = items[1].json;\n} else {\n  agenciasSheet = [items[1]?.json].filter(Boolean);\n}\n\n// --- Extraer URL del cliente (si existe) ---\nconst clienteUrl = extraerUrlGoogleMaps(mensajeCliente) || \"\";\n\n// --- Construir arreglo de agencias ---\nconst agencias = (agenciasSheet || [])\n  .map(a => ({\n    nombre: a[\"AGENCIA\"] || a[\"Agencia\"] || \"Desconocido\",\n    url: normalizarUrl(a[\"UBICACIÓN GOOGLE MAPS\"] || a[\"UBICACION GOOGLE MAPS\"]),\n    ciudad: a[\"Ciudad\"] || a[\"CIUDAD\"] || null,\n  }))\n  .filter(a => a.url);\n\n// --- Output final ---\nreturn [\n  {\n    json: {\n      cliente_url: clienteUrl,\n      ciudad: ciudadCliente,\n      agencias,\n    },\n  },\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -144,
+        16
+      ],
+      "id": "1317c12d-3956-44a7-968b-9f1688b0f94d",
+      "name": "Hay URL Maps?",
+      "notesInFlow": true,
+      "alwaysOutputData": false,
+      "notes": "Hay URL de contacto?\n\nEste código de n8n (nodo Code en JavaScript) extrae, limpia y estructura URLs de Google Maps desde mensajes de clientes y hojas de agencias.\n\nResumen funcional\n\nextraerUrlGoogleMaps(texto)\nBusca dentro de un texto cualquier enlace de Google Maps o enlaces acortados (goo.gl, maps.app.goo.gl, google.com/maps) y lo devuelve limpio.\n\nconst regex = /(https?:\\/\\/(?:www\\.)?(?:goo\\.gl|maps\\.app\\.goo\\.gl|google\\.com\\/maps)[^\\s]*)/i;\n\n\nnormalizarUrl(url)\nLimpia espacios extra y normaliza el formato de las URLs.\n\nDatos base del cliente\nObtiene del primer item:\n\nuser_message: mensaje del cliente\n\ncity o Ciudad: ciudad detectada\n\nCarga de agencias (agenciasSheet)\nBusca datos de agencias en:\n\nLos siguientes items del input\n\nO dentro de items[0].json.data o items[1].json.data\n\nclienteUrl\nExtrae el enlace de Google Maps del mensaje del cliente (si lo hay).\n\nConstrucción de arreglo de agencias\nCrea un array con:\n\n{\n  nombre: \"Agencia\",\n  url: \"https://maps.google.com/...\",\n  ciudad: \"Guayaquil\"\n}\n\n\nFiltra solo las que tienen URL válida.\n\nSalida final (output)\nDevuelve un objeto JSON:\n\n{\n  \"cliente_url\": \"https://maps.google.com/...\",\n  \"ciudad\": \"Guayaquil\",\n  \"agencias\": [ ... ]\n}\n\nUso típico\n\nNodo intermedio para preparar datos antes de calcular distancias entre el cliente y concesionarios (p. ej., Hyundai).\nPuede ir antes de un nodo que use la API de Google Distance Matrix o de un filtro de coincidencia por ciudad."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f11bf3d2-6c79-4975-bc7f-888441eb6e36",
+              "name": "url",
+              "value": "https://maps.app.goo.gl/iwkMXuJm1YfCQbQ89",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -448,
+        480
+      ],
+      "id": "8e61271c-9060-4104-955e-ee6d561a2881",
+      "name": "Edit Fields3"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code — Detecta URL de Maps en cualquier formato, obtiene lat/lon si es posible,\n// o marca \"needs_expand\" cuando es un short link (maps.app.goo.gl / goo.gl) para expandirlo con HTTP Request.\n\n// -------- utilidades --------\nfunction extraerUrlMaps(str = \"\") {\n  const re = /(https?:\\/\\/(?:www\\.)?(?:google\\.com\\/maps|maps\\.google\\.com|goo\\.gl\\/maps|maps\\.app\\.goo\\.gl)[^\\s]*)/i;\n  const m = String(str).match(re);\n  return m ? m[1].trim() : null;\n}\nfunction norm(u){ return u ? u.replace(/\\s+/g,\"\").trim() : null; }\n\n// Patrones de coordenadas en URLs y texto final de Google Maps\nfunction parseCoords(s = \"\") {\n  if (!s) return null;\n  const dec = decodeURIComponent(s);\n\n  const pats = [\n    /[?&]q=(-?\\d+\\.\\d+),\\s*(-?\\d+\\.\\d+)/i,     // ?q=lat,lon\n    /\\/@(-?\\d+\\.\\d+),\\s*(-?\\d+\\.\\d+)/i,        // /@lat,lon\n    /[?&]center=(-?\\d+\\.\\d+),\\s*(-?\\d+\\.\\d+)/i,// center=lat,lon\n    /[?&]ll=(-?\\d+\\.\\d+),\\s*(-?\\d+\\.\\d+)/i,    // ll=lat,lon\n    /!3d(-?\\d+\\.\\d+)!4d(-?\\d+\\.\\d+)/i,         // ...!3dLAT!4dLON...\n    /(^|[^-\\d])(-?\\d+\\.\\d+),\\s*(-?\\d+\\.\\d+)([^-\\d]|$)/ // coords sueltas\n  ];\n  for (const rx of pats) {\n    const m = dec.match(rx);\n    if (m) {\n      const lat = parseFloat(m[1] ?? m[2]);\n      const lon = parseFloat(m[2] ?? m[3]);\n      if (isFinite(lat) && isFinite(lon)) return { lat, lon };\n    }\n  }\n  return null;\n}\n\nfunction haversineKm(a,b){\n  const R=6371, toRad=d=>d*Math.PI/180;\n  const dLat=toRad(b.lat-a.lat), dLon=toRad(b.lon-a.lon);\n  const x=Math.sin(dLat/2)**2 + Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*Math.sin(dLon/2)**2;\n  return 2*R*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));\n}\n\n// -------- entrada --------\n// 1) Mensaje del cliente con posible URL\nconst msg = items[0]?.json?.user_message || \"\";\n// 2) Agencias en items[1..] o en arrays internos\nlet agenciasSheet = [];\nif (items.length > 1) agenciasSheet = items.slice(1).map(i=>i.json);\nelse if (Array.isArray(items[0]?.json?.data)) agenciasSheet = items[0].json.data;\nelse if (Array.isArray(items[0]?.json?.agencias)) agenciasSheet = items[0].json.agencias;\n\n// -------- cliente: URL y coordenadas --------\nconst cliente_url = norm(extraerUrlMaps(msg));\nconst cliente_host = cliente_url ? new URL(cliente_url).host : \"\";\nconst cliente_coords = parseCoords(cliente_url || msg);\n\n// Si NO se pudieron obtener coords y parece short link -> pedir expansión con HTTP Request\nconst isShort = /(^|\\.)(maps\\.app\\.goo\\.gl|goo\\.gl)$/i.test(cliente_host);\nif (!cliente_coords && isShort) {\n  return [{ json: {\n    has_maps_url: true,\n    needs_expand: true,\n    resolvible: false,\n    motivo: \"Short link requiere expandir redirección para extraer lat/lon\",\n    cliente_url\n  }}];\n}\n\n// Si no hay coords en absoluto\nif (!cliente_coords) {\n  return [{ json: {\n    has_maps_url: !!cliente_url,\n    needs_expand: false,\n    resolvible: false,\n    motivo: \"No se pudo extraer lat/lon del cliente\",\n    cliente_url: cliente_url || null,\n    resultado: []\n  }}];\n}\n\n// -------- agencias: calcular distancias --------\nconst agencias = (agenciasSheet||[])\n  .map(a=>{\n    const nombre = a[\"AGENCIA\"] || a[\"Agencia\"] || a.nombre || \"Desconocido\";\n    const rawUrl = a[\"UBICACIÓN GOOGLE MAPS\"] || a[\"UBICACION GOOGLE MAPS\"] || a.url || \"\";\n    const url = norm(rawUrl);\n    const c = parseCoords(url) || (a.lat && a.lon ? {lat:+a.lat, lon:+a.lon} : null);\n    if (!c) return null; // ignorar agencias sin coords resolvibles aquí\n    const distancia_km = haversineKm(cliente_coords, c);\n    return { nombre, url, lat: c.lat, lon: c.lon, distancia_km };\n  })\n  .filter(Boolean)\n  .sort((x,y)=>x.distancia_km - y.distancia_km);\n\nconst cercanas = agencias.length ? agencias.filter(a=> a.distancia_km - agencias[0].distancia_km < 1) : [];\nconst mensaje = agencias.length\n  ? (cercanas.length===1\n      ? `El concesionario más cercano es ${cercanas[0].nombre}, a ${cercanas[0].distancia_km.toFixed(2)} km.`\n      : `Los concesionarios más cercanos son:\\n${cercanas.map(a=>`- ${a.nombre} (${a.distancia_km.toFixed(2)} km)`).join(\"\\n\")}`)\n  : \"No hay agencias con coordenadas válidas.\";\n\nreturn [{ json: {\n  has_maps_url: true,\n  needs_expand: false,\n  resolvible: true,\n  cliente_url,\n  cliente: cliente_coords,\n  resultado: cercanas,\n  todas_agencias: agencias,\n  mensaje\n}}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        288,
+        512
+      ],
+      "id": "fc4db730-9c37-4fa3-b954-aa44d2f5329b",
+      "name": "Distancia a concecionario2"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ejemplo directo en nodo \"Function\" o \"Code\"\n/**\n// Input simulado (puedes reemplazarlo por datos reales)\nconst input = {\n  cliente_url: \"https://www.google.com/maps?q=-2.145927,-79.964529\",\n  agencias: [\n    { nombre: \"Hyundai Norte\", url: \"https://www.google.com/maps?q=-2.120310,-79.909841\" },\n    { nombre: \"Hyundai Sur\", url: \"https://www.google.com/maps?q=-2.195321,-79.888903\" }\n  ]\n};\n */\n\n\nfunction getLatLngFromUrl(url) {\n  const match = url.match(/@?(-?\\d+\\.\\d+),\\s*(-?\\d+\\.\\d+)/);\n  if (!match) throw new Error(\"No se pudo obtener lat/lon del link de Google Maps\");\n  return { lat: parseFloat(match[1]), lon: parseFloat(match[2]) };\n}\n\nfunction haversineDistance(coord1, coord2) {\n  const R = 6371;\n  const dLat = (coord2.lat - coord1.lat) * Math.PI / 180;\n  const dLon = (coord2.lon - coord1.lon) * Math.PI / 180;\n  const a = Math.sin(dLat / 2) ** 2 +\n            Math.cos(coord1.lat * Math.PI / 180) *\n            Math.cos(coord2.lat * Math.PI / 180) *\n            Math.sin(dLon / 2) ** 2;\n  return R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 2;\n}\n\nconst cliente = getLatLngFromUrl(input.cliente_url);\n\nlet resultados = input.agencias.map(a => {\n  const agenciaCoord = getLatLngFromUrl(a.url);\n  const distancia = haversineDistance(cliente, agenciaCoord);\n  return { ...a, distancia_km: distancia };\n});\n\nresultados.sort((a, b) => a.distancia_km - b.distancia_km);\nconst masCercanas = resultados.filter(a => a.distancia_km - resultados[0].distancia_km < 1);\n\nreturn [\n  {\n    json: {\n      cliente,\n      resultado: masCercanas,\n      mensaje:\n        masCercanas.length === 1\n          ? `El concesionario más cercano es ${masCercanas[0].nombre}, a ${masCercanas[0].distancia_km.toFixed(2)} km.`\n          : `Los concesionarios más cercanos son:\\n${masCercanas.map(a => `- ${a.nombre} (${a.distancia_km.toFixed(2)} km)`).join(\"\\n\")}`\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        288,
+        704
+      ],
+      "id": "9909e9e3-77f7-4de1-b459-64ba99d95602",
+      "name": "Distancia a concecionario3"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "14zPhv60O8ZmkB0yXB9bv2rytMAfhGZYlLrLMWeDBwW4",
+          "mode": "list",
+          "cachedResultName": "Agencias Hyundai",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/14zPhv60O8ZmkB0yXB9bv2rytMAfhGZYlLrLMWeDBwW4/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Hoja 1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/14zPhv60O8ZmkB0yXB9bv2rytMAfhGZYlLrLMWeDBwW4/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -448,
+        240
+      ],
+      "id": "c7b6a769-4f38-4383-9af3-1af37ec7c52a",
+      "name": "Agencias Hyundai1",
+      "notesInFlow": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "5TEVs0kJMi0Y35F8_hyundai",
+          "name": "Google Sheets account_HYUNDAI"
+        }
+      },
+      "notes": "Listado de agencias"
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n 1. Usa la url de este campo de entrada ($input.first().json.url) para determinar si es una url corta o si tiene las coordenadas. \n2. Usa las url de este listado ($input.first().json['UBICACIÓN GOOGLE MAPS']) y obten las coordenadas de cada ubicacion. \n3. usa el algoritmo haversine para obtener la distancia desde la url de entrada hacia las url del listado\n4. selecciona las 3 distancias mas cortas o cercanas como A, B y C para obtener los nombres de los concecionarios o agencias  el uso de las 3 url correspondientes a las 3 distancias mas cercanas que han sido seleccionadas. \n5. responde en Json rmplazando los campos distancia y concecionario para que entregues las 3 urls seleccionadas en el paso anterior. Json: \" \"distancia\" a \"concecionario\" \" \n */\n\n// --- Función para extraer coordenadas desde una URL de Google Maps ---\nfunction extraerCoordenadas(url) {\n  if (typeof url !== \"string\" || !url.trim()) return null;\n  const regex = /@(-?\\d+\\.\\d+),(-?\\d+\\.\\d+)/;      // formato con @lat,lon\n  const regexQ = /[?&]q=(-?\\d+\\.\\d+),(-?\\d+\\.\\d+)/; // formato con ?q=lat,lon\n  const match = url.match(regex) || url.match(regexQ);\n  if (match) return { lat: parseFloat(match[1]), lon: parseFloat(match[2]) };\n  return null; // si es URL corta sin coordenadas\n}\n\n// --- Función Haversine para distancia en km ---\nfunction haversine(lat1, lon1, lat2, lon2) {\n  const R = 6371; // km\n  const toRad = deg => (deg * Math.PI) / 180;\n  const dLat = toRad(lat2 - lat1);\n  const dLon = toRad(lon2 - lon1);\n  const a =\n    Math.sin(dLat / 2) ** 2 +\n    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;\n  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));\n}\n\n// --- 1. Obtener URL del cliente ---\nlet clienteUrl = \"\";\nconst input = $input.all();\n\nif (Array.isArray(input) && input[0]?.json?.url) {\n  const u = input[0].json.url;\n  clienteUrl = Array.isArray(u) ? u[0] : u; // si viene como array\n}\n\nconst clienteCoords = extraerCoordenadas(clienteUrl);\n\nif (!clienteCoords) {\n  return [\n    {\n      json: {\n        has_maps_url: false,\n        motivo: \"No se pudieron extraer coordenadas de la URL del cliente\",\n        cliente_url: clienteUrl,\n        resultado: [],\n      },\n    },\n  ];\n}\n\n// --- 2. Obtener listado de agencias ---\nconst ubicaciones =\n  input[0]?.json[\"UBICACIÓN GOOGLE MAPS\"] || input[1]?.json[\"UBICACIÓN GOOGLE MAPS\"] || [];\n\nconst nombres = input[0]?.json[\"AGENCIA\"] || []; // opcional\n\n// --- 3. Extraer coordenadas y calcular distancia ---\nlet resultados = [];\nfor (let i = 0; i < ubicaciones.length; i++) {\n  const url = ubicaciones[i];\n  const coords = extraerCoordenadas(url);\n  if (!coords) continue;\n  const distancia = haversine(\n    clienteCoords.lat,\n    clienteCoords.lon,\n    coords.lat,\n    coords.lon\n  );\n  resultados.push({\n    concecionario: nombres[i] || `Agencia ${i + 1}`,\n    url,\n    distancia_km: parseFloat(distancia.toFixed(2)),\n  });\n}\n\n// --- 4. Seleccionar las 3 más cercanas ---\nconst top3 = resultados.sort((a, b) => a.distancia_km - b.distancia_km).slice(0, 3);\n\n// --- 5. Respuesta final en JSON ---\nreturn [\n  {\n    json: {\n      cliente_url: clienteUrl,\n      coordenadas_cliente: clienteCoords,\n      resultado: top3,\n      mensaje: top3.length\n        ? `Las ${top3.length} agencias más cercanas son: ${top3\n            .map(a => `${a.concecionario} (${a.distancia_km} km)`)\n            .join(\", \")}`\n        : \"No se pudieron calcular distancias.\",\n    },\n  },\n];\n\n// --- Función: extraer coordenadas de una URL de Google Maps ---\nasync function extraerCoordenadas(url) {\n  if (typeof url !== \"string\" || !url.trim()) return null;\n\n  // formatos conocidos: @lat,lon o ?q=lat,lon\n  const regexAt = /@(-?\\d+\\.\\d+),(-?\\d+\\.\\d+)/;\n  const regexQ = /[?&]q=(-?\\d+\\.\\d+),(-?\\d+\\.\\d+)/;\n\n  let match = url.match(regexAt) || url.match(regexQ);\n  if (match) return { lat: parseFloat(match[1]), lon: parseFloat(match[2]) };\n\n  // si es URL corta (maps.app.goo.gl o goo.gl/maps)\n  if (url.includes(\"goo.gl\") || url.includes(\"maps.app.goo.gl\")) {\n    try {\n      const res = await fetch(url, { method: \"HEAD\", redirect: \"follow\" });\n      const finalUrl = res.url;\n      match = finalUrl.match(regexAt) || finalUrl.match(regexQ);\n      if (match) return { lat: parseFloat(match[1]), lon: parseFloat(match[2]) };\n    } catch (e) {\n      return null;\n    }\n  }\n  return null;\n}\n\n// --- Haversine: distancia entre dos coordenadas (km) ---\nfunction haversine(lat1, lon1, lat2, lon2) {\n  const R = 6371;\n  const toRad = d => (d * Math.PI) / 180;\n  const dLat = toRad(lat2 - lat1);\n  const dLon = toRad(lon2 - lon1);\n  const a =\n    Math.sin(dLat / 2) ** 2 +\n    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;\n  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));\n}\n\n// --- 1. URL de entrada del cliente ---\nconst input = $input.all();\nlet clienteUrl = input[0]?.json?.url;\nif (Array.isArray(clienteUrl)) clienteUrl = clienteUrl[0] || \"\";\n\nconst clienteCoords = await extraerCoordenadas(clienteUrl);\nif (!clienteCoords) {\n  return [\n    {\n      json: {\n        has_maps_url: false,\n        motivo: \"No se pudieron extraer coordenadas de la URL del cliente\",\n        cliente_url: clienteUrl,\n        resultado: [],\n      },\n    },\n  ];\n}\n\n// --- 2. Lista de agencias ---\nconst urls = input[0]?.json[\"UBICACIÓN GOOGLE MAPS\"] || [];\nconst nombres = input[0]?.json[\"AGENCIA\"] || [];\n\n// --- 3. Calcular distancias ---\nlet resultados = [];\nfor (let i = 0; i < urls.length; i++) {\n  const coords = await extraerCoordenadas(urls[i]);\n  if (!coords) continue;\n  const d = haversine(clienteCoords.lat, clienteCoords.lon, coords.lat, coords.lon);\n  resultados.push({\n    concecionario: nombres[i] || `Agencia ${i + 1}`,\n    url: urls[i],\n    distancia_km: +d.toFixed(2),\n  });\n}\n\n// --- 4. Seleccionar top 3 más cercanas ---\nconst top3 = resultados.sort((a, b) => a.distancia_km - b.distancia_km).slice(0, 3);\n\n// --- 5. Respuesta JSON ---\nreturn [\n  {\n    json: {\n      cliente_url: clienteUrl,\n      coordenadas_cliente: clienteCoords,\n      resultado: top3,\n      mensaje:\n        top3.length > 0\n          ? top3\n              .map(a => `${a.concecionario}: ${a.distancia_km} km`)\n              .join(\", \")\n          : \"No se encontraron ubicaciones cercanas.\",\n    },\n  },\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        304
+      ],
+      "id": "0744b520-dc45-46f3-a237-18c029f52acd",
+      "name": "Hay URL Maps?1",
+      "notesInFlow": true,
+      "alwaysOutputData": false,
+      "notes": "Hay URL de contacto?\n\nEste código de n8n (nodo Code en JavaScript) extrae, limpia y estructura URLs de Google Maps desde mensajes de clientes y hojas de agencias.\n\nResumen funcional\n\nextraerUrlGoogleMaps(texto)\nBusca dentro de un texto cualquier enlace de Google Maps o enlaces acortados (goo.gl, maps.app.goo.gl, google.com/maps) y lo devuelve limpio.\n\nconst regex = /(https?:\\/\\/(?:www\\.)?(?:goo\\.gl|maps\\.app\\.goo\\.gl|google\\.com\\/maps)[^\\s]*)/i;\n\n\nnormalizarUrl(url)\nLimpia espacios extra y normaliza el formato de las URLs.\n\nDatos base del cliente\nObtiene del primer item:\n\nuser_message: mensaje del cliente\n\ncity o Ciudad: ciudad detectada\n\nCarga de agencias (agenciasSheet)\nBusca datos de agencias en:\n\nLos siguientes items del input\n\nO dentro de items[0].json.data o items[1].json.data\n\nclienteUrl\nExtrae el enlace de Google Maps del mensaje del cliente (si lo hay).\n\nConstrucción de arreglo de agencias\nCrea un array con:\n\n{\n  nombre: \"Agencia\",\n  url: \"https://maps.google.com/...\",\n  ciudad: \"Guayaquil\"\n}\n\n\nFiltra solo las que tienen URL válida.\n\nSalida final (output)\nDevuelve un objeto JSON:\n\n{\n  \"cliente_url\": \"https://maps.google.com/...\",\n  \"ciudad\": \"Guayaquil\",\n  \"agencias\": [ ... ]\n}\n\nUso típico\n\nNodo intermedio para preparar datos antes de calcular distancias entre el cliente y concesionarios (p. ej., Hyundai).\nPuede ir antes de un nodo que use la API de Google Distance Matrix o de un filtro de coincidencia por ciudad."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "8d096d57-aef4-4867-9bf8-e7dfd9e173af",
+              "name": "url",
+              "value": "https://maps.google.com/?q=-0.276652,-78.544579",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -448,
+        688
+      ],
+      "id": "9b61e397-efab-4948-a2be-dba24c5f8c6f",
+      "name": "Edit Fields4"
+    },
+    {
+      "parameters": {
+        "fieldsToAggregate": {
+          "fieldToAggregate": [
+            {
+              "fieldToAggregate": "UBICACIÓN GOOGLE MAPS"
+            },
+            {
+              "fieldToAggregate": "url"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        240
+      ],
+      "id": "6a2457c3-02f9-4516-a019-dedcb369d348",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -784,
+        480
+      ],
+      "id": "b6cca038-1eeb-46b7-96f1-035a6e682271",
+      "name": "When chat message received",
+      "webhookId": "7f2b2159-bfea-4b51-863c-3154ddac6fa5"
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// n8n Code Node: Obtiene coordenadas (lat, lng) desde URLs de Google Maps\n// Entrada: items[0].json[\"UBICACIÓN GOOGLE MAPS\"] = [ \"https://maps.app.goo.gl/...\", ... ]\n\nimport fetch from 'node-fetch';\n\nconst apiKey = \"AIzaSyBpq-8gHezszMmwTIySDLhd8VvnjHpjbWo\"; // Coloca aquí tu API key\nconst urls = items[0].json[\"UBICACIÓN GOOGLE MAPS\"];\nconst regex = /(https?:\\/\\/(?:www\\.)?(?:goo\\.gl|maps\\.app\\.goo\\.gl|google\\.com\\/maps)[^\\s]*)/i;\nconst base = \"https://maps.googleapis.com/maps/api/geocode/json?address=\";\n\nconst resultados = [];\n\nfor (const url of urls) {\n\tif (!url) continue;\n\tconst match = url.match(regex);\n\tif (!match) continue;\n\n\ttry {\n\t\tconst response = await fetch(base + encodeURIComponent(url) + \"&key=\" + apiKey);\n\t\tconst data = await response.json();\n\n\t\tif (data.results && data.results[0]) {\n\t\t\tconst loc = data.results[0].geometry.location;\n\t\t\tresultados.push({\n\t\t\t\tjson: {\n\t\t\t\t\turl_original: url,\n\t\t\t\t\tlat: loc.lat,\n\t\t\t\t\tlng: loc.lng\n\t\t\t\t}\n\t\t\t});\n\t\t} else {\n\t\t\tresultados.push({\n\t\t\t\tjson: {\n\t\t\t\t\turl_original: url,\n\t\t\t\t\terror: \"No se encontraron coordenadas\"\n\t\t\t\t}\n\t\t\t});\n\t\t}\n\t} catch (err) {\n\t\tresultados.push({\n\t\t\tjson: {\n\t\t\t\turl_original: url,\n\t\t\t\terror: err.message\n\t\t\t}\n\t\t});\n\t}\n}\n\nreturn resultados;\n/**\n\n**Configuración recomendada**\n- Nodo: **Code (JavaScript)**  \n- Modo: `Run Once for All Items`  \n- Entrada: nodo `Aggregate` con campo `\"UBICACIÓN GOOGLE MAPS\"`  \n- Salida: array con `{ url_original, lat, lng }`  \n\n**Mitigaciones**\n- Si Google limita peticiones, usa un nodo `Wait` de 200 ms entre iteraciones.  \n- Si URLs son acortadas (maps.app.goo.gl), puedes expandirlas antes con un nodo `HTTP Request` (`GET` sin seguir redirecciones).\n\n * \n */"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        48,
+        240
+      ],
+      "id": "cdbff159-8a1d-4257-b3d7-2305f9e0f7bc",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "path": "d01a9fe0-f576-4bbc-8d44-80ecf7dc6c91"
+      },
+      "type": "@n8n/n8n-nodes-langchain.mcpTrigger",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        -16
+      ],
+      "id": "c5a8fbd6-6a72-45eb-84a6-a4daedb20b30",
+      "name": "MCP Server Trigger",
+      "webhookId": "d01a9fe0-f576-4bbc-8d44-80ecf7dc6c91"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "maps-converter",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "6a0f877f-feee-4389-b886-5c1089ba178c",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -832,
+        1104
+      ],
+      "webhookId": "3d625fe4-96f9-4db8-aeb9-f4792c3a39a7"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "id-1",
+              "name": "rateLimitMs",
+              "value": 250,
+              "type": "number"
+            },
+            {
+              "id": "id-2",
+              "name": "googleMapsApiKey",
+              "value": "AIzaSyBpq-8gHezszMmwTIySDLhd8VvnjHpjbWo",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "62f3eb06-f44e-473a-a8a5-496188ea2b77",
+      "name": "Workflow Configuration",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -608,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "a36c7621-5ad5-4638-88e8-bc15a92b8c6e",
+      "name": "Return Results",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        512,
+        1008
+      ]
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1056,
+        912
+      ],
+      "id": "8d4d5688-0914-4bad-88a6-396fd3769ea5",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "9c4997e5-b71e-472e-92a7-e47aa38579a9",
+              "name": "url",
+              "value": "https://maps.app.goo.gl/8rUFVYBHf9Fb7SNM6",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -832,
+        912
+      ],
+      "id": "efaad1fa-ce14-46d3-9243-b9430394ec64",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const url = $input.item.json.url;\n\nasync function resolveUrl(shortUrl) {\n  try {\n    const response = await fetch(shortUrl, {\n      method: 'HEAD',\n      redirect: 'follow'\n    });\n    return response.url;\n  } catch (error) {\n    return shortUrl;\n  }\n}\n\nlet resolvedUrl = url;\nif (url.includes('goo.gl') || url.includes('maps.app.goo.gl')) {\n  resolvedUrl = await resolveUrl(url);\n}\n\nconst placeIdMatch = resolvedUrl.match(/maps\\/place\\/[^\\/]+\\/data=.*!3d(-?[\\d.]+)!4d(-?[\\d.]+)/);\nconst coordsMatch = resolvedUrl.match(/@(-?[\\d.]+),(-?[\\d.]+)/);\nconst qMatch = resolvedUrl.match(/[?&]q=(-?[\\d.]+),(-?[\\d.]+)/);\n\nlet latitude = null;\nlet longitude = null;\n\nif (coordsMatch) {\n  latitude = parseFloat(coordsMatch[1]);\n  longitude = parseFloat(coordsMatch[2]);\n} else if (qMatch) {\n  latitude = parseFloat(qMatch[1]);\n  longitude = parseFloat(qMatch[2]);\n} else if (placeIdMatch) {\n  latitude = parseFloat(placeIdMatch[1]);\n  longitude = parseFloat(placeIdMatch[2]);\n}\n\nreturn {\n  originalUrl: url,\n  resolvedUrl: resolvedUrl,\n  latitude: latitude,\n  longitude: longitude\n};"
+      },
+      "id": "0db3a80e-2a82-458a-899c-fd7e8588af34",
+      "name": "Loop Through URLs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -384,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const item = $input.item.json; let formattedUrl = ''; if (item.latitude !== null && item.longitude !== null) { formattedUrl = `https://maps.google.com/?q=${item.latitude},${item.longitude}`; } return { originalUrl: item.originalUrl, latitude: item.latitude, longitude: item.longitude, formattedUrl: formattedUrl };"
+      },
+      "id": "f0ca2a7e-e51f-4c52-8966-8cda36525e6b",
+      "name": "Extract Coordinates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "await new Promise(resolve => setTimeout(resolve, 250));\nreturn $input.item.json;"
+      },
+      "id": "6939e898-1462-4860-99a1-bcd308a1bcf0",
+      "name": "Wait 250ms",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        64,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "id-1",
+              "name": "originalUrl",
+              "value": "={{ $json.originalUrl }}",
+              "type": "string"
+            },
+            {
+              "id": "id-2",
+              "name": "latitude",
+              "value": "={{ $json.latitude }}",
+              "type": "string"
+            },
+            {
+              "id": "id-3",
+              "name": "longitude",
+              "value": "={{ $json.longitude }}",
+              "type": "string"
+            },
+            {
+              "id": "id-4",
+              "name": "formattedUrl",
+              "value": "={{ $json.formattedUrl }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "916cefca-e297-45ed-b7dc-21592009d420",
+      "name": "Format Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        288,
+        1008
+      ]
+    }
+  ],
+  "connections": {
+    "Agencias Hyundai": {
+      "main": [
+        [
+          {
+            "node": "Hay URL Maps?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hay URL Maps?": {
+      "main": [
+        [
+          {
+            "node": "Distancia a concecionario1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields3": {
+      "main": [
+        [
+          {
+            "node": "Hay URL Maps?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agencias Hyundai1": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields4": {
+      "main": [
+        [
+          {
+            "node": "Hay URL Maps?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields3",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Agencias Hyundai1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Edit Fields4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Hay URL Maps?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Workflow Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow Configuration": {
+      "main": [
+        [
+          {
+            "node": "Loop Through URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Workflow Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Through URLs": {
+      "main": [
+        [
+          {
+            "node": "Extract Coordinates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Coordinates": {
+      "main": [
+        [
+          {
+            "node": "Wait 250ms",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 250ms": {
+      "main": [
+        [
+          {
+            "node": "Format Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Output": {
+      "main": [
+        [
+          {
+            "node": "Return Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "0e22b75e-da37-5ee7-93c6-50adfc2ad0b4",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "isArchived": false
+}
