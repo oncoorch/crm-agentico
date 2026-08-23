@@ -68,6 +68,8 @@ La activacion de cada destino se controla por variables de entorno.
 
 Este repo evita automatizar desbloqueos, bypasses de licencia o reemplazos de marca no verificables. Si se usa una imagen custom de Chatwoot entregada por el proveedor o construida bajo licencia, configurala con `CHATWOOT_IMAGE`.
 
+Evolution API usa por defecto `EVOLUTION_IMAGE=evoapicloud/evolution-api:v2.2.3`, reemplazando la ruta historica `atendai/evolution-api:v2.2.3`.
+
 ## Validacion local
 
 ```bash

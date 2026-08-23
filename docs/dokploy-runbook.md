@@ -58,6 +58,12 @@ Si se usa imagen custom autorizada:
 CHATWOOT_IMAGE=omnicem/chatwoot:reports-c0b1b1c3e
 ```
 
+Evolution API:
+
+```text
+EVOLUTION_IMAGE=evoapicloud/evolution-api:v2.2.3
+```
+
 Si el registry es privado, configurar credenciales del registry en Dokploy.
 
 ## 4. Dominios en Dokploy
