@@ -46,6 +46,8 @@ async def receive_lead(
 
     results: dict[str, Any] = {}
     async with httpx.AsyncClient(timeout=20) as client:
+        if chatwoot_enabled():
+            results["chatwoot"] = await create_chatwoot_contact(client, lead)
         if env("N8N_LEAD_WEBHOOK_URL"):
             results["n8n"] = await post_json(client, env("N8N_LEAD_WEBHOOK_URL"), lead)
         if env("SUPABASE_URL") and env("SUPABASE_SERVICE_ROLE_KEY"):
@@ -60,6 +62,36 @@ async def receive_lead(
             results["supabase"] = await post_json(client, url, lead, headers=headers)
 
     return {"ok": True, "routes": results}
+
+
+def chatwoot_enabled() -> bool:
+    return all(
+        [
+            env("CHATWOOT_BASE_URL"),
+            env("CHATWOOT_API_ACCESS_TOKEN"),
+            env("CHATWOOT_ACCOUNT_ID"),
+        ]
+    )
+
+
+async def create_chatwoot_contact(client: httpx.AsyncClient, lead: dict[str, Any]) -> dict[str, Any]:
+    account_id = env("CHATWOOT_ACCOUNT_ID", "1")
+    url = f"{env('CHATWOOT_BASE_URL').rstrip('/')}/api/v1/accounts/{account_id}/contacts"
+    payload = {
+        "name": lead.get("name") or lead.get("email") or lead.get("phone") or "Lead sin nombre",
+        "email": lead.get("email"),
+        "phone_number": lead.get("phone"),
+        "identifier": lead.get("email") or lead.get("phone"),
+        "custom_attributes": {
+            "source": lead.get("source"),
+            "message": lead.get("message"),
+            "client_ip": lead.get("client_ip"),
+            **(lead.get("metadata") or {}),
+        },
+    }
+    payload = {key: value for key, value in payload.items() if value}
+    headers = {"api_access_token": env("CHATWOOT_API_ACCESS_TOKEN")}
+    return await post_json(client, url, payload, headers=headers)
 
 
 async def post_json(

@@ -64,6 +64,12 @@ El bridge normaliza el payload y lo puede reenviar a:
 
 La activacion de cada destino se controla por variables de entorno.
 
+- Chatwoot: configurar `CHATWOOT_BASE_URL`, `CHATWOOT_ACCOUNT_ID` y `CHATWOOT_API_ACCESS_TOKEN`.
+- n8n: configurar `N8N_LEAD_WEBHOOK_URL`.
+- Supabase: configurar `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y `SUPABASE_LEADS_TABLE`.
+
+Todas las llamadas al bridge deben enviar el header `x-crm-secret` con el valor de `MCP_SHARED_SECRET`.
+
 ## Politica de licencia y marca
 
 Este repo evita automatizar desbloqueos, bypasses de licencia o reemplazos de marca no verificables. Si se usa una imagen custom de Chatwoot entregada por el proveedor o construida bajo licencia, configurala con `CHATWOOT_IMAGE`.
