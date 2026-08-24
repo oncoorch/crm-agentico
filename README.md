@@ -111,7 +111,7 @@ Los respaldos y secretos reales deben quedar bajo `private/`, que esta excluida 
 
 Este repo evita automatizar desbloqueos, bypasses de licencia o reemplazos de marca no verificables. Si se usa una imagen custom de Chatwoot entregada por el proveedor o construida bajo licencia, configurala como `CHATWOOT_IMAGE`; el runtime final se construye como `CHATWOOT_RUNTIME_IMAGE`.
 
-Evolution API usa por defecto `EVOLUTION_IMAGE=evoapicloud/evolution-api:v2.2.3`, reemplazando la ruta historica `atendai/evolution-api:v2.2.3`.
+Evolution API usa por defecto `EVOLUTION_IMAGE=evoapicloud/evolution-api:v2.3.7`, con `WEBSOCKET_ENABLED=true` y `CONFIG_SESSION_PHONE_VERSION` fijado para evitar bucles de conexion sin QR en versiones 2.2.x.
 
 ## Validacion local
 

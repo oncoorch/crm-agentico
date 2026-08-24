@@ -251,7 +251,7 @@ services:
     networks: [internal]
 
   evolution:
-    image: ${EVOLUTION_IMAGE:-evoapicloud/evolution-api:v2.2.3}
+    image: ${EVOLUTION_IMAGE:-evoapicloud/evolution-api:v2.3.7}
     restart: unless-stopped
     depends_on:
       evolution_postgres:
@@ -264,6 +264,8 @@ services:
       AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:?Set EVOLUTION_API_KEY}
       SERVER_TYPE: http
       SERVER_URL: ${EVOLUTION_PUBLIC_URL:?Set EVOLUTION_PUBLIC_URL}
+      WEBSOCKET_ENABLED: ${EVOLUTION_WEBSOCKET_ENABLED:-true}
+      CONFIG_SESSION_PHONE_VERSION: ${EVOLUTION_PHONE_VERSION:-2.3000.1023204200}
       LOG_LEVEL: INFO
       DATABASE_ENABLED: "true"
       DATABASE_PROVIDER: postgresql
