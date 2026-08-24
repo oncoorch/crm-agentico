@@ -64,6 +64,24 @@ export async function ensureAuditTable() {
   `);
 }
 
+export async function ensureAgentPromptsTable() {
+  await query(`
+    create table if not exists public.agent_prompts (
+      id bigserial primary key,
+      key text not null unique,
+      value text not null,
+      workflow_id text,
+      workflow_name text,
+      node_name text,
+      redis_db integer not null default 1,
+      description text,
+      active boolean not null default true,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    );
+  `);
+}
+
 export function sha256(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
 }

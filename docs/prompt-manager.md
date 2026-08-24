@@ -38,19 +38,31 @@ El comando imprime una cadena base64. Esa cadena completa se pega en Dokploy com
 ## Uso
 
 1. Iniciar sesión.
-2. Elegir `Workflow Name`.
-3. Elegir `Node Name`.
-4. Definir `Parameter Key`, por ejemplo `waba_system_promt`.
-5. Usar `Cargar` para traer el prompt desde Redis/Postgres.
+2. Elegir un `Prompt registrado`.
+3. Confirmar `Workflow Name`, `Node Name` y `Redis DB`.
+4. Usar `Cargar` para traer el prompt desde el registro estable.
 6. Editar el Markdown en la columna izquierda.
 7. Revisar el preview enriquecido en la columna derecha.
 8. Usar `Guardar Cambios`.
 
 Cada guardado:
 
-- Actualiza Redis en la DB configurada, por defecto `1`.
-- Actualiza `public.parameters` en `n8n_postgres`.
+- Actualiza `public.agent_prompts` como fuente estable.
+- Sincroniza Redis en la DB configurada, por defecto `1`, solo como cache runtime.
+- Actualiza `public.parameters` en `n8n_postgres` por compatibilidad con workflows existentes.
 - Registra auditoría en `public.prompt_manager_audit`.
+
+## Registro estable
+
+Los prompts editables viven en `n8n_postgres.public.agent_prompts`. Esta tabla evita perder prompts cuando se limpia Redis para borrar cache de conversaciones. El workflow `KomodoBot` usa actualmente:
+
+```text
+key: waba_system_promt
+workflow_id: 61fvbcCLHObsy3Tm
+workflow_name: KomodoBot
+node_name: System Promt
+redis_db: 1
+```
 
 ## Auditoría
 

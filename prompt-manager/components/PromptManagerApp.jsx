@@ -14,6 +14,7 @@ export default function PromptManagerApp() {
   const [user, setUser] = useState(null);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [workflows, setWorkflows] = useState([]);
+  const [promptEntries, setPromptEntries] = useState([]);
   const [workflowId, setWorkflowId] = useState("");
   const [nodeName, setNodeName] = useState("");
   const [parameterKey, setParameterKey] = useState("waba_system_promt");
@@ -38,6 +39,7 @@ export default function PromptManagerApp() {
         setUser(data.user);
         if (data.user) {
           loadWorkflows();
+          loadPromptEntries();
           loadAudit();
         }
       })
@@ -57,6 +59,26 @@ export default function PromptManagerApp() {
     }
   }
 
+  async function loadPromptEntries() {
+    const response = await fetch("/api/prompts");
+    if (!response.ok) return;
+    const data = await response.json();
+    const entries = data.prompts || [];
+    setPromptEntries(entries);
+    const komodoPrompt = entries.find((entry) => entry.key === "waba_system_promt") || entries[0];
+    if (komodoPrompt) {
+      applyPromptEntry(komodoPrompt);
+      loadPrompt(komodoPrompt.key, komodoPrompt.redis_db || 1);
+    }
+  }
+
+  function applyPromptEntry(entry) {
+    setParameterKey(entry.key || "");
+    setRedisDb(entry.redis_db || 1);
+    setWorkflowId(entry.workflow_id || "");
+    setNodeName(entry.node_name || "");
+  }
+
   async function loadAudit() {
     const response = await fetch("/api/audit");
     if (!response.ok) return;
@@ -64,20 +86,23 @@ export default function PromptManagerApp() {
     setAudit(data.entries || []);
   }
 
-  async function loadPrompt() {
-    if (!parameterKey.trim()) {
+  async function loadPrompt(nextKey = parameterKey, nextRedisDb = redisDb) {
+    if (!String(nextKey || "").trim()) {
       toast.error("Falta el Parameter Key");
       return;
     }
     setLoadingPrompt(true);
     try {
-      const params = new URLSearchParams({ parameterKey, redisDb: String(redisDb) });
+      const params = new URLSearchParams({ parameterKey: nextKey, redisDb: String(nextRedisDb) });
       const response = await fetch(`/api/prompts?${params}`);
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "No se pudo cargar");
+      if (data.registeredPrompt) {
+        applyPromptEntry(data.registeredPrompt);
+      }
       setPrompt(data.prompt || "");
       setSavedPrompt(data.prompt || "");
-      toast.success(data.sources?.redis?.found ? "Prompt cargado desde Redis" : "Prompt cargado");
+      toast.success(data.sources?.postgres?.found ? "Prompt cargado desde registro estable" : "Prompt cargado");
     } catch (error) {
       toast.error(error.message);
     } finally {
@@ -108,6 +133,7 @@ export default function PromptManagerApp() {
       if (!response.ok) throw new Error(data.error || "No se pudo guardar");
       setSavedPrompt(prompt);
       toast.success("Prompt guardado correctamente");
+      loadPromptEntries();
       loadAudit();
     } catch (error) {
       toast.error(error.message);
@@ -136,6 +162,7 @@ export default function PromptManagerApp() {
         <LoginScreen onLogin={(nextUser) => {
           setUser(nextUser);
           loadWorkflows();
+          loadPromptEntries();
           loadAudit();
         }} />
       </>
@@ -173,7 +200,25 @@ export default function PromptManagerApp() {
         </div>
       </header>
 
-      <section className="grid shrink-0 grid-cols-[1.1fr_1fr_1fr_120px_120px] gap-3 border-b border-slate-800 bg-slate-900/70 px-5 py-3">
+      <section className="grid shrink-0 grid-cols-[1.2fr_1fr_1fr_120px_120px] gap-3 border-b border-slate-800 bg-slate-900/70 px-5 py-3">
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-slate-400">Prompt registrado</span>
+          <select
+            value={parameterKey}
+            onChange={(event) => {
+              const entry = promptEntries.find((item) => item.key === event.target.value);
+              if (entry) applyPromptEntry(entry);
+            }}
+            className="h-10 w-full rounded-md border border-slate-700 bg-slate-950 px-3 text-sm outline-none focus:border-cyanbrand"
+          >
+            <option value="">Seleccionar prompt</option>
+            {promptEntries.map((entry) => (
+              <option key={entry.key} value={entry.key}>
+                {(entry.workflow_name || "Workflow")} / {(entry.node_name || "Nodo")} / {entry.key}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="block">
           <span className="mb-1 block text-xs font-medium text-slate-400">Workflow Name</span>
           <select value={workflowId} onChange={(event) => { setWorkflowId(event.target.value); setNodeName(""); }} className="h-10 w-full rounded-md border border-slate-700 bg-slate-950 px-3 text-sm outline-none focus:border-cyanbrand">
@@ -193,14 +238,10 @@ export default function PromptManagerApp() {
           </select>
         </label>
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-400">Parameter Key</span>
-          <input value={parameterKey} onChange={(event) => setParameterKey(event.target.value)} className="h-10 w-full rounded-md border border-slate-700 bg-slate-950 px-3 text-sm outline-none focus:border-cyanbrand" placeholder="waba_system_promt" />
-        </label>
-        <label className="block">
           <span className="mb-1 block text-xs font-medium text-slate-400">Redis DB</span>
           <input type="number" min="0" max="15" value={redisDb} onChange={(event) => setRedisDb(event.target.value)} className="h-10 w-full rounded-md border border-slate-700 bg-slate-950 px-3 text-sm outline-none focus:border-cyanbrand" />
         </label>
-        <button onClick={loadPrompt} disabled={loadingPrompt} className="mt-5 flex h-10 items-center justify-center gap-2 rounded-md border border-cyanbrand/70 bg-cyanbrand/10 text-sm font-semibold text-cyan-100 transition hover:bg-cyanbrand/20 disabled:opacity-60">
+        <button onClick={() => loadPrompt()} disabled={loadingPrompt} className="mt-5 flex h-10 items-center justify-center gap-2 rounded-md border border-cyanbrand/70 bg-cyanbrand/10 text-sm font-semibold text-cyan-100 transition hover:bg-cyanbrand/20 disabled:opacity-60">
           {loadingPrompt ? <Loader2 className="animate-spin" size={16} /> : <Search size={16} />}
           Cargar
         </button>

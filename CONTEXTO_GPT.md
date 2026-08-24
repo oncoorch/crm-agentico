@@ -52,9 +52,9 @@ Este archivo permite continuar el trabajo en otra conversacion.
 - Servicio compose: `prompt_manager`, puerto interno `3100`.
 - Dominio sugerido: `prompter.oncoorch.com`.
 - Lee workflows/nodos desde `n8n_postgres.workflow_entity`.
-- Carga/guarda prompts por `parameterKey`, por defecto `waba_system_promt`.
-- Guarda el prompt en Redis `n8n_redis`, DB `PROMPT_MANAGER_REDIS_DB` por defecto `1`.
-- Sincroniza respaldo en `n8n_postgres.public.parameters`.
+- Lista solo prompts registrados en `n8n_postgres.public.agent_prompts`.
+- Prompt activo de KomodoBot: `waba_system_promt`, workflow `61fvbcCLHObsy3Tm`, nodo `System Promt`, Redis DB `1`.
+- Guarda el prompt estable en `agent_prompts`, sincroniza Redis `n8n_redis` como cache runtime y mantiene `public.parameters` por compatibilidad con el workflow.
 - Registra auditoria en `n8n_postgres.public.prompt_manager_audit`.
 - Usuarios por variable `PROMPT_MANAGER_USERS_B64`, generada con `prompt-manager/scripts/create-users.mjs`.
 
