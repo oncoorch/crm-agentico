@@ -36,6 +36,9 @@ Este archivo permite continuar el trabajo en otra conversacion.
 - `scripts/n8n_seed_resolve_project.js`: detecta automaticamente el proyecto Personal de n8n.
 - `scripts/n8n_seed_assign_folders.js`: crea/asigna carpetas por VPS.
 - `scripts/build_n8n_seed_credentials_bundle.py`: genera localmente `private/n8n-seed/N8N_SEED_CREDENTIALS_TGZ_B64.txt`.
+- `scripts/apply_nicop_chatwoot_controls.rb`: replica etiquetas de control de 1001T y el atributo `agent_status` en Chatwoot NICOP.
+- `scripts/inspect_chatwoot_structure.rb`: inspector Rails para leer estructura de Chatwoot sin imprimir tokens largos.
+- `host-scripts/chatwoot-htop.sh`, `host-scripts/chatwoot-app-logs.sh`, `host-scripts/chatwoot-postgres-logs.sh`: wrappers instalables en `/opt`.
 - `prompt-manager/`: aplicacion Next.js para editar prompts desde UI con login, preview Markdown y auditoria.
 
 ## Manuales
@@ -86,7 +89,8 @@ Este archivo permite continuar el trabajo en otra conversacion.
   - `https://automation-crm.oncoorch.com/webhook/wabarenew`
   - Eventos: `MESSAGES_UPSERT`, `MESSAGES_UPDATE`, `SEND_MESSAGE`.
   - `webhookBase64=true` para permitir audio e imagenes.
-- Etiquetas recomendadas para n8n/Chatwoot: `bot_on`, `bot_off`, `handover_requested`, `human_active`.
+- Etiquetas activas replicadas desde 1001T para control n8n/Chatwoot: `agente_off`, `campania_mantenimiento`, `camp_test`, `cotizado`, `inbound`, `leo_desactivado`, `vendida`.
+- Atributo de conversacion activo: `agent_status` con valores `ON` y `OFF`.
 - No guardar tokens reales en Git. El script obtiene la API key desde el contenedor Evolution y el token de Chatwoot desde Rails.
 - Scripts de branding/config sync son parametrizables y no modifican plan/licencia.
 

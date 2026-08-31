@@ -81,6 +81,18 @@ Wrapper corto:
 /opt/crm-agentico/bin/crm-komodo-branding-apply
 ```
 
+## Wrappers rapidos en `/opt`
+
+En NICOP quedaron instalados estos wrappers para operacion diaria:
+
+```bash
+/opt/chatwoot-htop.sh
+/opt/chatwoot-app-logs.sh
+/opt/chatwoot-postgres-logs.sh
+```
+
+Los archivos fuente estan en `host-scripts/` y pueden copiarse a nuevos VPS.
+
 ## `chatwoot_superadmin_ui_patch.sh`
 
 Parche posdeploy para la interfaz Rails de SuperAdmin. Normalmente se ejecuta
