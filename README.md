@@ -82,6 +82,7 @@ Este repositorio incluye scripts para operar VPS nuevos con la misma base madura
 - `scripts/install_maintenance_cron.sh`: instala las tareas periodicas en el servidor.
 - `scripts/n8n_export_backup.sh`: exporta workflows y credenciales de n8n a `private/n8n-backups`.
 - `scripts/n8n_seed_import.sh`: importa automaticamente workflows y credenciales semilla en n8n durante el despliegue.
+- `scripts/evolution_configure_whatsapp.sh`: configura las rutas WhatsApp de Evolution: `NICOP USA` por Chatwoot y `Oncoorch ECU 593` por webhook n8n.
 
 Para instalar las tareas periodicas en un VPS ya desplegado:
 

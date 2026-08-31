@@ -80,6 +80,7 @@ crm.oncoorch.com             -> chatwoot      port 3000
 automation-crm.oncoorch.com  -> n8n           port 5678
 evolution.oncoorch.com       -> evolution     port 8080
 crm-agent.oncoorch.com       -> mcp_agentico  port 8000
+prompter.oncoorch.com        -> prompt_manager port 3100
 ```
 
 No publicar:
@@ -131,6 +132,48 @@ curl -sS -X POST https://crm-agent.oncoorch.com/leads \
 ### n8n
 
 Configurar `N8N_LEAD_WEBHOOK_URL` con un webhook productivo de n8n para recibir leads desde `mcp_agentico`.
+
+### WhatsApp con Evolution API
+
+Este repositorio incluye un script idempotente para dejar listas las dos rutas
+de WhatsApp usadas en NICOP:
+
+```bash
+scripts/evolution_configure_whatsapp.sh
+```
+
+Configura:
+
+- `NICOP USA` -> integracion nativa Evolution/Chatwoot -> inbox `NICOP USA WhatsApp` -> bot `Koko`.
+- `Oncoorch ECU 593` -> webhook directo a n8n `https://automation-crm.oncoorch.com/webhook/wabarenew`.
+
+Variables opcionales:
+
+```text
+EVOLUTION_CONTAINER=crm-agentico-443xo5-evolution-1
+CHATWOOT_CONTAINER=crm-agentico-443xo5-chatwoot-1
+CHATWOOT_ACCOUNT_ID=1
+CHATWOOT_USER_EMAIL=angel.yaguana@oncoorch.com
+NICOP_USA_INSTANCE=NICOP USA
+NICOP_USA_INBOX_NAME=NICOP USA WhatsApp
+NICOP_USA_BOT_NAME=Koko
+HENDEL_INSTANCE=Oncoorch ECU 593
+HENDEL_N8N_WEBHOOK_URL=https://automation-crm.oncoorch.com/webhook/wabarenew
+```
+
+No se guardan tokens en Git. El script toma `AUTHENTICATION_API_KEY` desde el
+contenedor de Evolution y el token de Chatwoot desde el usuario configurado.
+
+Para la logica de bot/humano, usar etiquetas de Chatwoot en n8n:
+
+- `bot_on`: el agente puede responder.
+- `bot_off`: la conversacion queda en manos humanas.
+- `handover_requested`: el agente pidio derivacion.
+- `human_active`: un asesor esta interviniendo.
+
+Los workflows deben ignorar conversaciones con `bot_off` o `human_active` y
+pueden reactivar el bot cuando el asesor quite esas etiquetas o cierre la
+conversacion.
 
 ### Supabase
 

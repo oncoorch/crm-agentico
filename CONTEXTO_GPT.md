@@ -75,6 +75,19 @@ Este archivo permite continuar el trabajo en otra conversacion.
 
 - No guardar `.env` reales ni backups privados en GitHub.
 - Usar `CHATWOOT_IMAGE` para imagen base autorizada/custom. El compose construye `CHATWOOT_RUNTIME_IMAGE` con branding y login parcheado.
+
+## WhatsApp / Evolution API
+
+- `NICOP USA` (`+1`, instancia Evolution `NICOP USA`) se configura por la integracion nativa Evolution -> Chatwoot.
+  - Inbox esperado en Chatwoot: `NICOP USA WhatsApp`.
+  - Bot asociado: `Koko`, con webhook `https://automation-crm.oncoorch.com/webhook/wabarenew`.
+  - El script reproducible es `scripts/evolution_configure_whatsapp.sh`.
+- `Oncoorch ECU 593` / Hendel se configura por webhook directo de Evolution a n8n:
+  - `https://automation-crm.oncoorch.com/webhook/wabarenew`
+  - Eventos: `MESSAGES_UPSERT`, `MESSAGES_UPDATE`, `SEND_MESSAGE`.
+  - `webhookBase64=true` para permitir audio e imagenes.
+- Etiquetas recomendadas para n8n/Chatwoot: `bot_on`, `bot_off`, `handover_requested`, `human_active`.
+- No guardar tokens reales en Git. El script obtiene la API key desde el contenedor Evolution y el token de Chatwoot desde Rails.
 - Scripts de branding/config sync son parametrizables y no modifican plan/licencia.
 
 ## Siguiente paso natural
